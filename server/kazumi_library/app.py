@@ -165,8 +165,12 @@ def create_app(settings: Settings) -> FastAPI:
         return HTMLResponse(JOIN_PAGE, headers=JOIN_HEADERS)
 
     @app.get("/api/config", dependencies=view)
-    def config() -> dict[str, str]:
-        return {"syncplay": settings.syncplay_endpoint, "room": settings.syncplay_room}
+    def config() -> dict[str, Any]:
+        return {
+            "syncplay": settings.syncplay_endpoint,
+            "syncplayTls": settings.syncplay_tls,
+            "room": settings.syncplay_room,
+        }
 
     @app.get("/api/episodes", dependencies=view)
     def list_episodes() -> dict[str, Any]:

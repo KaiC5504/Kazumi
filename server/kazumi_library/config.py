@@ -33,6 +33,9 @@ class Settings:
     admin_key: str
     syncplay_endpoint: str = ""
     syncplay_room: str = ""
+    # Only set once the Syncplay server has a certificate; clients that ask
+    # for TLS from a plain server can't connect at all.
+    syncplay_tls: bool = False
     clock: Callable[[], datetime] = field(default=utc_now, compare=False)
     # None disables the background loop; tests drive housekeeping directly.
     housekeeping_interval: float | None = 3600.0
@@ -46,6 +49,7 @@ class Settings:
             admin_key=env.get("KAZUMI_ADMIN_KEY", "").strip(),
             syncplay_endpoint=env.get("KAZUMI_SYNCPLAY_ENDPOINT", "").strip(),
             syncplay_room=env.get("KAZUMI_SYNCPLAY_ROOM", "").strip(),
+            syncplay_tls=env.get("KAZUMI_SYNCPLAY_TLS", "").strip() == "1",
         )
 
     def validate(self) -> None:

@@ -87,9 +87,14 @@ class LibraryRoomState {
 }
 
 class LibraryConfig {
-  const LibraryConfig({required this.syncPlayEndPoint, required this.room});
+  const LibraryConfig({
+    required this.syncPlayEndPoint,
+    required this.syncPlayTls,
+    required this.room,
+  });
 
   final String syncPlayEndPoint;
+  final bool syncPlayTls;
   final String room;
 }
 
@@ -139,6 +144,7 @@ class LibraryApi {
     final json = await _json('GET', '/api/config');
     return LibraryConfig(
       syncPlayEndPoint: json['syncplay'] as String? ?? '',
+      syncPlayTls: json['syncplayTls'] as bool? ?? false,
       room: json['room'] as String? ?? '',
     );
   }

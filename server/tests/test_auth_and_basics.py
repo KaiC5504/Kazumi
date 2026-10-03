@@ -21,7 +21,11 @@ def test_missing_token_is_401_with_empty_body(client):
 
 
 def test_view_key_via_header_and_query(client):
-    assert client.get("/api/config", headers=VIEW).json() == {"syncplay": "kazumi.example.com:8999", "room": "sofa"}
+    assert client.get("/api/config", headers=VIEW).json() == {
+        "syncplay": "kazumi.example.com:8999",
+        "syncplayTls": False,
+        "room": "sofa",
+    }
     assert client.get(f"/api/config?token={VIEW_KEY}").status_code == 200
 
 

@@ -143,21 +143,11 @@ class LibraryController implements OfflinePlaybackHooks {
         invite.server,
       );
       await GStorage.putSetting<String>(SettingsKeys.libraryKey, invite.key);
-      await GStorage.putSetting<String>(SettingsKeys.libraryRoom, config.room);
       await GStorage.putSetting<String>(
         SettingsKeys.libraryDisplayName,
         name.trim(),
       );
-      if (config.syncPlayEndPoint.isNotEmpty) {
-        await GStorage.putSetting<String>(
-          SettingsKeys.librarySyncPlayEndPoint,
-          config.syncPlayEndPoint,
-        );
-        await GStorage.putSetting<String>(
-          SettingsKeys.syncPlayEndPoint,
-          config.syncPlayEndPoint,
-        );
-      }
+      await _applyConfig(config);
       runInAction(() {
         pendingInvite.value = null;
         configVersion.value++;
@@ -167,6 +157,30 @@ class LibraryController implements OfflinePlaybackHooks {
       return e.message;
     } catch (e) {
       return '$e';
+    }
+  }
+
+  /// [SettingsKeys.librarySyncPlayEndPoint] is only set while the server
+  /// offers TLS, because the player requests TLS from exactly that endpoint.
+  Future<void> _applyConfig(LibraryConfig config) async {
+    await GStorage.putSetting<String>(SettingsKeys.libraryRoom, config.room);
+    if (config.syncPlayEndPoint.isEmpty) return;
+    await GStorage.putSetting<String>(
+      SettingsKeys.syncPlayEndPoint,
+      config.syncPlayEndPoint,
+    );
+    await GStorage.putSetting<String>(
+      SettingsKeys.librarySyncPlayEndPoint,
+      config.syncPlayTls ? config.syncPlayEndPoint : '',
+    );
+  }
+
+  Future<void> _refreshConfig() async {
+    try {
+      final config = await _api?.config();
+      if (config != null) await _applyConfig(config);
+    } catch (e) {
+      KazumiLogger().w('LibraryController: config refresh failed', error: e);
     }
   }
 
@@ -232,6 +246,7 @@ class LibraryController implements OfflinePlaybackHooks {
     _inLobby = true;
     _lastSelectionSeq = null;
     _startHeartbeat();
+    await _refreshConfig();
     await refresh();
     await cleanup();
     await prefetchFromLobby();

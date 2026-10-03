@@ -38,6 +38,7 @@ Then open `http://127.0.0.1:8770/join#k=local-view-key-000000000000`.
 | `KAZUMI_ADMIN_KEY` | Key for uploading and deleting. Must be at least 24 characters and different from the view key. |
 | `KAZUMI_SYNCPLAY_ENDPOINT` | Syncplay `host:port` returned by `/api/config`, e.g. `kazumi.kaic5504.com:8999`. |
 | `KAZUMI_SYNCPLAY_ROOM` | Syncplay room name returned by `/api/config`. |
+| `KAZUMI_SYNCPLAY_TLS` | `1` once the Syncplay server runs with `--tls`; tells clients to request TLS. |
 
 If either key is missing or too short, the service refuses to start. Generate keys with
 `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. Keys belong only in
