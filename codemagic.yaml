@@ -1,0 +1,72 @@
+# Signed iOS build of this fork for TestFlight (internal testing only).
+#
+# Upstream's source is built as-is; everything that makes it ours (bundle id,
+# export compliance) is applied at build time so `git merge upstream/main`
+# never conflicts. The unsigned compile check is upstream's own pr.yaml.
+
+workflows:
+  testflight:
+    name: Kazumi to TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    # No push trigger: start by hand with scripts/codemagic.py start main.
+    integrations:
+      app_store_connect: NextStop ASC key
+    environment:
+      flutter: 3.47.6
+      xcode: latest
+      cocoapods: default
+      # code_signing supplies CERT_KEY_B64. DANDANAPI_APPID / DANDANAPI_KEY
+      # (own dandanplay credentials) go in a kazumi_api group once issued;
+      # add it here then. Without them danmaku search returns nothing.
+      groups:
+        - code_signing
+      vars:
+        BUNDLE_ID: com.kaichuan.kazumi
+    scripts:
+      - name: Make the project ours
+        script: |
+          set -e
+          pbx=ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = com.example.kazumi;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/" "$pbx"
+          # Debug, Release and Profile; fail loudly if upstream restructures.
+          grep -c "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;" "$pbx" | grep -qx 3
+
+          plist=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$plist" || true
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist"
+      - name: Native build tools
+        # ech_http compiles a C++ bridge through a build hook.
+        script: brew install cmake ninja || true
+      - name: Get packages
+        script: flutter pub get
+      - name: Create signing files
+        script: |
+          set -e
+          keychain initialize
+          # Carried base64 because a PEM pasted into a web form loses its line breaks.
+          printf '%s' "$CERT_KEY_B64" | openssl base64 -d -A > "$HOME/cert_key.pem"
+          # --create registers the bundle id and a profile if they do not exist yet.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE --create \
+            --certificate-key "@file:$HOME/cert_key.pem"
+          keychain add-certificates
+      - name: Apply signing settings
+        script: |
+          xcode-project use-profiles \
+            --project ios/Runner.xcodeproj \
+            --code-signing-setup-verbose-logging
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID:-}" \
+            --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY:-}"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
