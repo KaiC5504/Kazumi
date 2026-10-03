@@ -272,11 +272,17 @@ abstract class _PlayerPlaybackController with Store {
     required bool Function() canInstall,
     int offset = 0,
     VideoSourceFormat videoSourceFormat = VideoSourceFormat.auto,
+    bool preUpscaled = false,
   }) async {
     startOffset = offset;
-    superResolutionMode = SuperResolutionMode.fromStorageValue(
-      GStorage.getSetting(SettingsKeys.defaultSuperResolutionMode),
-    );
+    superResolutionMode = preUpscaled
+        ? SuperResolutionMode.off
+        : SuperResolutionMode.fromStorageValue(
+            GStorage.getSetting(SettingsKeys.defaultSuperResolutionMode),
+          );
+    if (preUpscaled) {
+      KazumiDialog.showToast(message: '已是超分版本，已自动关闭实时超分');
+    }
     hAenable = GStorage.getSetting(SettingsKeys.hAenable);
     androidEnableOpenSLES =
         GStorage.getSetting(SettingsKeys.androidEnableOpenSLES);

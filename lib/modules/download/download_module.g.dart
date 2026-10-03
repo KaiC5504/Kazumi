@@ -82,13 +82,16 @@ class DownloadEpisodeAdapter extends TypeAdapter<DownloadEpisode> {
       fields[13] == null ? '' : fields[13] as String,
       danmakuData: fields[14] == null ? '' : fields[14] as String,
       danDanBangumiID: fields[15] == null ? 0 : (fields[15] as num).toInt(),
+      preUpscaled: fields[16] == null ? false : fields[16] as bool,
+      upscaledVideoPath: fields[17] == null ? '' : fields[17] as String,
+      upscaleStatus: fields[18] == null ? 0 : (fields[18] as num).toInt(),
     );
   }
 
   @override
   void write(BinaryWriter writer, DownloadEpisode obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.episodeNumber)
       ..writeByte(1)
@@ -120,7 +123,13 @@ class DownloadEpisodeAdapter extends TypeAdapter<DownloadEpisode> {
       ..writeByte(14)
       ..write(obj.danmakuData)
       ..writeByte(15)
-      ..write(obj.danDanBangumiID);
+      ..write(obj.danDanBangumiID)
+      ..writeByte(16)
+      ..write(obj.preUpscaled)
+      ..writeByte(17)
+      ..write(obj.upscaledVideoPath)
+      ..writeByte(18)
+      ..write(obj.upscaleStatus);
   }
 
   @override

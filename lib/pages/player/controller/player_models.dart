@@ -21,6 +21,9 @@ class PlaybackInitParams {
   final String? coverUrl;
   final String? bangumiName;
 
+  /// The local file was already upscaled on another device, so shaders stay off.
+  final bool preUpscaled;
+
   const PlaybackInitParams({
     required this.videoUrl,
     required this.offset,
@@ -39,6 +42,7 @@ class PlaybackInitParams {
     this.sortNumber,
     this.coverUrl,
     this.bangumiName,
+    this.preUpscaled = false,
   });
 }
 

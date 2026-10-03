@@ -87,6 +87,18 @@ class DownloadEpisode {
   @HiveField(15, defaultValue: 0)
   int danDanBangumiID;
 
+  /// localM3u8Path 指向的视频已经烘焙过超分，播放时不再叠加着色器
+  @HiveField(16, defaultValue: false)
+  bool preUpscaled;
+
+  /// 桌面端烘焙出的超分视频，原始下载保持不变
+  @HiveField(17, defaultValue: '')
+  String upscaledVideoPath;
+
+  /// 见 [UpscaleStatus]
+  @HiveField(18, defaultValue: 0)
+  int upscaleStatus;
+
   DownloadEpisode(
     this.episodeNumber,
     this.episodeName,
@@ -104,6 +116,9 @@ class DownloadEpisode {
     this.episodePageUrl, {
     this.danmakuData = '',
     this.danDanBangumiID = 0,
+    this.preUpscaled = false,
+    this.upscaledVideoPath = '',
+    this.upscaleStatus = 0,
   });
 }
 
@@ -114,4 +129,12 @@ class DownloadStatus {
   static const int completed = 3;
   static const int failed = 4;
   static const int paused = 5;
+}
+
+class UpscaleStatus {
+  static const int none = 0;
+  static const int queued = 1;
+  static const int baking = 2;
+  static const int done = 3;
+  static const int failed = 4;
 }

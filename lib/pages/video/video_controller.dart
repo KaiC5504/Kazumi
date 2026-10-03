@@ -488,11 +488,12 @@ abstract class _VideoPageController with Store implements Disposable {
       return;
     }
 
-    final localPath = _getLocalVideoPath(
+    final downloadedEpisode = downloadRepository.getEpisode(
       bangumiItem.id,
       _offlinePluginName,
       resolvedEpisode.historyEpisodeNumber,
     );
+    final localPath = downloadManager.getLocalVideoPath(downloadedEpisode);
     if (localPath == null) {
       _failLoading('该集数未下载');
       return;
@@ -527,6 +528,7 @@ abstract class _VideoPageController with Store implements Disposable {
       coverUrl: bangumiItem.images['large'],
       bangumiName:
           bangumiItem.nameCn.isNotEmpty ? bangumiItem.nameCn : bangumiItem.name,
+      preUpscaled: downloadedEpisode?.preUpscaled ?? false,
     );
 
     final initialized = await playerController.init(params);
@@ -577,13 +579,6 @@ abstract class _VideoPageController with Store implements Disposable {
 
   void cancelAutomaticDanmakuLoad() {
     _danmakuSessions.cancel();
-  }
-
-  String? _getLocalVideoPath(
-      int bangumiId, String pluginName, int episodeNumber) {
-    final episode =
-        downloadRepository.getEpisode(bangumiId, pluginName, episodeNumber);
-    return downloadManager.getLocalVideoPath(episode);
   }
 
   Future<void> _resolveWithVideoSourceService(
