@@ -1,5 +1,19 @@
 const String libraryInviteScheme = 'kazumi-library';
 
+/// Where invite codes are redeemed. Override per build with
+/// --dart-define=KAZUMI_LIBRARY_SERVER=https://...
+const String defaultLibraryServer = String.fromEnvironment(
+  'KAZUMI_LIBRARY_SERVER',
+  defaultValue: 'https://kazumi.kaic5504.com',
+);
+
+/// Normalizes a typed invite code (e.g. `kz7m 4qpa`) to `KZ7M4QPA`, or null
+/// when it can't be one.
+String? normalizeInviteCode(String text) {
+  final code = text.toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
+  return code.length == 8 ? code : null;
+}
+
 class LibraryInvite {
   const LibraryInvite({required this.server, required this.key});
 

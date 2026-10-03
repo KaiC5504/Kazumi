@@ -144,7 +144,10 @@ class _LibraryPageState extends State<LibraryPage> {
             return _InviteView(controller: controller, invite: invite);
           }
           if (!controller.isConfigured) {
-            return _NotJoinedView(onPaste: _pasteInvite);
+            return _NotJoinedView(
+              controller: controller,
+              onPaste: _pasteInvite,
+            );
           }
           WidgetsBinding.instance.addPostFrameCallback((_) => _syncLobby());
           return _LobbyView(controller: controller);
@@ -299,10 +302,39 @@ class _InviteViewState extends State<_InviteView> {
   }
 }
 
-class _NotJoinedView extends StatelessWidget {
-  const _NotJoinedView({required this.onPaste});
+class _NotJoinedView extends StatefulWidget {
+  const _NotJoinedView({required this.controller, required this.onPaste});
 
+  final LibraryController controller;
   final VoidCallback onPaste;
+
+  @override
+  State<_NotJoinedView> createState() => _NotJoinedViewState();
+}
+
+class _NotJoinedViewState extends State<_NotJoinedView> {
+  final _code = TextEditingController();
+  bool _checking = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
+    final error = await widget.controller.redeemCode(_code.text);
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _error = error;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -315,30 +347,61 @@ class _NotJoinedView extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 420),
           child: _Entrance(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  Icons.favorite_border_rounded,
-                  size: 72,
-                  color: colors.primary,
-                ),
-                const SizedBox(height: 20),
+                const Center(child: _GlowingHeart(size: 72)),
+                const SizedBox(height: 24),
                 Text(
-                  '还没有加入一起看',
-                  style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  '输入邀请码',
+                  textAlign: TextAlign.center,
+                  style: text.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '点开对方发来的邀请链接就能加入。\n如果链接打不开，复制链接后点下面的按钮。',
+                  '对方发给你的 8 位邀请码，例如 KZ7M-4QPA',
                   textAlign: TextAlign.center,
                   style: text.bodyMedium?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 24),
-                FilledButton.tonalIcon(
-                  onPressed: onPaste,
-                  icon: const Icon(Icons.content_paste_rounded),
-                  label: const Text('粘贴邀请链接'),
+                TextField(
+                  controller: _code,
+                  textAlign: TextAlign.center,
+                  textCapitalization: TextCapitalization.characters,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  maxLength: 9,
+                  textInputAction: TextInputAction.go,
+                  onSubmitted: (_) => _submit(),
+                  style: text.headlineSmall?.copyWith(
+                    letterSpacing: 6,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'XXXX-XXXX',
+                    counterText: '',
+                    errorText: _error,
+                    errorMaxLines: 3,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _checking ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(56),
+                    textStyle: text.titleMedium,
+                  ),
+                  child: Text(_checking ? '正在验证…' : '下一步'),
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: widget.onPaste,
+                  icon: const Icon(Icons.link_rounded),
+                  label: const Text('收到的是链接？复制后点这里'),
                 ),
               ],
             ),

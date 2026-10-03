@@ -184,6 +184,21 @@ class LibraryController implements OfflinePlaybackHooks {
     }
   }
 
+  /// Returns an error message, or null once the invite is ready to accept.
+  Future<String?> redeemCode(String text) async {
+    final code = normalizeInviteCode(text);
+    if (code == null) return '邀请码是 8 位字母和数字';
+    try {
+      final key = await LibraryApi.redeem(defaultLibraryServer, code);
+      showInvite(LibraryInvite(server: defaultLibraryServer, key: key));
+      return null;
+    } on LibraryException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '$e';
+    }
+  }
+
   void showInvite(LibraryInvite invite) =>
       runInAction(() => pendingInvite.value = invite);
 

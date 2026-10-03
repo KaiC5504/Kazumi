@@ -24,6 +24,7 @@ from .library import (
     file_size,
     is_valid_episode_id,
 )
+from .invites import Invites, RateLimiter
 from .room import Room
 
 log = logging.getLogger(__name__)
@@ -53,6 +54,10 @@ class HeartbeatBody(BaseModel):
     name: Name
     state: Literal["lobby", "watching", "idle"]
     episodeId: EpisodeIdField | None = None
+
+
+class RedeemBody(BaseModel):
+    code: Annotated[str, StringConstraints(max_length=32)]
 
 
 class SelectBody(BaseModel):
@@ -120,6 +125,8 @@ def create_app(settings: Settings) -> FastAPI:
     settings.validate()
     library = Library(settings.data_dir, settings.clock)
     room = Room(settings.clock)
+    invites = Invites(settings.data_dir / "invites.json", settings.clock)
+    redeem_limit = RateLimiter(settings.clock)
     upload_locks: defaultdict[tuple[str, str], asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @asynccontextmanager
@@ -171,6 +178,19 @@ def create_app(settings: Settings) -> FastAPI:
             "syncplayTls": settings.syncplay_tls,
             "room": settings.syncplay_room,
         }
+
+    @app.post("/api/invites", dependencies=admin)
+    def create_invite() -> dict[str, str]:
+        return invites.create()
+
+    @app.post("/api/redeem")
+    def redeem(body: RedeemBody, request: Request) -> dict[str, str]:
+        client = request.client.host if request.client else "unknown"
+        if not redeem_limit.allow(client):
+            raise HTTPException(status_code=429)
+        if not invites.is_valid(body.code):
+            raise HTTPException(status_code=404)
+        return {"key": settings.view_key}
 
     @app.get("/api/episodes", dependencies=view)
     def list_episodes() -> dict[str, Any]:

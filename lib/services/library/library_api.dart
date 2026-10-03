@@ -140,6 +140,31 @@ class LibraryApi {
 
   bool ownsUrl(String url) => url.startsWith(baseUri.toString());
 
+  /// Trades a short invite code for the library key.
+  static Future<String> redeem(String server, String code) async {
+    final api = LibraryApi(server, '');
+    try {
+      final json = await api._json('POST', '/api/redeem', body: {'code': code});
+      final key = json['key'] as String? ?? '';
+      if (key.isEmpty) throw const LibraryException('服务器没有返回密钥');
+      return key;
+    } on LibraryException catch (e) {
+      throw switch (e.statusCode) {
+        HttpStatus.notFound => const LibraryException('邀请码不对或已过期，请让对方重新生成'),
+        HttpStatus.tooManyRequests => const LibraryException('尝试次数太多，请一分钟后再试'),
+        _ => e,
+      };
+    }
+  }
+
+  Future<({String code, DateTime expiresAt})> createInvite() async {
+    final json = await _json('POST', '/api/invites');
+    return (
+      code: json['code'] as String,
+      expiresAt: DateTime.parse(json['expiresAt'] as String).toLocal(),
+    );
+  }
+
   Future<LibraryConfig> config() async {
     final json = await _json('GET', '/api/config');
     return LibraryConfig(

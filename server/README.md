@@ -111,6 +111,8 @@ All `/api/*` and `/episodes/*` routes need the `X-Kazumi-Token` header or `?toke
 | | Route | Key |
 | --- | --- | --- |
 | GET | `/healthz`, `/join` | none |
+| POST | `/api/redeem` (invite code to view key; 5 tries/min per client) | none |
+| POST | `/api/invites` (new 8-character code, valid 7 days) | admin |
 | GET | `/api/config`, `/api/episodes`, `/api/room` | view |
 | GET/HEAD | `/episodes/{id}/video.mp4`, `/episodes/{id}/danmaku.json` | view |
 | POST | `/api/episodes/{id}/watched`, `/api/room/heartbeat`, `/api/room/select` | view |

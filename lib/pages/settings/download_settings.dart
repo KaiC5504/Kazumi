@@ -10,6 +10,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
+import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/platform/secure_bookmark_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
@@ -209,6 +210,55 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _createInviteCode() async {
+    if (!upscaleController.canUploadToLibrary) {
+      KazumiDialog.showToast(message: '请先填写片库服务器和上传密钥');
+      return;
+    }
+    try {
+      final invite = await LibraryApi(
+        GStorage.getSetting(SettingsKeys.libraryServer),
+        GStorage.getSetting(SettingsKeys.libraryAdminKey),
+      ).createInvite();
+      final expires = invite.expiresAt;
+      await KazumiDialog.show(
+        builder: (context) => AlertDialog(
+          title: const Text('邀请码'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SelectableText(
+                invite.code,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 4,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Text('${expires.month}月${expires.day}日前有效，可重复使用'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => KazumiDialog.dismiss(),
+              child: const Text('关闭'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: invite.code));
+                KazumiDialog.showToast(message: '已复制邀请码');
+              },
+              icon: const Icon(Icons.copy_rounded),
+              label: const Text('复制'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      KazumiDialog.showToast(message: '生成邀请码失败: $e');
+    }
+  }
+
   Future<void> _loadLanAddresses() async {
     try {
       final addresses = await LanShareServer.localAddresses();
@@ -367,6 +417,12 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
               title: '上传密钥',
               hint: '服务器的管理密钥',
             ),
+          ),
+          SettingsTile(
+            leading: Icons.favorite_rounded,
+            title: Text('生成邀请码'),
+            description: Text('对方在「我的 → 一起看」输入邀请码即可加入，7 天内有效'),
+            onPressed: (_) => _createInviteCode(),
           ),
           SettingsTile.switchTile(
             leading: Icons.cloud_upload_rounded,

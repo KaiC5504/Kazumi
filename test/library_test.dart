@@ -40,6 +40,12 @@ void main() {
     });
   });
 
+  test('invite codes are typed loosely', () {
+    expect(normalizeInviteCode(' kz7m-4qpa '), 'KZ7M4QPA');
+    expect(normalizeInviteCode('KZ7M 4QPA'), 'KZ7M4QPA');
+    expect(normalizeInviteCode('KZ7M-4QP'), isNull);
+  });
+
   group('LibraryApi', () {
     test('normalizes the server and puts the key on file urls', () {
       final api = LibraryApi('kazumi.example.com/join?x=1#k', 'k 1');
@@ -137,6 +143,22 @@ void main() {
             ),
           ),
           reason: 'the view key must not upload',
+        );
+
+        final invite = await admin.createInvite();
+        expect(
+          await LibraryApi.redeem(url, invite.code.toLowerCase()),
+          env['KAZUMI_LIBRARY_TEST_VIEW_KEY'],
+        );
+        await expectLater(
+          LibraryApi.redeem(url, 'AAAA-AAAA'),
+          throwsA(
+            isA<LibraryException>().having(
+              (e) => e.message,
+              'message',
+              contains('邀请码'),
+            ),
+          ),
         );
 
         final config = await viewer.config();
