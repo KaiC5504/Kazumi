@@ -2,7 +2,9 @@
 
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
+import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/pages/player/controller/player_models.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -154,14 +156,12 @@ abstract class _PlayerSyncPlayController with Store {
             }
           }
           if (message['type'] == 'left') {
-            KazumiDialog.showToast(
-                message: 'SyncPlay: ${message['username']} 离开了房间',
-                duration: const Duration(seconds: 5));
+            GlassNotice.show('${message['username']} 离开了',
+                icon: Icons.person_remove_rounded);
           }
           if (message['type'] == 'joined') {
-            KazumiDialog.showToast(
-                message: 'SyncPlay: ${message['username']} 加入了房间',
-                duration: const Duration(seconds: 5));
+            GlassNotice.show('${message['username']} 加入了',
+                icon: Icons.person_add_alt_1_rounded);
           }
         },
       );
@@ -222,16 +222,10 @@ abstract class _PlayerSyncPlayController with Store {
           if (message['paused'] != !playing()) {
             if (message['paused']) {
               if (message['position'] != 0) {
-                KazumiDialog.showToast(
-                    message: 'SyncPlay: ${message['setBy'] ?? 'unknown'} 暂停了播放',
-                    duration: const Duration(seconds: 3));
                 pause(enableSync: false);
               }
             } else {
               if (message['position'] != 0) {
-                KazumiDialog.showToast(
-                    message: 'SyncPlay: ${message['setBy'] ?? 'unknown'} 开始了播放',
-                    duration: const Duration(seconds: 3));
                 play(enableSync: false);
               }
             }
