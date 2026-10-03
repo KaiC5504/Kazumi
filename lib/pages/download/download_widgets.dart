@@ -20,6 +20,7 @@ class DownloadRecordCard extends StatelessWidget {
     required this.onDeleteAll,
     required this.totalSpeed,
     required this.episodeTileBuilder,
+    this.extraMenuItems = const [],
   });
 
   final DownloadRecord record;
@@ -28,6 +29,7 @@ class DownloadRecordCard extends StatelessWidget {
   final VoidCallback onResumeAll;
   final VoidCallback onDeleteAll;
   final double totalSpeed;
+  final List<Widget> extraMenuItems;
 
   final List<Widget> Function() episodeTileBuilder;
 
@@ -131,6 +133,7 @@ class DownloadRecordCard extends StatelessWidget {
                     ),
                     menuChildren: [
                       KazumiMenuItem(label: '全部开始', onPressed: onResumeAll),
+                      ...extraMenuItems,
                       KazumiMenuItem(
                         label: '全部删除',
                         destructive: true,
@@ -183,11 +186,15 @@ class DownloadEpisodeTile extends StatelessWidget {
     required this.statusText,
     this.actions = const [],
     this.onPlay,
+    this.taskProgress,
   });
 
   final DownloadEpisode episode;
   final String statusText;
   final List<Widget> actions;
+
+  /// Progress of a post-download task such as baking or exporting.
+  final double? taskProgress;
 
   final VoidCallback? onPlay;
 
@@ -235,6 +242,12 @@ class DownloadEpisodeTile extends StatelessWidget {
                   if (showProgress) ...[
                     const SizedBox(height: 6),
                     LinearProgressIndicator(value: episode.progressPercent),
+                  ] else if (taskProgress != null) ...[
+                    const SizedBox(height: 6),
+                    LinearProgressIndicator(
+                      value: taskProgress! > 0 ? taskProgress : null,
+                      color: colorScheme.tertiary,
+                    ),
                   ],
                 ],
               ),
@@ -261,11 +274,17 @@ class _EpisodeStatusBadge extends StatelessWidget {
     Widget child;
     switch (episode.status) {
       case DownloadStatus.completed:
-        background = colorScheme.secondaryContainer;
+        final upscaled = episode.preUpscaled ||
+            episode.upscaleStatus == UpscaleStatus.done;
+        background = upscaled
+            ? colorScheme.tertiaryContainer
+            : colorScheme.secondaryContainer;
         child = Icon(
-          Icons.check_rounded,
+          upscaled ? Icons.auto_awesome_rounded : Icons.check_rounded,
           size: 18,
-          color: colorScheme.onSecondaryContainer,
+          color: upscaled
+              ? colorScheme.onTertiaryContainer
+              : colorScheme.onSecondaryContainer,
         );
         break;
       case DownloadStatus.downloading:

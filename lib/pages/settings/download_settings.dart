@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
@@ -9,6 +12,8 @@ import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/services/platform/secure_bookmark_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/services/upscale/lan_share.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/utils/file_system.dart';
 
 class DownloadSettingsPage extends StatefulWidget {
@@ -26,9 +31,24 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
   String defaultDownloadDirectory = '';
   bool isSelectingDirectory = false;
 
+  final UpscaleController upscaleController = inject<UpscaleController>();
+  String ffmpegStatus = '';
+  bool detectingFfmpeg = false;
+  late int bakeHeight;
+  late String exportDirectory;
+  late bool autoExport;
+  List<String> lanAddresses = [];
+
   @override
   void initState() {
     super.initState();
+    bakeHeight = GStorage.getSetting(SettingsKeys.upscaleBakeHeight);
+    exportDirectory = GStorage.getSetting(SettingsKeys.upscaleExportDirectory);
+    autoExport = GStorage.getSetting(SettingsKeys.upscaleAutoExport);
+    if (upscaleController.canBake) {
+      _detectFfmpeg();
+      _loadLanAddresses();
+    }
     parallelEpisodes =
         GStorage.getSetting(SettingsKeys.downloadParallelEpisodes);
     parallelSegments =
@@ -99,6 +119,80 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     }
   }
 
+  Future<void> _detectFfmpeg() async {
+    setState(() => detectingFfmpeg = true);
+    final (info, error) = await upscaleController.detectFfmpeg();
+    if (!mounted) return;
+    setState(() {
+      detectingFfmpeg = false;
+      ffmpegStatus = info == null
+          ? (error ?? '未找到可用的 ffmpeg')
+          : '${info.version}\n编码器: ${info.hardwareEncoder ? 'NVIDIA NVENC (快)' : 'libx265 (CPU, 较慢)'}';
+    });
+  }
+
+  Future<void> _editFfmpegPath() async {
+    final controller = TextEditingController(
+        text: GStorage.getSetting(SettingsKeys.upscaleFfmpegPath));
+    final result = await KazumiDialog.show<String>(
+      builder: (context) => AlertDialog(
+        title: const Text('ffmpeg 路径'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: r'例如 D:\Tools\ffmpeg\bin\ffmpeg.exe，留空则使用 PATH',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => KazumiDialog.dismiss(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => KazumiDialog.dismiss(popWith: controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    await GStorage.putSetting<String>(
+        SettingsKeys.upscaleFfmpegPath, result.trim());
+    await _detectFfmpeg();
+  }
+
+  Future<void> _selectExportDirectory() async {
+    final selected = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择导出位置 (建议选 iCloud Drive 或 OneDrive 文件夹)',
+    );
+    if (selected == null || selected.isEmpty) return;
+    await GStorage.putSetting<String>(
+        SettingsKeys.upscaleExportDirectory, selected);
+    if (mounted) setState(() => exportDirectory = selected);
+  }
+
+  Future<void> _loadLanAddresses() async {
+    try {
+      final addresses = await LanShareServer.localAddresses();
+      if (mounted) setState(() => lanAddresses = addresses);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleLanShare(bool enable) async {
+    try {
+      if (enable) {
+        await upscaleController.startLanShare();
+      } else {
+        await upscaleController.stopLanShare();
+      }
+      await GStorage.putSetting<bool>(SettingsKeys.lanShareEnabled, enable);
+    } catch (e) {
+      KazumiDialog.showToast(message: '无法开启局域网共享: $e');
+    }
+  }
+
   Future<void> _resetDownloadDirectory() async {
     await SecureBookmarkService.clear();
     await GStorage.putSetting(SettingsKeys.downloadDirectory, '');
@@ -106,6 +200,112 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
       setState(() => downloadDirectory = '');
     }
     KazumiDialog.showToast(message: '已恢复默认下载位置，仅对新下载生效');
+  }
+
+  List<SettingsSection> _upscaleSections(BuildContext context) {
+    final hintStyle =
+        TextStyle(color: Theme.of(context).textTheme.bodySmall?.color);
+    return [
+      SettingsSection(
+        title: Text('超分烘焙 (将质量档超分写入视频，供 iPad 等设备直接播放)'),
+        tiles: [
+          SettingsTile(
+            leading: Icons.movie_filter_rounded,
+            title: Text('ffmpeg'),
+            description: Text(detectingFfmpeg ? '正在检测...' : ffmpegStatus),
+            trailing: IconButton(
+              tooltip: '重新检测',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: detectingFfmpeg ? null : _detectFfmpeg,
+            ),
+            onPressed: (_) => _editFfmpegPath(),
+          ),
+          SettingsTile(
+            leading: Icons.high_quality_rounded,
+            title: Text('输出分辨率'),
+            description: Text(bakeHeight >= 2160
+                ? '2160p · 画质更细，每集约 1-2 GB'
+                : '1440p · 接近 iPad 屏幕分辨率，每集约 0.5-1 GB'),
+            trailing: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 1440, label: Text('1440p')),
+                ButtonSegment(value: 2160, label: Text('2160p')),
+              ],
+              selected: {bakeHeight},
+              showSelectedIcon: false,
+              onSelectionChanged: (value) {
+                setState(() => bakeHeight = value.first);
+                GStorage.putSetting<int>(
+                    SettingsKeys.upscaleBakeHeight, bakeHeight);
+              },
+            ),
+          ),
+          SettingsTile(
+            leading: Icons.drive_folder_upload_rounded,
+            title: Text('导出位置'),
+            description: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(exportDirectory.isEmpty ? '未设置' : exportDirectory),
+                const SizedBox(height: 8),
+                Text(
+                  '选 iCloud Drive / OneDrive 同步文件夹，iPad 关机状态下也能从「文件」导入',
+                  style: hintStyle,
+                ),
+              ],
+            ),
+            onPressed: (_) => _selectExportDirectory(),
+          ),
+          SettingsTile.switchTile(
+            leading: Icons.sync_rounded,
+            title: Text('烘焙后自动导出'),
+            description: Text('烘焙完成后自动复制到导出位置'),
+            initialValue: autoExport,
+            onToggle: (value) {
+              setState(() => autoExport = value ?? !autoExport);
+              GStorage.putSetting<bool>(
+                  SettingsKeys.upscaleAutoExport, autoExport);
+            },
+          ),
+        ],
+      ),
+      SettingsSection(
+        title: Text('局域网共享'),
+        tiles: [
+          SettingsTile(
+            leading: Icons.wifi_tethering_rounded,
+            title: Text('共享已烘焙的剧集'),
+            description: Observer(builder: (context) {
+              if (!upscaleController.lanShareRunning.value) {
+                return Text('开启后，同一 Wi-Fi 下的 iPad 可在下载管理中点击 Wi-Fi 图标拉取');
+              }
+              final address = lanAddresses.isEmpty
+                  ? '无法获取本机 IP'
+                  : lanAddresses.join(' / ');
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('电脑地址: $address'),
+                  Text('连接码: ${upscaleController.lanShareToken()}'),
+                  const SizedBox(height: 8),
+                  Text('首次开启时 Windows 会询问防火墙，请允许「专用网络」',
+                      style: hintStyle),
+                ],
+              );
+            }),
+            trailing: Observer(
+              builder: (context) => Switch(
+                value: upscaleController.lanShareRunning.value,
+                onChanged: _toggleLanShare,
+              ),
+            ),
+            onPressed: (_) => Clipboard.setData(ClipboardData(
+              text: lanAddresses.isEmpty ? '' : lanAddresses.first,
+            )),
+          ),
+        ],
+      ),
+    ];
   }
 
   @override
@@ -208,6 +408,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
               ),
             ],
           ),
+          if (upscaleController.canBake) ..._upscaleSections(context),
           SettingsSection(
             title: Text('说明'),
             tiles: [

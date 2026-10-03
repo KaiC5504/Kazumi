@@ -8,16 +8,22 @@ import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/download/download_widgets.dart';
+import 'package:kazumi/bean/widget/kazumi_menu.dart';
+import 'package:kazumi/pages/download/upscaled_transfer_sheets.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
+import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/utils/format.dart';
 
 class DownloadPage extends StatefulWidget {
   const DownloadPage({
     super.key,
     required this.controller,
+    required this.upscaleController,
   });
 
   final DownloadController controller;
+  final UpscaleController upscaleController;
 
   @override
   State<DownloadPage> createState() => _DownloadPageState();
@@ -25,6 +31,7 @@ class DownloadPage extends StatefulWidget {
 
 class _DownloadPageState extends State<DownloadPage> {
   DownloadController get downloadController => widget.controller;
+  UpscaleController get upscaleController => widget.upscaleController;
 
   // Keep expansion state across controller snapshot replacements.
   final Map<String, bool> _expanded = {};
@@ -46,7 +53,22 @@ class _DownloadPageState extends State<DownloadPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const SysAppBar(title: Text('下载管理')),
+      appBar: SysAppBar(
+        title: const Text('下载管理'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.drive_folder_upload_rounded),
+            tooltip: '导入超分剧集',
+            onPressed: () => showUpscaledImportFlow(context, upscaleController),
+          ),
+          if (!isDesktop())
+            IconButton(
+              icon: const Icon(Icons.wifi_rounded),
+              tooltip: '从电脑拉取超分剧集',
+              onPressed: () => showLanPullFlow(context, upscaleController),
+            ),
+        ],
+      ),
       body: Observer(builder: (context) {
         final recordKeys = downloadController.recordKeys.toList();
         _expanded.removeWhere((key, _) => !recordKeys.contains(key));
@@ -105,6 +127,13 @@ class _DownloadPageState extends State<DownloadPage> {
           KazumiDialog.showToast(message: '已开始恢复下载');
         },
         onDeleteAll: () => _confirmDeleteRecord(record),
+        extraMenuItems: [
+          if (upscaleController.canBake)
+            KazumiMenuItem(
+              label: '全部烘焙超分',
+              onPressed: () => _bakeAll(record),
+            ),
+        ],
         totalSpeed: totalSpeed,
         episodeTileBuilder: () {
           final episodes = record.episodes.values.toList()
@@ -116,20 +145,51 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   Widget _buildEpisodeTile(DownloadRecord record, DownloadEpisode episode) {
-    return DownloadEpisodeTile(
-      episode: episode,
-      statusText: _getStatusText(record, episode),
-      actions: _getActionButtons(record, episode),
-      onPlay: episode.status == DownloadStatus.completed
-          ? () => _playEpisode(record, episode)
-          : null,
-    );
+    // Bake/export progress lives outside the record snapshot, so the tile
+    // observes it on its own.
+    return Observer(builder: (context) {
+      final key =
+          UpscaleController.progressKey(record.key, episode.episodeNumber);
+      final bakeProgress = upscaleController.bakeProgress[key];
+      final exportProgress = upscaleController.exportProgress[key];
+      return DownloadEpisodeTile(
+        episode: episode,
+        statusText: _getStatusText(record, episode,
+            bakeProgress: bakeProgress, exportProgress: exportProgress),
+        actions: _getActionButtons(record, episode),
+        taskProgress: exportProgress ??
+            bakeProgress ??
+            (episode.upscaleStatus == UpscaleStatus.queued ? 0 : null),
+        onPlay: episode.status == DownloadStatus.completed
+            ? () => _playEpisode(record, episode)
+            : null,
+      );
+    });
   }
 
-  String _getStatusText(DownloadRecord record, DownloadEpisode episode) {
+  String _getStatusText(DownloadRecord record, DownloadEpisode episode,
+      {double? bakeProgress, double? exportProgress}) {
     switch (episode.status) {
       case DownloadStatus.completed:
-        return '已完成 · ${formatBytes(episode.totalBytes)}';
+        final base = '已完成 · ${formatBytes(episode.totalBytes)}';
+        if (episode.preUpscaled) return '$base · 超分版';
+        if (exportProgress != null) {
+          return '$base · 正在导出 ${(exportProgress * 100).toStringAsFixed(0)}%';
+        }
+        switch (episode.upscaleStatus) {
+          case UpscaleStatus.queued:
+            return '$base · 等待烘焙超分';
+          case UpscaleStatus.baking:
+            final percent = ((bakeProgress ?? 0) * 100).toStringAsFixed(0);
+            return '$base · 正在烘焙超分 $percent%';
+          case UpscaleStatus.done:
+            return '$base · 已烘焙超分';
+          case UpscaleStatus.failed:
+            return episode.errorMessage.isNotEmpty
+                ? episode.errorMessage
+                : '$base · 超分失败';
+        }
+        return base;
       case DownloadStatus.downloading:
         final speed = downloadController.getSpeed(
           record.bangumiId,
@@ -166,6 +226,7 @@ class _DownloadPageState extends State<DownloadPage> {
           tooltip: '播放',
           visualDensity: VisualDensity.compact,
         ));
+        buttons.addAll(_upscaleActions(record, episode));
         break;
       case DownloadStatus.downloading:
         buttons.add(IconButton(
@@ -231,6 +292,84 @@ class _DownloadPageState extends State<DownloadPage> {
     ));
 
     return buttons;
+  }
+
+  List<Widget> _upscaleActions(DownloadRecord record, DownloadEpisode episode) {
+    if (!upscaleController.canBake || episode.preUpscaled) return const [];
+    final colorScheme = Theme.of(context).colorScheme;
+    switch (episode.upscaleStatus) {
+      case UpscaleStatus.queued:
+      case UpscaleStatus.baking:
+        return [
+          IconButton(
+            icon: const Icon(Icons.stop_circle_outlined, size: 20),
+            onPressed: () => upscaleController.cancelBake(
+                record.key, episode.episodeNumber),
+            tooltip: '取消烘焙',
+            visualDensity: VisualDensity.compact,
+          ),
+        ];
+      case UpscaleStatus.done:
+        return [
+          IconButton(
+            icon: Icon(Icons.ios_share_rounded,
+                size: 20, color: colorScheme.tertiary),
+            onPressed: () => _exportEpisode(record, episode),
+            tooltip: '导出超分版本',
+            visualDensity: VisualDensity.compact,
+          ),
+        ];
+      default:
+        return [
+          IconButton(
+            icon: Icon(Icons.auto_awesome_outlined,
+                size: 20, color: colorScheme.tertiary),
+            onPressed: () => _bakeEpisode(record, episode),
+            tooltip: '烘焙超分 (质量档)',
+            visualDensity: VisualDensity.compact,
+          ),
+        ];
+    }
+  }
+
+  Future<void> _bakeEpisode(
+      DownloadRecord record, DownloadEpisode episode) async {
+    final error =
+        await upscaleController.enqueueBake(record.key, episode.episodeNumber);
+    KazumiDialog.showToast(message: error ?? '已加入超分烘焙队列');
+  }
+
+  Future<void> _bakeAll(DownloadRecord record) async {
+    var queued = 0;
+    String? lastError;
+    final episodes = record.episodes.values.toList()
+      ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+    for (final episode in episodes) {
+      if (episode.status != DownloadStatus.completed ||
+          episode.preUpscaled ||
+          episode.upscaleStatus == UpscaleStatus.done) {
+        continue;
+      }
+      final error = await upscaleController.enqueueBake(
+          record.key, episode.episodeNumber);
+      if (error == null) {
+        queued++;
+      } else {
+        lastError = error;
+      }
+    }
+    KazumiDialog.showToast(
+        message: queued > 0
+            ? '已加入 $queued 集到超分烘焙队列'
+            : (lastError ?? '没有可烘焙的剧集'));
+  }
+
+  Future<void> _exportEpisode(
+      DownloadRecord record, DownloadEpisode episode) async {
+    if (!await ensureUpscaleExportDirectory()) return;
+    final error =
+        await upscaleController.export(record.key, episode.episodeNumber);
+    KazumiDialog.showToast(message: error ?? '已导出，可在 iPad 上导入');
   }
 
   void _playEpisode(DownloadRecord record, DownloadEpisode episode) {
