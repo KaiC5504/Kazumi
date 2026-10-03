@@ -19,6 +19,7 @@ import 'package:kazumi/services/platform/windows_shortcut.dart';
 import 'package:kazumi/services/platform/platform_environment_service.dart';
 import 'package:kazumi/services/update/startup_update_check.dart';
 import 'package:kazumi/navigation.dart';
+import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 
 class InitPage extends StatefulWidget {
@@ -30,6 +31,7 @@ class InitPage extends StatefulWidget {
     required this.myController,
     required this.downloadController,
     required this.upscaleController,
+    required this.libraryController,
     required this.danmakuShieldSync,
   });
 
@@ -39,6 +41,7 @@ class InitPage extends StatefulWidget {
   final MyController myController;
   final DownloadController downloadController;
   final UpscaleController upscaleController;
+  final LibraryController libraryController;
   final DanmakuShieldSyncService danmakuShieldSync;
 
   @override
@@ -75,6 +78,11 @@ class _InitPageState extends State<InitPage> {
       await widget.upscaleController.init();
     } catch (e) {
       KazumiLogger().e('InitPage: upscaleController.init() failed', error: e);
+    }
+    try {
+      await widget.libraryController.init();
+    } catch (e) {
+      KazumiLogger().e('InitPage: libraryController.init() failed', error: e);
     }
 
     await _checkRunningOnX11();

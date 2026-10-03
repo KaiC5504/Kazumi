@@ -35,6 +35,19 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.kaichuan.kazumi.library</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kazumi-library</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于从同一 Wi-Fi 下的电脑端 Kazumi 拉取超分剧集</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

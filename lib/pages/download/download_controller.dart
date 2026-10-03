@@ -1032,14 +1032,24 @@ abstract class _DownloadController with Store {
     await _repository.updateEpisode(recordKey, episode.episodeNumber, episode);
     _refreshRecord(recordKey);
 
-    final token = GStorage.getSetting(SettingsKeys.lanPullToken);
+    // Library downloads carry their own key in the URL; only LAN pulls use
+    // the saved connection code.
+    final inUrl = Uri.tryParse(episode.networkM3u8Url)
+            ?.queryParameters
+            .containsKey('token') ??
+        false;
     final request = DownloadRequest(
       recordKey: recordKey,
       bangumiId: bangumiId,
       pluginName: pluginName,
       episodeNumber: episode.episodeNumber,
       m3u8Url: episode.networkM3u8Url,
-      httpHeaders: {lanShareTokenHeader: token},
+      httpHeaders: inUrl
+          ? const {}
+          : {
+              lanShareTokenHeader:
+                  GStorage.getSetting(SettingsKeys.lanPullToken),
+            },
       adBlockerEnabled: false,
       episode: episode,
     );

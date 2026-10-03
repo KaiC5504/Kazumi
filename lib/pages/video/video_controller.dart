@@ -10,6 +10,7 @@ import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/library/library_playback.dart';
 import 'package:kazumi/services/video_source/services.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:mobx/mobx.dart';
@@ -139,6 +140,8 @@ abstract class _VideoPageController with Store implements Disposable {
   late Plugin currentPlugin;
 
   String _offlinePluginName = '';
+  Map<int, String> _remoteVideoUrls = const {};
+  OfflinePlaybackHooks? _offlineHooks;
 
   final HistoryController historyController;
   final IDownloadRepository downloadRepository;
@@ -172,6 +175,8 @@ abstract class _VideoPageController with Store implements Disposable {
           road: args.road,
           downloadedEpisodes: args.downloadedEpisodes,
         );
+        _remoteVideoUrls = args.remoteVideoUrls;
+        _offlineHooks = args.hooks;
     }
   }
 
@@ -493,7 +498,14 @@ abstract class _VideoPageController with Store implements Disposable {
       _offlinePluginName,
       resolvedEpisode.historyEpisodeNumber,
     );
-    final localPath = downloadManager.getLocalVideoPath(downloadedEpisode);
+    final remoteUrl =
+        _remoteVideoUrls[resolvedEpisode.historyEpisodeNumber];
+    final downloadedPath = downloadManager.getLocalVideoPath(downloadedEpisode);
+    // An original-quality download of the same episode must not win over the
+    // upscaled stream.
+    final streamRemote = remoteUrl != null &&
+        (downloadedPath == null || !(downloadedEpisode?.preUpscaled ?? false));
+    final localPath = streamRemote ? remoteUrl : downloadedPath;
     if (localPath == null) {
       _failLoading('该集数未下载');
       return;
@@ -513,7 +525,7 @@ abstract class _VideoPageController with Store implements Disposable {
     final params = PlaybackInitParams(
       videoUrl: localPath,
       offset: resolvedOffset,
-      isLocalPlayback: true,
+      isLocalPlayback: !streamRemote,
       bangumiId: bangumiItem.id,
       pluginName: _offlinePluginName,
       episode: resolvedEpisode.listIndex,
@@ -528,13 +540,23 @@ abstract class _VideoPageController with Store implements Disposable {
       coverUrl: bangumiItem.images['large'],
       bangumiName:
           bangumiItem.nameCn.isNotEmpty ? bangumiItem.nameCn : bangumiItem.name,
-      preUpscaled: downloadedEpisode?.preUpscaled ?? false,
+      preUpscaled: streamRemote || (downloadedEpisode?.preUpscaled ?? false),
     );
 
     final initialized = await playerController.init(params);
     if (session.isActive && initialized) {
       playingEpisode = selection;
       unawaited(_loadPlaybackDanmaku(playerController, params, session));
+      _offlineHooks?.onEpisodeStarted(
+        resolvedEpisode.historyEpisodeNumber,
+        playerController,
+        (episode, {int currentRoad = 0, int offset = 0}) => changeEpisode(
+          episode,
+          currentRoad: currentRoad,
+          offset: offset,
+          playerController: playerController,
+        ),
+      );
     } else if (session.isActive) {
       _playbackSessions.cancel();
     }
@@ -738,6 +760,8 @@ abstract class _VideoPageController with Store implements Disposable {
   /// Called by Modular when the '/video' route scope is disposed.
   @override
   void dispose() {
+    _offlineHooks?.onPlaybackClosed();
+    _offlineHooks = null;
     unawaited(fullscreen.close());
     _playbackSessions.cancel();
     _danmakuSessions.cancel();

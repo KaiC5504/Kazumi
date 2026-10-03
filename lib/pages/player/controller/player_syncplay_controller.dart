@@ -102,7 +102,10 @@ abstract class _PlayerSyncPlayController with Store {
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
       return;
     }
-    final enableTLS = isOfficialSyncPlayEndPoint(parsed);
+    // The watch-together library's own server has a real certificate too.
+    final enableTLS = isOfficialSyncPlayEndPoint(parsed) ||
+        syncPlayEndPoint.trim() ==
+            GStorage.getSetting(SettingsKeys.librarySyncPlayEndPoint);
     final client = SyncplayClient(host: parsed.host, port: parsed.port);
     syncplayController = client;
     try {

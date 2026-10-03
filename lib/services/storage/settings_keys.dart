@@ -537,6 +537,51 @@ class SettingsKeys {
     '',
     group: SettingGroup.download,
   );
+  static const libraryServer = SettingKey<String>(
+    'libraryServer',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryKey = SettingKey<String>(
+    'libraryKey',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryAdminKey = SettingKey<String>(
+    'libraryAdminKey',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryDisplayName = SettingKey<String>(
+    'libraryDisplayName',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryDeviceId = SettingKey<String>(
+    'libraryDeviceId',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryRoom = SettingKey<String>(
+    'libraryRoom',
+    '',
+    group: SettingGroup.download,
+  );
+  static const librarySyncPlayEndPoint = SettingKey<String>(
+    'librarySyncPlayEndPoint',
+    '',
+    group: SettingGroup.download,
+  );
+  static const libraryWifiOnly = SettingKey<bool>(
+    'libraryWifiOnly',
+    true,
+    group: SettingGroup.download,
+  );
+  static const libraryAutoUpload = SettingKey<bool>(
+    'libraryAutoUpload',
+    false,
+    group: SettingGroup.download,
+  );
   static const shortcutDialogShown = SettingKey<bool>(
     _SettingBoxKey.shortcutDialogShown,
     false,
@@ -697,6 +742,15 @@ class SettingsKeys {
     lanShareToken,
     lanPullAddress,
     lanPullToken,
+    libraryServer,
+    libraryKey,
+    libraryAdminKey,
+    libraryDisplayName,
+    libraryDeviceId,
+    libraryRoom,
+    librarySyncPlayEndPoint,
+    libraryWifiOnly,
+    libraryAutoUpload,
     shortcutDialogShown,
     bangumiSyncEnable,
     bangumiAccessToken,

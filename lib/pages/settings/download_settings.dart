@@ -37,6 +37,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
   late int bakeHeight;
   late String exportDirectory;
   late bool autoExport;
+  late bool libraryAutoUpload;
   List<String> lanAddresses = [];
 
   @override
@@ -45,6 +46,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     bakeHeight = GStorage.getSetting(SettingsKeys.upscaleBakeHeight);
     exportDirectory = GStorage.getSetting(SettingsKeys.upscaleExportDirectory);
     autoExport = GStorage.getSetting(SettingsKeys.upscaleAutoExport);
+    libraryAutoUpload = GStorage.getSetting(SettingsKeys.libraryAutoUpload);
     if (upscaleController.canBake) {
       _detectFfmpeg();
       _loadLanAddresses();
@@ -171,6 +173,40 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     await GStorage.putSetting<String>(
         SettingsKeys.upscaleExportDirectory, selected);
     if (mounted) setState(() => exportDirectory = selected);
+  }
+
+  Future<void> _editLibrarySetting(
+    SettingKey<String> key, {
+    required String title,
+    required String hint,
+  }) async {
+    final controller = TextEditingController(text: GStorage.getSetting(key));
+    final result = await KazumiDialog.show<String>(
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: hint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => KazumiDialog.dismiss(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => KazumiDialog.dismiss(popWith: controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    await GStorage.putSetting<String>(key, result.trim());
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadLanAddresses() async {
@@ -305,8 +341,50 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           ),
         ],
       ),
+      SettingsSection(
+        title: Text('一起看片库 (上传到服务器，异地一起看)'),
+        tiles: [
+          SettingsTile(
+            leading: Icons.dns_rounded,
+            title: Text('片库服务器'),
+            description: Text(_orUnset(
+                GStorage.getSetting(SettingsKeys.libraryServer))),
+            onPressed: (_) => _editLibrarySetting(
+              SettingsKeys.libraryServer,
+              title: '片库服务器',
+              hint: '例如 https://kazumi.example.com',
+            ),
+          ),
+          SettingsTile(
+            leading: Icons.key_rounded,
+            title: Text('上传密钥'),
+            description: Text(
+                GStorage.getSetting(SettingsKeys.libraryAdminKey).isEmpty
+                    ? '未设置'
+                    : '已设置'),
+            onPressed: (_) => _editLibrarySetting(
+              SettingsKeys.libraryAdminKey,
+              title: '上传密钥',
+              hint: '服务器的管理密钥',
+            ),
+          ),
+          SettingsTile.switchTile(
+            leading: Icons.cloud_upload_rounded,
+            title: Text('烘焙后自动上传'),
+            description: Text('烘焙完成后自动上传到片库，断线会自动续传'),
+            initialValue: libraryAutoUpload,
+            onToggle: (value) {
+              setState(() => libraryAutoUpload = value ?? !libraryAutoUpload);
+              GStorage.putSetting<bool>(
+                  SettingsKeys.libraryAutoUpload, libraryAutoUpload);
+            },
+          ),
+        ],
+      ),
     ];
   }
+
+  static String _orUnset(String value) => value.isEmpty ? '未设置' : value;
 
   @override
   Widget build(BuildContext context) {

@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -42,12 +44,16 @@ class UpscaleController {
       ObservableMap<String, double>();
   final ObservableMap<String, double> exportProgress =
       ObservableMap<String, double>();
+  final ObservableMap<String, double> uploadProgress =
+      ObservableMap<String, double>();
   final Observable<bool> lanShareRunning = Observable(false);
 
   FfmpegInfo? _ffmpeg;
   final List<(String, int)> _bakeQueue = [];
   UpscaleBaker? _activeBaker;
   String? _activeKey;
+  final List<(String, int)> _uploadQueue = [];
+  bool _uploading = false;
 
   bool get canBake => isDesktop();
 
@@ -180,6 +186,10 @@ class UpscaleController {
         e.upscaledVideoPath = output;
         e.upscaledHeight = targetHeight;
       });
+      if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
+          canUploadToLibrary) {
+        enqueueUpload(recordKey, episodeNumber);
+      }
       if (GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
           GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty) {
         final error = await export(recordKey, episodeNumber);
@@ -268,6 +278,114 @@ class UpscaleController {
       return '导出失败: $e';
     } finally {
       runInAction(() => exportProgress.remove(key));
+    }
+  }
+
+  bool get canUploadToLibrary =>
+      GStorage.getSetting(SettingsKeys.libraryServer).isNotEmpty &&
+      GStorage.getSetting(SettingsKeys.libraryAdminKey).isNotEmpty;
+
+  /// Returns an error message, or null once the episode is queued.
+  String? enqueueUpload(String recordKey, int episodeNumber) {
+    if (!canUploadToLibrary) return '请先在下载设置中填写片库服务器和上传密钥';
+    final episode = _repository.getRecord(recordKey)?.episodes[episodeNumber];
+    if (episode == null || episode.upscaleStatus != UpscaleStatus.done) {
+      return '该集尚未完成超分';
+    }
+    final key = progressKey(recordKey, episodeNumber);
+    if (uploadProgress.containsKey(key)) return null;
+    _uploadQueue.add((recordKey, episodeNumber));
+    runInAction(() => uploadProgress[key] = 0);
+    unawaited(_pumpUploadQueue());
+    return null;
+  }
+
+  Future<void> _pumpUploadQueue() async {
+    if (_uploading) return;
+    _uploading = true;
+    try {
+      while (_uploadQueue.isNotEmpty) {
+        final (recordKey, episodeNumber) = _uploadQueue.removeAt(0);
+        final key = progressKey(recordKey, episodeNumber);
+        try {
+          await _uploadOne(recordKey, episodeNumber, key);
+          KazumiDialog.showToast(message: '已上传到片库');
+        } catch (e) {
+          KazumiLogger().e('UpscaleController: upload failed for $key', error: e);
+          KazumiDialog.showToast(message: '上传到片库失败: $e');
+        } finally {
+          runInAction(() => uploadProgress.remove(key));
+        }
+      }
+    } finally {
+      _uploading = false;
+    }
+  }
+
+  Future<void> _uploadOne(String recordKey, int episodeNumber, String key) async {
+    final record = _repository.getRecord(recordKey);
+    final episode = record?.episodes[episodeNumber];
+    if (record == null || episode == null) return;
+    final api = LibraryApi(
+      GStorage.getSetting(SettingsKeys.libraryServer),
+      GStorage.getSetting(SettingsKeys.libraryAdminKey),
+    );
+    final video = File(episode.upscaledVideoPath);
+    final danmaku = File(
+      path.join(episode.downloadDirectory, upscaledDanmakuFileName),
+    );
+    final hasDanmaku = await danmaku.exists();
+    final size = await video.length();
+    final manifest = UpscaledEpisodeManifest.fromEpisode(
+      record,
+      episode,
+      width: 0,
+      height: episode.upscaledHeight,
+      sizeBytes: size,
+      hasDanmaku: hasDanmaku,
+    );
+    final id = manifest.shareId;
+
+    await _uploadResumable(
+      api,
+      id,
+      upscaledVideoFileName,
+      video,
+      onProgress: (sent) =>
+          runInAction(() => uploadProgress[key] = sent / size),
+    );
+    if (hasDanmaku) {
+      await _uploadResumable(api, id, upscaledDanmakuFileName, danmaku);
+    }
+    await api.commit(id, manifest);
+  }
+
+  /// Home upload links drop long transfers, so each attempt resumes from
+  /// whatever the server already holds.
+  static Future<void> _uploadResumable(
+    LibraryApi api,
+    String id,
+    String file,
+    File source, {
+    void Function(int sent)? onProgress,
+  }) async {
+    final size = await source.length();
+    var attempt = 0;
+    while (true) {
+      final offset = await api.uploadedSize(id, file);
+      if (offset == size) return;
+      if (offset > size) {
+        throw LibraryException('服务器上的 $file 比本地大，请在服务器上删除后重试');
+      }
+      try {
+        await api.upload(id, file, source,
+            offset: offset, onProgress: onProgress);
+        return;
+      } on LibraryException catch (e) {
+        if (++attempt >= 8) rethrow;
+        KazumiLogger().w('UpscaleController: upload retry $attempt: $e');
+        await Future.delayed(Duration(seconds: 2 * attempt));
+      }
     }
   }
 

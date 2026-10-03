@@ -58,6 +58,7 @@ class _MyPageState extends State<MyPage> {
         MyDestination.rules => '/settings/plugin/',
         MyDestination.history => '/settings/history/',
         MyDestination.downloads => '/settings/download/',
+        MyDestination.together => '/library/',
         MyDestination.sync => '/settings/sync',
         MyDestination.storage => '/settings/storage',
         MyDestination.about => '/settings/about/',

@@ -133,6 +133,11 @@ class _DownloadPageState extends State<DownloadPage> {
               label: '全部烘焙超分',
               onPressed: () => _bakeAll(record),
             ),
+          if (upscaleController.canBake)
+            KazumiMenuItem(
+              label: '全部上传到片库',
+              onPressed: () => _uploadAll(record),
+            ),
         ],
         totalSpeed: totalSpeed,
         episodeTileBuilder: () {
@@ -152,12 +157,16 @@ class _DownloadPageState extends State<DownloadPage> {
           UpscaleController.progressKey(record.key, episode.episodeNumber);
       final bakeProgress = upscaleController.bakeProgress[key];
       final exportProgress = upscaleController.exportProgress[key];
+      final uploadProgress = upscaleController.uploadProgress[key];
       return DownloadEpisodeTile(
         episode: episode,
         statusText: _getStatusText(record, episode,
-            bakeProgress: bakeProgress, exportProgress: exportProgress),
+            bakeProgress: bakeProgress,
+            exportProgress: exportProgress,
+            uploadProgress: uploadProgress),
         actions: _getActionButtons(record, episode),
-        taskProgress: exportProgress ??
+        taskProgress: uploadProgress ??
+            exportProgress ??
             bakeProgress ??
             (episode.upscaleStatus == UpscaleStatus.queued ? 0 : null),
         onPlay: episode.status == DownloadStatus.completed
@@ -168,11 +177,14 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   String _getStatusText(DownloadRecord record, DownloadEpisode episode,
-      {double? bakeProgress, double? exportProgress}) {
+      {double? bakeProgress, double? exportProgress, double? uploadProgress}) {
     switch (episode.status) {
       case DownloadStatus.completed:
         final base = '已完成 · ${formatBytes(episode.totalBytes)}';
         if (episode.preUpscaled) return '$base · 超分版';
+        if (uploadProgress != null) {
+          return '$base · 正在上传到片库 ${(uploadProgress * 100).toStringAsFixed(0)}%';
+        }
         if (exportProgress != null) {
           return '$base · 正在导出 ${(exportProgress * 100).toStringAsFixed(0)}%';
         }
@@ -318,6 +330,13 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '导出超分版本',
             visualDensity: VisualDensity.compact,
           ),
+          IconButton(
+            icon: Icon(Icons.cloud_upload_outlined,
+                size: 20, color: colorScheme.tertiary),
+            onPressed: () => _uploadEpisode(record, episode),
+            tooltip: '上传到片库',
+            visualDensity: VisualDensity.compact,
+          ),
         ];
       default:
         return [
@@ -362,6 +381,33 @@ class _DownloadPageState extends State<DownloadPage> {
         message: queued > 0
             ? '已加入 $queued 集到超分烘焙队列'
             : (lastError ?? '没有可烘焙的剧集'));
+  }
+
+  void _uploadEpisode(DownloadRecord record, DownloadEpisode episode) {
+    final error =
+        upscaleController.enqueueUpload(record.key, episode.episodeNumber);
+    KazumiDialog.showToast(message: error ?? '已加入片库上传队列');
+  }
+
+  void _uploadAll(DownloadRecord record) {
+    var queued = 0;
+    String? lastError;
+    final episodes = record.episodes.values.toList()
+      ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+    for (final episode in episodes) {
+      if (episode.upscaleStatus != UpscaleStatus.done) continue;
+      final error =
+          upscaleController.enqueueUpload(record.key, episode.episodeNumber);
+      if (error == null) {
+        queued++;
+      } else {
+        lastError = error;
+      }
+    }
+    KazumiDialog.showToast(
+        message: queued > 0
+            ? '已加入 $queued 集到片库上传队列'
+            : (lastError ?? '没有已烘焙的剧集，请先烘焙超分'));
   }
 
   Future<void> _exportEpisode(
