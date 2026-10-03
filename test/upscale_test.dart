@@ -80,7 +80,7 @@ void main() {
           ),
         ],
       );
-      await server.start('123456');
+      await server.start('123456', port: 0);
     });
 
     tearDown(() async {
@@ -89,16 +89,16 @@ void main() {
     });
 
     test('lists episodes for the right code only', () async {
-      final ok = LanShareClient('127.0.0.1', '123456');
+      final ok = LanShareClient('127.0.0.1:${server.port}', '123456');
       final episodes = await ok.listEpisodes();
       expect(episodes.single.episodeNumber, 3);
 
-      final wrong = LanShareClient('127.0.0.1', '000000');
+      final wrong = LanShareClient('127.0.0.1:${server.port}', '000000');
       expect(wrong.listEpisodes(), throwsA(isA<LanShareException>()));
     });
 
     test('serves byte ranges so transfers can resume', () async {
-      final client = LanShareClient('127.0.0.1', '123456');
+      final client = LanShareClient('127.0.0.1:${server.port}', '123456');
       final http = HttpClient();
       final request = await http.getUrl(client.videoUri(_manifest()));
       request.headers.set(lanShareTokenHeader, '123456');
@@ -117,7 +117,7 @@ void main() {
     });
 
     test('missing danmaku is a 404, not a crash', () async {
-      final client = LanShareClient('127.0.0.1', '123456');
+      final client = LanShareClient('127.0.0.1:${server.port}', '123456');
       expect(
         client.download(client.danmakuUri(_manifest())),
         throwsA(isA<LanShareException>()),

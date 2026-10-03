@@ -32,18 +32,19 @@ class LanShareServer {
   String _token = '';
 
   bool get isRunning => _server != null;
+  int? get port => _server?.port;
 
-  Future<void> start(String token) async {
+  Future<void> start(String token, {int port = lanSharePort}) async {
     await stop();
     _token = token;
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, lanSharePort);
+    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
     _server!.listen(
       _handle,
       onError: (Object e) {
         KazumiLogger().w('LanShareServer: request stream error', error: e);
       },
     );
-    KazumiLogger().i('LanShareServer: listening on port $lanSharePort');
+    KazumiLogger().i('LanShareServer: listening on port ${_server!.port}');
   }
 
   Future<void> stop() async {
