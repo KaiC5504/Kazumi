@@ -497,6 +497,46 @@ class SettingsKeys {
     '',
     group: SettingGroup.download,
   );
+  static const upscaleFfmpegPath = SettingKey<String>(
+    'upscaleFfmpegPath',
+    '',
+    group: SettingGroup.download,
+  );
+  static const upscaleBakeHeight = SettingKey<int>(
+    'upscaleBakeHeight',
+    1440,
+    group: SettingGroup.download,
+  );
+  static const upscaleExportDirectory = SettingKey<String>(
+    'upscaleExportDirectory',
+    '',
+    group: SettingGroup.download,
+  );
+  static const upscaleAutoExport = SettingKey<bool>(
+    'upscaleAutoExport',
+    false,
+    group: SettingGroup.download,
+  );
+  static const lanShareEnabled = SettingKey<bool>(
+    'lanShareEnabled',
+    false,
+    group: SettingGroup.download,
+  );
+  static const lanShareToken = SettingKey<String>(
+    'lanShareToken',
+    '',
+    group: SettingGroup.download,
+  );
+  static const lanPullAddress = SettingKey<String>(
+    'lanPullAddress',
+    '',
+    group: SettingGroup.download,
+  );
+  static const lanPullToken = SettingKey<String>(
+    'lanPullToken',
+    '',
+    group: SettingGroup.download,
+  );
   static const shortcutDialogShown = SettingKey<bool>(
     _SettingBoxKey.shortcutDialogShown,
     false,
@@ -649,6 +689,14 @@ class SettingsKeys {
     downloadDanmaku,
     downloadDirectory,
     downloadDirectoryBookmark,
+    upscaleFfmpegPath,
+    upscaleBakeHeight,
+    upscaleExportDirectory,
+    upscaleAutoExport,
+    lanShareEnabled,
+    lanShareToken,
+    lanPullAddress,
+    lanPullToken,
     shortcutDialogShown,
     bangumiSyncEnable,
     bangumiAccessToken,

@@ -101,6 +101,8 @@ abstract class IDownloadManager {
   Future<void> resume(DownloadRequest request);
   void cancel(String recordKey, int episodeNumber);
   String? getLocalVideoPath(DownloadEpisode? episode);
+  Future<String> episodeDirectoryFor(
+      int bangumiId, String pluginName, int episodeNumber);
   Future<void> deleteEpisodeFiles(
       int bangumiId, String pluginName, int episodeNumber,
       {DownloadEpisode? episode});
@@ -235,6 +237,13 @@ class DownloadManager implements IDownloadManager {
       int episodeNumber) {
     return path.join(
         downloadBase, '${bangumiId}_$pluginName', '$episodeNumber');
+  }
+
+  @override
+  Future<String> episodeDirectoryFor(
+      int bangumiId, String pluginName, int episodeNumber) async {
+    return _getEpisodeDir(
+        await _downloadBaseDir, bangumiId, pluginName, episodeNumber);
   }
 
   /// Resolves the episode directory (kept from a previous attempt if any),
@@ -421,6 +430,20 @@ class DownloadManager implements IDownloadManager {
       episode.status = DownloadStatus.downloading;
       episode.networkM3u8Url = m3u8Url;
       _notifyProgress(task.recordKey, task.episodeNumber, episode);
+
+      // Pre-upscaled episodes are always a single mp4 served by another Kazumi
+      // device; probing them as m3u8 would start pulling the whole file.
+      if (episode.preUpscaled) {
+        await _runDirectFileDownload(
+          task: task,
+          bangumiId: bangumiId,
+          pluginName: pluginName,
+          videoUrl: m3u8Url,
+          httpHeaders: httpHeaders,
+          episode: episode,
+        );
+        return;
+      }
 
       String m3u8Content;
       try {

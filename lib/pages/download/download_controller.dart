@@ -8,6 +8,7 @@ import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/background_download_service.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/upscale/upscaled_package.dart';
 import 'package:kazumi/utils/format.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -329,6 +330,9 @@ abstract class _DownloadController with Store {
       episode.episodePageUrl,
       danmakuData: episode.danmakuData,
       danDanBangumiID: episode.danDanBangumiID,
+      preUpscaled: episode.preUpscaled,
+      upscaledVideoPath: episode.upscaledVideoPath,
+      upscaleStatus: episode.upscaleStatus,
     );
   }
 
@@ -825,6 +829,11 @@ abstract class _DownloadController with Store {
     final episode = record.episodes[episodeNumber];
     if (episode == null) return;
 
+    if (episode.preUpscaled) {
+      await _enqueuePreUpscaled(recordKey, bangumiId, pluginName, episode);
+      return;
+    }
+
     final plugin = _findPlugin(pluginName);
     if (plugin == null) {
       _failEpisode(recordKey, episodeNumber, '找不到插件 $pluginName');
@@ -943,6 +952,12 @@ abstract class _DownloadController with Store {
     final episode = record.episodes[episodeNumber];
     if (episode == null) return;
 
+    if (episode.preUpscaled) {
+      await _enqueuePreUpscaled(recordKey, bangumiId, pluginName, episode,
+          priority: true);
+      return;
+    }
+
     final plugin = _findPlugin(pluginName);
     if (plugin == null) {
       _failEpisode(recordKey, episodeNumber, '找不到插件 $pluginName');
@@ -991,6 +1006,51 @@ abstract class _DownloadController with Store {
       _processResolveQueue();
     }
   }
+
+  /// Queues a direct transfer of an already upscaled episode from another
+  /// Kazumi device. These never go through plugin resolution.
+  Future<void> enqueuePreUpscaled(
+      DownloadRecord record, DownloadEpisode episode) async {
+    final existing = _repository.getRecord(record.key);
+    final target = existing ?? record;
+    target.episodes[episode.episodeNumber] = episode;
+    await _repository.putRecord(target);
+    await _enqueuePreUpscaled(
+        record.key, record.bangumiId, record.pluginName, episode);
+  }
+
+  Future<void> _enqueuePreUpscaled(String recordKey, int bangumiId,
+      String pluginName, DownloadEpisode episode,
+      {bool priority = false}) async {
+    if (episode.networkM3u8Url.isEmpty) {
+      _failEpisode(recordKey, episode.episodeNumber, '缺少来源地址，请重新从电脑拉取');
+      return;
+    }
+    episode.status = DownloadStatus.downloading;
+    episode.errorMessage = '';
+    await _repository.updateEpisode(recordKey, episode.episodeNumber, episode);
+    _refreshRecord(recordKey);
+
+    final token = GStorage.getSetting(SettingsKeys.lanPullToken);
+    final request = DownloadRequest(
+      recordKey: recordKey,
+      bangumiId: bangumiId,
+      pluginName: pluginName,
+      episodeNumber: episode.episodeNumber,
+      m3u8Url: episode.networkM3u8Url,
+      httpHeaders: {lanShareTokenHeader: token},
+      adBlockerEnabled: false,
+      episode: episode,
+    );
+    if (priority) {
+      await _downloadManager.enqueuePriority(request);
+    } else {
+      await _downloadManager.enqueue(request);
+    }
+  }
+
+  /// Re-reads a record from storage into the observable snapshot.
+  void syncRecord(String recordKey) => _refreshRecord(recordKey);
 
   Future<void> resumeAllDownloads(int bangumiId, String pluginName) async {
     final recordKey = '${pluginName}_$bangumiId';
