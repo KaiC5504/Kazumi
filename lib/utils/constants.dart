@@ -139,6 +139,17 @@ const List<String> mpvAnime4KShaders = [
   'Anime4K_Upscale_CNN_x2_M.glsl'
 ];
 
+/// 超分辨率滤镜 (均衡)
+/// 与质量档结构相同，主干换成 L 网络，适合 A12X 这类跑不动 VL 的设备
+const List<String> mpvAnime4KShadersBalanced = [
+  'Anime4K_Clamp_Highlights.glsl',
+  'Anime4K_Restore_CNN_L.glsl',
+  'Anime4K_Upscale_CNN_x2_L.glsl',
+  'Anime4K_AutoDownscalePre_x2.glsl',
+  'Anime4K_AutoDownscalePre_x4.glsl',
+  'Anime4K_Upscale_CNN_x2_M.glsl'
+];
+
 /// 超分辨率滤镜 (轻量)
 const List<String> mpvAnime4KShadersLite = [
   'Anime4K_Clamp_Highlights.glsl',

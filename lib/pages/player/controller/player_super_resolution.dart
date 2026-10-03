@@ -9,6 +9,11 @@ enum SuperResolutionMode {
     label: '效率档',
     description: '默认启用基于Anime4K的超分辨率 (效率优先)',
   ),
+  balanced(
+    storageValue: 4,
+    label: '均衡档',
+    description: '默认启用基于Anime4K的超分辨率 (兼顾效率与质量)',
+  ),
   quality(
     storageValue: 3,
     label: '质量档',
