@@ -33,8 +33,19 @@ workflows:
           grep -c "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;" "$pbx" | grep -qx 3
 
           plist=ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$plist" || true
-          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$plist"
+          set_key() {
+            /usr/libexec/PlistBuddy -c "Delete :$1" "$plist" || true
+            /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$plist"
+          }
+          set_key ITSAppUsesNonExemptEncryption bool false
+          # App Store processing (ITMS-90683) rejects builds whose linked
+          # plugins reference these APIs without purpose strings, even
+          # unused ones. Upstream only ships unsigned IPAs, so never needed them.
+          set_key NSPhotoLibraryUsageDescription string "用于选择图片进行以图搜番"
+          set_key NSPhotoLibraryAddUsageDescription string "用于将截图保存到相册"
+          set_key NSCameraUsageDescription string "用于拍照进行以图搜番"
+          set_key NSLocationWhenInUseUsageDescription string "Kazumi 不会读取你的位置"
+          /usr/libexec/PlistBuddy -c "Print" "$plist" | grep -E "Usage|Encryption"
       - name: Native build tools
         # ech_http compiles a C++ bridge through a build hook.
         script: brew install cmake ninja || true
