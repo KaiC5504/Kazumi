@@ -4,8 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:kazumi/navigation.dart';
 
-/// A short frosted-glass pill at the top of the screen, for room events that
-/// shouldn't cover the subtitles the way a bottom toast does.
+/// A short frosted-glass pill for watch-together events. Room events sit at
+/// the top so they don't cover subtitles; ones with a button go at the
+/// bottom, within thumb reach.
 class GlassNotice {
   GlassNotice._();
 
@@ -14,17 +15,28 @@ class GlassNotice {
   static void show(
     String message, {
     IconData? icon,
-    Duration duration = const Duration(milliseconds: 2600),
+    bool bottom = false,
+    String? actionLabel,
+    VoidCallback? onAction,
+    Duration? duration,
   }) {
     final overlay = rootNavigatorKey.currentState?.overlay;
     if (overlay == null) return;
     _remove();
+    final hasAction = actionLabel != null && onAction != null;
     late final OverlayEntry entry;
     entry = OverlayEntry(
       builder: (_) => _GlassNoticeView(
         message: message,
         icon: icon,
-        duration: duration,
+        bottom: bottom,
+        actionLabel: hasAction ? actionLabel : null,
+        onAction: hasAction ? onAction : null,
+        duration:
+            duration ??
+            (hasAction
+                ? const Duration(seconds: 6)
+                : const Duration(milliseconds: 2600)),
         onDone: () {
           if (identical(_entry, entry)) _remove();
         },
@@ -44,12 +56,18 @@ class _GlassNoticeView extends StatefulWidget {
   const _GlassNoticeView({
     required this.message,
     required this.icon,
+    required this.bottom,
+    required this.actionLabel,
+    required this.onAction,
     required this.duration,
     required this.onDone,
   });
 
   final String message;
   final IconData? icon;
+  final bool bottom;
+  final String? actionLabel;
+  final VoidCallback? onAction;
   final Duration duration;
   final VoidCallback onDone;
 
@@ -63,6 +81,11 @@ class _GlassNoticeViewState extends State<_GlassNoticeView>
     vsync: this,
     duration: const Duration(milliseconds: 420),
     reverseDuration: const Duration(milliseconds: 260),
+  );
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutBack,
+    reverseCurve: Curves.easeInCubic,
   );
   Timer? _timer;
 
@@ -80,57 +103,72 @@ class _GlassNoticeViewState extends State<_GlassNoticeView>
     if (mounted) widget.onDone();
   }
 
+  void _act() {
+    final action = widget.onAction;
+    unawaited(_hide());
+    if (action != null) scheduleMicrotask(action);
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
+    _curve.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final top = MediaQuery.paddingOf(context).top + 10;
+    final padding = MediaQuery.paddingOf(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final curve = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutBack,
-      reverseCurve: Curves.easeInCubic,
+    final slideFrom = widget.bottom ? 24.0 : -24.0;
+    final pill = AnimatedBuilder(
+      animation: _curve,
+      builder: (context, child) {
+        final t = _curve.value;
+        return Opacity(
+          opacity: _controller.value,
+          child: Transform.translate(
+            offset: Offset(0, reduceMotion ? 0 : (1 - t) * slideFrom),
+            child: Transform.scale(
+              scale: reduceMotion ? 1 : 0.9 + 0.1 * t,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: _GlassPill(
+        message: widget.message,
+        icon: widget.icon,
+        actionLabel: widget.actionLabel,
+        onAction: widget.actionLabel == null ? null : _act,
+      ),
     );
 
     return Positioned(
-      top: top,
+      top: widget.bottom ? null : padding.top + 10,
+      bottom: widget.bottom ? padding.bottom + 24 : null,
       left: 16,
       right: 16,
-      child: IgnorePointer(
-        child: Center(
-          child: AnimatedBuilder(
-            animation: curve,
-            builder: (context, child) {
-              final t = curve.value;
-              return Opacity(
-                opacity: _controller.value,
-                child: Transform.translate(
-                  offset: Offset(0, reduceMotion ? 0 : (1 - t) * -24),
-                  child: Transform.scale(
-                    scale: reduceMotion ? 1 : 0.9 + 0.1 * t,
-                    child: child,
-                  ),
-                ),
-              );
-            },
-            child: _GlassPill(message: widget.message, icon: widget.icon),
-          ),
-        ),
+      child: Center(
+        child: widget.actionLabel == null ? IgnorePointer(child: pill) : pill,
       ),
     );
   }
 }
 
 class _GlassPill extends StatelessWidget {
-  const _GlassPill({required this.message, required this.icon});
+  const _GlassPill({
+    required this.message,
+    required this.icon,
+    required this.actionLabel,
+    required this.onAction,
+  });
 
   final String message;
   final IconData? icon;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +184,7 @@ class _GlassPill extends StatelessWidget {
       letterSpacing: 0.2,
       decoration: TextDecoration.none,
     );
+    final action = actionLabel;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
@@ -177,23 +216,64 @@ class _GlassPill extends StatelessWidget {
                 width: 0.8,
               ),
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            child: IntrinsicHeight(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: 17, color: foreground),
-                    const SizedBox(width: 8),
-                  ],
                   Flexible(
-                    child: Text(
-                      message,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textStyle,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        9,
+                        action == null ? 16 : 12,
+                        9,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (icon != null) ...[
+                            Icon(icon, size: 17, color: foreground),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: Text(
+                              message,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textStyle,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
+                  if (action != null) ...[
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 0.8,
+                      indent: 8,
+                      endIndent: 8,
+                      color: Colors.white.withValues(alpha: 0.28),
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onAction,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 9, 16, 9),
+                        child: Center(
+                          widthFactor: 1,
+                          child: Text(
+                            action,
+                            style: textStyle?.copyWith(
+                              color: const Color(0xFFA8D8FF),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -3,7 +3,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/pages/player/controller/player_models.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -98,9 +97,8 @@ abstract class _PlayerSyncPlayController with Store {
     KazumiLogger().i('SyncPlay: connecting to $syncPlayEndPoint');
     final parsed = parseSyncPlayEndPoint(syncPlayEndPoint);
     if (parsed == null) {
-      KazumiDialog.showToast(
-        message: 'SyncPlay: 服务器地址不合法 $syncPlayEndPoint',
-      );
+      GlassNotice.show('同步服务器地址不对',
+          icon: Icons.error_outline_rounded, bottom: true);
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
       return;
     }
@@ -128,12 +126,12 @@ abstract class _PlayerSyncPlayController with Store {
           KazumiLogger().e('SyncPlay: error $message', error: error);
           if (error is SyncplayConnectionException) {
             exitRoom();
-            KazumiDialog.showToast(
-              message: 'SyncPlay: 同步中断 $message',
-              duration: const Duration(seconds: 5),
-              showActionButton: true,
+            GlassNotice.show(
+              '同步中断',
+              icon: Icons.link_off_rounded,
+              bottom: true,
               actionLabel: '重新连接',
-              onActionPressed: () => createRoom(room, username, changeEpisode),
+              onAction: () => createRoom(room, username, changeEpisode),
             );
           }
         },
@@ -145,14 +143,12 @@ abstract class _PlayerSyncPlayController with Store {
           }
           if (message['type'] == 'init') {
             if (message['username'] == '') {
-              KazumiDialog.showToast(
-                  message: 'SyncPlay: 您是当前房间中的唯一用户',
-                  duration: const Duration(seconds: 5));
+              GlassNotice.show('房间里只有你，等对方加入',
+                  icon: Icons.hourglass_empty_rounded);
               setPlayingBangumi();
             } else {
-              KazumiDialog.showToast(
-                  message:
-                      'SyncPlay: 您不是当前房间中的唯一用户, 当前以用户 ${message['username']} 进度为准');
+              GlassNotice.show('已跟上 ${message['username']} 的进度',
+                  icon: Icons.sync_rounded);
             }
           }
           if (message['type'] == 'left') {
@@ -178,10 +174,9 @@ abstract class _PlayerSyncPlayController with Store {
             int bangumiID = int.tryParse(match.group(1) ?? '0') ?? 0;
             int episode = int.tryParse(match.group(2) ?? '0') ?? 0;
             if (bangumiID != 0 && episode != 0 && episode != currentEpisode()) {
-              KazumiDialog.showToast(
-                  message:
-                      'SyncPlay: ${message['setBy'] ?? 'unknown'} 切换到第 $episode 话',
-                  duration: const Duration(seconds: 3));
+              GlassNotice.show(
+                  '${message['setBy'] ?? '对方'} 切换到第 $episode 话',
+                  icon: Icons.skip_next_rounded);
               changeEpisode(episode, currentRoad: currentRoad());
             }
           }
@@ -262,10 +257,12 @@ abstract class _PlayerSyncPlayController with Store {
       syncplayRoom = '';
       syncplayClientRtt = 0;
       await client.disconnect();
-      final message = e is SyncplayException ? e.message : e.toString();
-      KazumiDialog.showToast(
-        message: 'SyncPlay: 连接失败 $message',
-        duration: const Duration(seconds: 5),
+      GlassNotice.show(
+        '连不上同步服务器',
+        icon: Icons.link_off_rounded,
+        bottom: true,
+        actionLabel: '重试',
+        onAction: () => createRoom(room, username, changeEpisode),
       );
     }
   }
