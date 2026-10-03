@@ -156,6 +156,9 @@ class UpscaleController {
       'upscaled',
       upscaledVideoFileName,
     );
+    final int targetHeight = GStorage.getSetting(
+      SettingsKeys.upscaleBakeHeight,
+    );
     final stopwatch = Stopwatch()..start();
     try {
       final shader = await UpscaleBaker.buildCombinedShader(
@@ -166,7 +169,7 @@ class UpscaleController {
         input: episode.localM3u8Path,
         output: output,
         shaderPath: shader,
-        targetHeight: GStorage.getSetting(SettingsKeys.upscaleBakeHeight),
+        targetHeight: targetHeight,
         onProgress: (p) => runInAction(() => bakeProgress[key] = p),
       );
       KazumiLogger().i(
@@ -175,6 +178,7 @@ class UpscaleController {
       await _updateEpisode(recordKey, episodeNumber, (e) {
         e.upscaleStatus = UpscaleStatus.done;
         e.upscaledVideoPath = output;
+        e.upscaledHeight = targetHeight;
       });
       if (GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
           GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty) {
@@ -226,7 +230,7 @@ class UpscaleController {
         record,
         episode,
         width: 0,
-        height: GStorage.getSetting(SettingsKeys.upscaleBakeHeight),
+        height: episode.upscaledHeight,
         sizeBytes: size,
         hasDanmaku: hasDanmaku,
       );
@@ -344,7 +348,7 @@ class UpscaleController {
               record,
               episode,
               width: 0,
-              height: GStorage.getSetting(SettingsKeys.upscaleBakeHeight),
+              height: episode.upscaledHeight,
               sizeBytes: video.lengthSync(),
               hasDanmaku: hasDanmaku,
             ),

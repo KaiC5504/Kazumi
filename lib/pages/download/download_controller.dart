@@ -333,6 +333,7 @@ abstract class _DownloadController with Store {
       preUpscaled: episode.preUpscaled,
       upscaledVideoPath: episode.upscaledVideoPath,
       upscaleStatus: episode.upscaleStatus,
+      upscaledHeight: episode.upscaledHeight,
     );
   }
 

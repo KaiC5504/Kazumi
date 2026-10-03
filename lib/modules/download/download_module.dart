@@ -99,6 +99,10 @@ class DownloadEpisode {
   @HiveField(18, defaultValue: 0)
   int upscaleStatus;
 
+  /// Output height of the baked video; the setting may change afterwards.
+  @HiveField(19, defaultValue: 0)
+  int upscaledHeight;
+
   DownloadEpisode(
     this.episodeNumber,
     this.episodeName,
@@ -119,6 +123,7 @@ class DownloadEpisode {
     this.preUpscaled = false,
     this.upscaledVideoPath = '',
     this.upscaleStatus = 0,
+    this.upscaledHeight = 0,
   });
 }
 

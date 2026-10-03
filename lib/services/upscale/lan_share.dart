@@ -62,6 +62,15 @@ class LanShareServer {
         if (!address.isLinkLocal) addresses.add(address.address);
       }
     }
+    // Home Wi-Fi is almost always 192.168.x; VPN, WSL and the Windows hotspot
+    // (192.168.137.x) adapters are listed too but unreachable from an iPad.
+    int rank(String a) {
+      if (a.startsWith('192.168.137.')) return 2;
+      if (a.startsWith('192.168.')) return 0;
+      return a.startsWith('10.') ? 1 : 3;
+    }
+
+    addresses.sort((a, b) => rank(a).compareTo(rank(b)));
     return addresses;
   }
 
