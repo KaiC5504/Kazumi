@@ -5,6 +5,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/services/library/library_controller.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/metered_network_service.dart';
@@ -182,7 +183,7 @@ class _AppWidgetState extends State<AppWidget>
       case 'show_window':
         windowManager.show();
       case 'exit':
-        exit(0);
+        inject<LibraryController>().sayGoodbye().whenComplete(() => exit(0));
     }
   }
 
@@ -218,6 +219,7 @@ class _AppWidgetState extends State<AppWidget>
       if (!mounted) return;
       switch (action) {
         case ExitDialogAction.exit:
+          await inject<LibraryController>().sayGoodbye();
           exit(0);
         case ExitDialogAction.minimizeToTray:
           await windowManager.hide();

@@ -8,7 +8,9 @@ from typing import Any
 
 from .config import to_iso
 
-PRESENCE_TTL = timedelta(seconds=45)
+# Apps beat every 3 s and say goodbye when they can; this only catches the ones
+# that couldn't (killed, crashed, lost network).
+PRESENCE_TTL = timedelta(seconds=20)
 
 
 @dataclass
@@ -26,12 +28,19 @@ class Room:
         self._clock = clock
         self._lock = threading.Lock()
         self._devices: dict[str, _Presence] = {}
-        self._seq = 0
+        # Seeded from the clock so picks keep counting up across restarts; apps
+        # already in the lobby ignore any seq at or below the last one they saw.
+        self._seq = int(clock().timestamp() * 1000)
         self._selection: dict[str, Any] | None = None
 
     def heartbeat(self, device_id: str, name: str, state: str, episode_id: str | None) -> dict[str, Any]:
         with self._lock:
             self._devices[device_id] = _Presence(name, state, episode_id, self._clock())
+            return self._snapshot()
+
+    def leave(self, device_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._devices.pop(device_id, None)
             return self._snapshot()
 
     def select(self, device_id: str, name: str, episode_id: str) -> dict[str, Any]:

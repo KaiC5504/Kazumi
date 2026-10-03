@@ -28,12 +28,28 @@ def test_heartbeat_and_expiry(client, clock):
     assert [(m["deviceId"], m["secondsAgo"]) for m in room["members"]] == [("phone", 10), ("ipad", 0)]
     assert room["members"][1]["episodeId"] == "ep1"
 
-    clock.advance(seconds=40)
+    clock.advance(seconds=11)
     room = client.get("/api/room", headers=VIEW).json()
     assert [m["deviceId"] for m in room["members"]] == ["ipad"]
 
-    clock.advance(seconds=6)
+    clock.advance(seconds=10)
     assert client.get("/api/room", headers=VIEW).json()["members"] == []
+
+
+def test_leave_drops_the_device_at_once(client):
+    heartbeat(client, "phone", "alice")
+    heartbeat(client, "ipad", "bob")
+    r = client.post("/api/room/leave", json={"deviceId": "phone"}, headers=VIEW)
+    assert r.status_code == 200
+    assert [m["deviceId"] for m in r.json()["members"]] == ["ipad"]
+    assert client.post("/api/room/leave", json={"deviceId": "phone"}, headers=VIEW).status_code == 200
+    assert client.post("/api/room/leave", json={"deviceId": "ipad"}).status_code == 401
+
+
+def test_idle_heartbeat_from_older_apps_means_leaving(client):
+    heartbeat(client, "phone", "alice")
+    room = heartbeat(client, "phone", "alice", "idle")
+    assert room["members"] == []
 
 
 def test_select_bumps_seq(client, clock):
@@ -42,7 +58,7 @@ def test_select_bumps_seq(client, clock):
     assert r.status_code == 200
     room = r.json()
     sel = room["selection"]
-    assert sel["seq"] == 1
+    first = sel["seq"]
     assert sel["episodeId"] == "ep7"
     assert sel["by"] == "bob"
     assert sel["byDeviceId"] == "ipad"
@@ -52,8 +68,21 @@ def test_select_bumps_seq(client, clock):
     clock.advance(seconds=3)
     r = client.post("/api/room/select", json={"deviceId": "phone", "name": "alice", "episodeId": "ep8"}, headers=VIEW)
     sel = r.json()["selection"]
-    assert (sel["seq"], sel["episodeId"], sel["byDeviceId"]) == (2, "ep8", "phone")
+    assert (sel["seq"], sel["episodeId"], sel["byDeviceId"]) == (first + 1, "ep8", "phone")
     assert client.get("/api/room", headers=VIEW).json()["selection"] == sel
+
+
+def test_picks_keep_counting_up_across_restarts(settings, clock):
+    pick = {"deviceId": "ipad", "name": "bob", "episodeId": "ep7"}
+    with TestClient(create_app(settings)) as c:
+        for _ in range(3):
+            before = c.post("/api/room/select", json=pick, headers=VIEW).json()["selection"]["seq"]
+    clock.advance(seconds=5)
+    # Apps already in the lobby ignore picks numbered at or below the last one
+    # they saw, so a restart must not start counting from zero again.
+    with TestClient(create_app(settings)) as c:
+        after = c.post("/api/room/select", json=pick, headers=VIEW).json()["selection"]["seq"]
+    assert after > before
 
 
 def test_room_body_validation(client):

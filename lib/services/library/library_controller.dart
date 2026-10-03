@@ -62,7 +62,8 @@ class LibraryController implements OfflinePlaybackHooks {
   DateTime _lastLinkAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   Timer? _heartbeat;
-  bool _heartbeatBusy = false;
+  Future<void>? _beatInFlight;
+  AppLifecycleListener? _lifecycle;
   bool _inLobby = false;
   int? _lastSelectionSeq;
 
@@ -95,6 +96,19 @@ class LibraryController implements OfflinePlaybackHooks {
   LibraryApi? get _api => isConfigured ? LibraryApi(server, key) : null;
 
   Future<void> init() async {
+    // A backgrounded phone or a PC minimised to the tray can't follow a pick,
+    // so it leaves the room until it's back on screen.
+    _lifecycle = AppLifecycleListener(
+      onHide: () {
+        if (_inLobby && _playingId == null) unawaited(_leaveRoom());
+      },
+      onShow: () {
+        if (_inLobby && _heartbeat == null) {
+          _lastSelectionSeq = null;
+          _startHeartbeat();
+        }
+      },
+    );
     if (!Platform.isIOS && !Platform.isAndroid) return;
     try {
       _linkSubscription = AppLinks().uriLinkStream.listen(
@@ -269,10 +283,29 @@ class LibraryController implements OfflinePlaybackHooks {
 
   Future<void> leaveLobby() async {
     _inLobby = false;
-    if (_playingId == null) {
-      _heartbeat?.cancel();
-      _heartbeat = null;
-      await _beat(state: 'idle');
+    if (_playingId == null) await _leaveRoom();
+  }
+
+  /// Leaves the room right away instead of waiting for the server to time
+  /// this device out. Also called just before the desktop app exits.
+  Future<void> sayGoodbye() async {
+    try {
+      await _leaveRoom().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
+  Future<void> _leaveRoom() async {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    final api = _api;
+    if (api == null) return;
+    // A beat still on the wire would land after the goodbye and put this
+    // device straight back in the room.
+    await _beatInFlight;
+    try {
+      await api.leave(deviceId);
+    } catch (e) {
+      KazumiLogger().w('LibraryController: leave failed', error: e);
     }
   }
 
@@ -281,15 +314,16 @@ class LibraryController implements OfflinePlaybackHooks {
     unawaited(_beat());
   }
 
-  Future<void> _beat({String? state}) async {
+  Future<void> _beat() async {
     final api = _api;
-    if (api == null || _heartbeatBusy) return;
-    _heartbeatBusy = true;
+    if (api == null || _beatInFlight != null) return;
+    final done = Completer<void>();
+    _beatInFlight = done.future;
     try {
       final result = await api.heartbeat(
         deviceId: deviceId,
         name: displayName,
-        state: state ?? (_playingId != null ? 'watching' : 'lobby'),
+        state: _playingId != null ? 'watching' : 'lobby',
         episodeId: _playingId,
       );
       runInAction(() => room.value = result);
@@ -297,7 +331,8 @@ class LibraryController implements OfflinePlaybackHooks {
     } catch (e) {
       // Presence is best-effort; the next beat retries.
     } finally {
-      _heartbeatBusy = false;
+      _beatInFlight = null;
+      done.complete();
     }
   }
 
@@ -475,9 +510,7 @@ class LibraryController implements OfflinePlaybackHooks {
       unawaited(_beat());
       unawaited(refresh().then((_) => cleanup()));
     } else {
-      _heartbeat?.cancel();
-      _heartbeat = null;
-      unawaited(_beat(state: 'idle'));
+      unawaited(_leaveRoom());
     }
   }
 
@@ -619,6 +652,7 @@ class LibraryController implements OfflinePlaybackHooks {
 
   void dispose() {
     _linkSubscription?.cancel();
+    _lifecycle?.dispose();
     _heartbeat?.cancel();
     _watchTimer?.cancel();
     _remotePicks.close();

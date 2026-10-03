@@ -206,6 +206,10 @@ class LibraryApi {
     return LibraryRoomState.fromJson(json);
   }
 
+  Future<void> leave(String deviceId) async {
+    await _json('POST', '/api/room/leave', body: {'deviceId': deviceId});
+  }
+
   Future<LibraryRoomState> select({
     required String deviceId,
     required String name,

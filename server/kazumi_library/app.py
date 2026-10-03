@@ -60,6 +60,10 @@ class RedeemBody(BaseModel):
     code: Annotated[str, StringConstraints(max_length=32)]
 
 
+class LeaveBody(BaseModel):
+    deviceId: DeviceId
+
+
 class SelectBody(BaseModel):
     deviceId: DeviceId
     name: Name
@@ -220,9 +224,16 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/api/room/heartbeat", dependencies=view)
     def heartbeat(body: HeartbeatBody) -> dict[str, Any]:
+        # Builds before /api/room/leave sent an "idle" beat on the way out.
+        if body.state == "idle":
+            return room.leave(body.deviceId)
         state = room.heartbeat(body.deviceId, body.name, body.state, body.episodeId)
         library.touch_member(body.name)
         return state
+
+    @app.post("/api/room/leave", dependencies=view)
+    def leave(body: LeaveBody) -> dict[str, Any]:
+        return room.leave(body.deviceId)
 
     @app.get("/api/room", dependencies=view)
     def get_room() -> dict[str, Any]:
