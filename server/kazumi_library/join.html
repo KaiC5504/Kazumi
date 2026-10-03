@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0a14">
+<meta name="referrer" content="no-referrer">
+<title>一起看 · Kazumi</title>
+<style>
+  :root {
+    --bg: #0b0a14;
+    --bg-2: #120f22;
+    --glow-a: rgba(255, 92, 168, 0.55);
+    --glow-b: rgba(110, 120, 255, 0.5);
+    --glow-c: rgba(64, 214, 255, 0.28);
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-strong: rgba(255, 255, 255, 0.1);
+    --glass-edge: rgba(255, 255, 255, 0.14);
+    --text: #f4f2ff;
+    --text-dim: rgba(244, 242, 255, 0.66);
+    --text-faint: rgba(244, 242, 255, 0.42);
+    --accent: #ff5ca8;
+    --accent-2: #8a7dff;
+    --warn: #ffcf6b;
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-sm: 12px;
+    --gutter: 20px;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: radial-gradient(120% 80% at 50% 0%, var(--bg-2), var(--bg) 60%);
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+  .sky { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.85; will-change: transform; }
+  .orb.a { width: 340px; height: 340px; background: var(--glow-a); top: -120px; left: -90px; animation: drift-a 16s ease-in-out infinite alternate; }
+  .orb.b { width: 380px; height: 380px; background: var(--glow-b); top: 30%; right: -160px; animation: drift-b 19s ease-in-out infinite alternate; }
+  .orb.c { width: 300px; height: 300px; background: var(--glow-c); bottom: -140px; left: 10%; animation: drift-c 22s ease-in-out infinite alternate; }
+  @keyframes drift-a { to { transform: translate(60px, 80px) scale(1.15); } }
+  @keyframes drift-b { to { transform: translate(-70px, -40px) scale(0.9); } }
+  @keyframes drift-c { to { transform: translate(50px, -70px) scale(1.1); } }
+
+  main {
+    position: relative; z-index: 1;
+    max-width: 440px; margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 56px) var(--gutter) calc(env(safe-area-inset-bottom) + 40px);
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .rise { opacity: 0; transform: translateY(18px) scale(0.98); animation: rise 0.9s var(--ease-out) forwards; }
+  .rise:nth-child(2) { animation-delay: 0.08s; }
+  .rise:nth-child(3) { animation-delay: 0.16s; }
+  .rise:nth-child(4) { animation-delay: 0.24s; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .hero { text-align: center; padding: 8px 0 6px; }
+  .mark {
+    width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 26px;
+    display: grid; place-items: center;
+    background: linear-gradient(145deg, rgba(255, 92, 168, 0.9), rgba(138, 125, 255, 0.9));
+    box-shadow: 0 18px 50px -12px rgba(255, 92, 168, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    animation: breathe 4.5s ease-in-out infinite;
+  }
+  @keyframes breathe { 50% { transform: translateY(-4px); box-shadow: 0 26px 60px -12px rgba(138, 125, 255, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.4); } }
+  h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: 0.02em; }
+  .en { display: block; color: var(--text-faint); font-size: 13px; font-weight: 500; letter-spacing: 0.01em; margin-top: 4px; }
+  .lede { margin: 12px 0 0; color: var(--text-dim); font-size: 16px; line-height: 1.6; }
+  .host { display: inline-block; margin-top: 12px; padding: 5px 12px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-edge); color: var(--text-dim); font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+
+  .card {
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    border-radius: var(--radius-lg);
+    padding: 22px;
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .cta {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    width: 100%; min-height: 72px; padding: 14px 18px;
+    border: 0; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff; text-decoration: none; font: inherit;
+    box-shadow: 0 16px 40px -14px rgba(255, 92, 168, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
+  }
+  .cta:active { transform: scale(0.97); box-shadow: 0 8px 24px -12px rgba(255, 92, 168, 0.75); }
+  .cta::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
+    transform: translateX(-100%); animation: sheen 3.6s ease-in-out 1.2s infinite;
+  }
+  @keyframes sheen { 45%, 100% { transform: translateX(100%); } }
+  .cta strong { font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
+  .cta small { font-size: 12px; opacity: 0.82; }
+  .status { margin: 14px 0 0; min-height: 1.4em; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.5; transition: opacity 0.4s; }
+
+  .help h2 { margin: 0 0 14px; font-size: 16px; font-weight: 650; }
+  .help h2 .en { display: inline; margin-left: 6px; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: step; }
+  li { position: relative; padding-left: 38px; font-size: 14px; line-height: 1.55; color: var(--text); counter-increment: step; }
+  li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--glass-strong); border: 1px solid var(--glass-edge); font-size: 13px; font-weight: 700; color: var(--text-dim);
+  }
+  li .en { font-size: 12px; margin-top: 2px; }
+  a.inline { color: #ffb3d6; text-decoration: none; border-bottom: 1px solid rgba(255, 179, 214, 0.4); }
+
+  .notice { text-align: center; }
+  .notice .icon { width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 700; color: var(--warn); background: rgba(255, 207, 107, 0.12); border: 1px solid rgba(255, 207, 107, 0.35); }
+  .notice p { margin: 0; font-size: 17px; line-height: 1.6; font-weight: 600; }
+  .notice .en { margin-top: 6px; }
+  .wechat p { font-size: 18px; }
+  .dots { display: inline-block; padding: 0 6px; margin: 0 2px; border-radius: 8px; background: var(--glass-strong); border: 1px solid var(--glass-edge); letter-spacing: 1px; }
+  .pointer {
+    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top) + 6px); right: 18px;
+    width: 92px; height: 92px; color: var(--warn);
+    filter: drop-shadow(0 6px 18px rgba(255, 207, 107, 0.45));
+    animation: nudge 1.6s ease-in-out infinite;
+  }
+  @keyframes nudge { 50% { transform: translate(6px, -8px); } }
+
+  footer { text-align: center; color: var(--text-faint); font-size: 12px; margin-top: 6px; }
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .rise { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+<div class="sky" aria-hidden="true"><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
+
+<svg id="pointer" class="pointer" viewBox="0 0 92 92" fill="none" hidden aria-hidden="true">
+  <path d="M14 82 C 30 60, 44 40, 70 20" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
+  <path d="M54 16 L 78 12 L 74 36" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<main>
+  <header class="hero rise">
+    <div class="mark" aria-hidden="true">
+      <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+        <circle cx="16" cy="22" r="11" stroke="#fff" stroke-width="3" opacity="0.9"/>
+        <circle cx="28" cy="22" r="11" stroke="#fff" stroke-width="3" opacity="0.9"/>
+        <path d="M19.5 16.5 L 28 22 L 19.5 27.5 Z" fill="#fff"/>
+      </svg>
+    </div>
+    <h1>一起看番吧</h1>
+    <span class="en">Let's watch together</span>
+    <p class="lede">你收到了一份 Kazumi 一起看的邀请<span class="en">You've been invited to a Kazumi watch party</span></p>
+    <span class="host" id="host"></span>
+  </header>
+
+  <section id="join" class="card rise" hidden>
+    <a class="cta" id="open" href="#">
+      <strong>打开 Kazumi 加入一起看</strong>
+      <small>Open Kazumi to join</small>
+    </a>
+    <p class="status" id="status" aria-live="polite"></p>
+  </section>
+
+  <section id="wechat" class="card notice wechat rise" hidden>
+    <div class="icon" aria-hidden="true">↗</div>
+    <p>点击右上角 <span class="dots">···</span> ，选择「在 Safari 中打开」</p>
+    <span class="en">Tap ··· at the top right, then choose "Open in Safari"</span>
+  </section>
+
+  <section id="broken" class="card notice rise" hidden>
+    <div class="icon" aria-hidden="true">!</div>
+    <p>邀请链接不完整，请让对方重新发送</p>
+    <span class="en">This invite link is incomplete. Ask for a new one.</span>
+  </section>
+
+  <section id="help" class="card help rise" hidden>
+    <h2>还没安装 Kazumi？<span class="en">Don't have Kazumi yet?</span></h2>
+    <ol>
+      <li>在 App Store 安装 <a class="inline" href="https://apps.apple.com/app/testflight/id899247664">TestFlight</a>
+        <span class="en">Install TestFlight from the App Store</span></li>
+      <li>打开 TestFlight，点「兑换」，输入对方发给你的兑换码，安装 Kazumi
+        <span class="en">In TestFlight, tap Redeem and enter the code you were sent</span></li>
+      <li>回到这个页面，点上面的按钮
+        <span class="en">Come back here and tap the button above</span></li>
+    </ol>
+  </section>
+
+  <footer class="rise">Kazumi · 一起看</footer>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  $("host").textContent = location.host;
+
+  // The key travels in the fragment so it never shows up in server or proxy logs.
+  var match = /(?:^|&)k=([^&]+)/.exec(location.hash.replace(/^#/, ""));
+  var key = null;
+  if (match) {
+    try { key = decodeURIComponent(match[1]); } catch (e) { key = null; }
+  }
+
+  if (!key) {
+    $("broken").hidden = false;
+    $("host").hidden = true;
+    return;
+  }
+
+  // WeChat's in-app browser refuses custom URL schemes, so only Safari can hand off.
+  if (/MicroMessenger/i.test(navigator.userAgent)) {
+    $("wechat").hidden = false;
+    $("pointer").hidden = false;
+    $("help").hidden = false;
+    return;
+  }
+
+  var link = "kazumi-library://join?server=" + encodeURIComponent(location.origin) +
+    "&key=" + encodeURIComponent(key);
+  var status = $("status");
+  $("open").href = link;
+  $("join").hidden = false;
+  $("help").hidden = false;
+
+  var left = false;
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      left = true;
+      status.textContent = "已在 Kazumi 中打开 · Opened in Kazumi";
+    }
+  });
+
+  setTimeout(function () {
+    status.textContent = "正在打开 Kazumi… · Opening Kazumi…";
+    location.href = link;
+    setTimeout(function () {
+      if (!left) status.textContent = "没有反应？点上面的按钮再试一次 · Nothing happened? Tap the button.";
+    }, 2500);
+  }, 700);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+[Unit]
+Description=Kazumi library (episode sharing and watch-together lobby)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kazumi-library
+Group=kazumi-library
+WorkingDirectory=/opt/kazumi-library
+EnvironmentFile=/etc/kazumi-library.env
+# --no-access-log: media players pass the key as ?token=, which would otherwise land in the journal.
+ExecStart=/opt/kazumi-library/.venv/bin/uvicorn kazumi_library.app:app --host 127.0.0.1 --port 8770 --proxy-headers --no-access-log
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+ReadWritePaths=/srv/kazumi-library
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

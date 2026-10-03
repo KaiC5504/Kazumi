@@ -1,0 +1,11 @@
+kazumi.kaic5504.com {
+	# Episodes are ~600 MB; 4GB leaves room without allowing unbounded bodies.
+	request_body {
+		max_size 4GB
+	}
+
+	reverse_proxy 127.0.0.1:8770 {
+		# Stream video bytes straight through instead of buffering them.
+		flush_interval -1
+	}
+}
