@@ -10,6 +10,19 @@ bool get supportsCustomDownloadDirectory =>
     Platform.isWindows || Platform.isMacOS;
 
 Future<String> getDefaultDownloadDirectory() async {
+  // Documents, so downloads show up in the Files app under On My iPhone ›
+  // Kazumi (UIFileSharingEnabled).
+  if (Platform.isIOS) {
+    final documents = await getApplicationDocumentsDirectory();
+    return path.join(documents.path, 'Downloads');
+  }
+  final appSupport = await getApplicationSupportDirectory();
+  return path.join(appSupport.path, 'downloads');
+}
+
+/// Where iOS downloads lived before they moved to Documents.
+Future<String?> legacyIosDownloadDirectory() async {
+  if (!Platform.isIOS) return null;
   final appSupport = await getApplicationSupportDirectory();
   return path.join(appSupport.path, 'downloads');
 }

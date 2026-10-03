@@ -8,6 +8,8 @@ import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/background_download_service.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/download/download_relocation.dart';
+import 'package:kazumi/utils/file_system.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 import 'package:kazumi/utils/format.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -44,6 +46,12 @@ abstract class _DownloadController with Store {
   bool _isBackgroundServiceInitialized = false;
 
   Future<void> init() async {
+    try {
+      await _relocateMovedDownloads();
+    } catch (e) {
+      KazumiLogger().e('DownloadController: relocating downloads failed',
+          error: e);
+    }
     _replaceRecords(_repository.getAllRecords());
 
     // Reset any incomplete states to 'paused' on startup
@@ -367,6 +375,29 @@ abstract class _DownloadController with Store {
 
   List<DownloadEpisode> getCompletedEpisodes(int bangumiId, String pluginName) {
     return _repository.getCompletedEpisodes(bangumiId, pluginName);
+  }
+
+  /// Re-points downloads whose saved folder is gone (iOS moved the app's
+  /// container on update, or the iOS download folder moved) at the folder
+  /// they'd be saved in now, when the files are there.
+  Future<void> _relocateMovedDownloads() async {
+    final legacy = await legacyIosDownloadDirectory();
+    if (legacy != null && await Directory(legacy).exists()) {
+      await moveDownloads(Directory(legacy), await getDefaultDownloadDirectory());
+    }
+    for (final record in _repository.getAllRecords()) {
+      var changed = false;
+      for (final episode in record.episodes.values) {
+        final oldDir = storedEpisodeDir(episode);
+        if (oldDir.isEmpty || await Directory(oldDir).exists()) continue;
+        final newDir = await _downloadManager.episodeDirectoryFor(
+            record.bangumiId, record.pluginName, episode.episodeNumber);
+        if (newDir == oldDir || !await Directory(newDir).exists()) continue;
+        rebaseEpisodePaths(episode, newDir);
+        changed = true;
+      }
+      if (changed) await _repository.putRecord(record);
+    }
   }
 
   /// 弹幕文件路径

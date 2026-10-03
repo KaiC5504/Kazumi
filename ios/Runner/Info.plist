@@ -48,6 +48,10 @@
 	</array>
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于从同一 Wi-Fi 下的电脑端 Kazumi 拉取超分剧集</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
