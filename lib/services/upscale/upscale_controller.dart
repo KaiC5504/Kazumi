@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
@@ -345,7 +344,7 @@ class UpscaleController {
         prints[episode.episodeNumber] = fingerprint;
       }
 
-      final detected = await Isolate.run(() => detectSkipSegments(prints));
+      final detected = await detectSkipSegmentsInBackground(prints);
       final useAniSkip = GStorage.getSetting(SettingsKeys.aniSkipLookup);
       var changed = 0;
       for (final episodeNumber in prints.keys) {

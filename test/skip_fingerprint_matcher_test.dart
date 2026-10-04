@@ -1,8 +1,12 @@
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kazumi/services/skip/episode_fingerprint.dart';
 import 'package:kazumi/services/skip/fingerprint_matcher.dart';
+import 'package:kazumi/services/skip/skip_detector.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 
 Uint32List _noise(Random random, int length) => Uint32List.fromList([
   for (var i = 0; i < length; i++) random.nextInt(1 << 32),
@@ -11,6 +15,8 @@ Uint32List _noise(Random random, int length) => Uint32List.fromList([
 int _points(double seconds) => (seconds / fingerprintPointSeconds).round();
 
 void main() {
+  group('detectSkipSegmentsInBackground', isolateTests);
+
   group('matchFingerprints', () {
     test('finds a shared opening at different offsets', () {
       final random = Random(7);
@@ -85,4 +91,39 @@ void main() {
       expect(consensusRange([]), isNull);
     });
   });
+}
+
+/// Holds something no isolate can copy, like UpscaleController does.
+class _UnsendableOwner {
+  final port = ReceivePort();
+
+  Future<Map<int, SkipSegments>> analyse(
+    Map<int, EpisodeFingerprint> prints,
+  ) async {
+    void touch() => port.sendPort;
+    touch();
+    return detectSkipSegmentsInBackground(prints);
+  }
+}
+
+void isolateTests() {
+  test(
+    'background detection works from an object that cannot be sent',
+    () async {
+      final random = Random(9);
+      final opening = _noise(random, _points(90));
+      EpisodeFingerprint episode(int at) => EpisodeFingerprint(
+        duration: 1400,
+        tailStart: 1100,
+        head: _noise(random, _points(500))
+          ..setAll(_points(at.toDouble()), opening),
+        tail: _noise(random, _points(300)),
+      );
+      final owner = _UnsendableOwner();
+      final result = await owner.analyse({1: episode(30), 2: episode(100)});
+      owner.port.close();
+      expect(result[1]!.opening!.start, closeTo(30, 0.5));
+      expect(result[2]!.opening!.start, closeTo(100, 0.5));
+    },
+  );
 }

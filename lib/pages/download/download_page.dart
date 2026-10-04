@@ -11,6 +11,7 @@ import 'package:kazumi/pages/download/download_widgets.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/pages/download/upscaled_transfer_sheets.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
+import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/utils/format.dart';
@@ -394,7 +395,14 @@ class _DownloadPageState extends State<DownloadPage> {
       return;
     }
     KazumiDialog.showToast(message: '开始分析片头片尾，每集约需几秒');
-    final changed = await upscaleController.analyzeSkips(record.key);
+    final int? changed;
+    try {
+      changed = await upscaleController.analyzeSkips(record.key);
+    } catch (e) {
+      KazumiLogger().e('DownloadPage: skip analysis failed', error: e);
+      KazumiDialog.showToast(message: '分析失败: $e');
+      return;
+    }
     KazumiDialog.showToast(
         message: changed == null
             ? 'ffmpeg 不支持 chromaprint，请使用 gyan.dev full 版本'

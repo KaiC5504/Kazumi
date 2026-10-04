@@ -1,6 +1,15 @@
+import 'dart:isolate';
+
 import 'package:kazumi/services/skip/episode_fingerprint.dart';
 import 'package:kazumi/services/skip/fingerprint_matcher.dart';
 import 'package:kazumi/services/skip/skip_segments.dart';
+
+/// Runs [detectSkipSegments] off the UI isolate. Top-level on purpose: a
+/// closure built inside an instance method can capture `this`, which the
+/// isolate then refuses to copy.
+Future<Map<int, SkipSegments>> detectSkipSegmentsInBackground(
+  Map<int, EpisodeFingerprint> prints,
+) => Isolate.run(() => detectSkipSegments(prints));
 
 /// Compares every episode with up to [maxPeers] of its nearest neighbours and
 /// keeps the opening and ending most of those comparisons agree on.
