@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -6,6 +7,8 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/library/library_controller.dart';
+import 'package:kazumi/services/sync/webdav.dart';
+import 'package:kazumi/pages/history/history_controller.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/metered_network_service.dart';
@@ -235,9 +238,13 @@ class _AppWidgetState extends State<AppWidget>
     if (state == AppLifecycleState.paused) {
       KazumiLogger()
           .i("AppLifecycleState.paused: Application moved to background");
+      unawaited(WebDav().syncHistoryIfEnabled());
     } else if (state == AppLifecycleState.resumed) {
       KazumiLogger()
           .i("AppLifecycleState.resumed: Application moved to foreground");
+      unawaited(WebDav()
+          .syncHistoryIfEnabled()
+          .then((_) => inject<HistoryController>().init()));
       await MeteredNetworkService.refresh();
     } else if (state == AppLifecycleState.inactive) {
       KazumiLogger().i("AppLifecycleState.inactive: Application is inactive");

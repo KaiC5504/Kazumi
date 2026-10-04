@@ -169,6 +169,21 @@ class WebDav {
     });
   }
 
+  // iOS resumes apps instead of relaunching them, so the launch-time sync alone
+  // leaves the other device stale. Also run on background, resume and player exit.
+  Future<void> syncHistoryIfEnabled() async {
+    if (!GStorage.getSetting(SettingsKeys.webDavEnable) ||
+        !GStorage.getSetting(SettingsKeys.webDavEnableHistory)) {
+      return;
+    }
+    try {
+      if (!initialized) await init();
+      await syncHistory();
+    } catch (e) {
+      KazumiLogger().w('WebDav: automatic history sync failed', error: e);
+    }
+  }
+
   Future<void> updateCollectibles() async {
     try {
       await _runWebDavExclusive(() async {

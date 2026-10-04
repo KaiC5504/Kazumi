@@ -74,6 +74,17 @@ void main() {
     expect(GStorage.getSetting(SettingsKeys.webDavEnable), isFalse);
   });
 
+  test('automatic history sync survives an unreachable server', () async {
+    await GStorage.putSetting(SettingsKeys.webDavEnable, true);
+    await GStorage.putSetting(SettingsKeys.webDavEnableHistory, true);
+
+    await webDav.syncHistoryIfEnabled();
+
+    expect(webDav.initialized, isFalse);
+    expect(GStorage.getSetting(SettingsKeys.webDavEnable), isTrue);
+    expect(GStorage.getSetting(SettingsKeys.webDavEnableHistory), isTrue);
+  });
+
   group('danmaku shield sync', () {
     late DanmakuShieldRepository repository;
     late DanmakuShieldSyncService service;

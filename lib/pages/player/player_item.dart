@@ -1376,6 +1376,9 @@ class _PlayerItemState extends State<PlayerItem>
       PipUtils.disposePipHandler();
     }
     playerController.panel.reset();
+    unawaited(WebDav()
+        .syncHistoryIfEnabled()
+        .then((_) => historyController.init()));
     super.dispose();
   }
 
