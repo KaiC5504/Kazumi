@@ -597,6 +597,11 @@ class SettingsKeys {
     true,
     group: SettingGroup.player,
   );
+  static const danmakuFailureToast = SettingKey<bool>(
+    'danmakuFailureToast',
+    false,
+    group: SettingGroup.danmaku,
+  );
   static const shortcutDialogShown = SettingKey<bool>(
     _SettingBoxKey.shortcutDialogShown,
     false,
@@ -769,6 +774,7 @@ class SettingsKeys {
     autoSkipOpening,
     autoSkipEnding,
     aniSkipLookup,
+    danmakuFailureToast,
     shortcutDialogShown,
     bangumiSyncEnable,
     bangumiAccessToken,

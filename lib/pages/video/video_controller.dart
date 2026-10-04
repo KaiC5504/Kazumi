@@ -601,7 +601,7 @@ abstract class _VideoPageController with Store implements Disposable {
           );
         } else {
           playerController.danmaku.applyUnavailableDanmakuLoad(result);
-          if (result.isFailed) {
+          if (result.isFailed && _showDanmakuFailureToast) {
             KazumiDialog.showToast(message: '弹幕加载失败，可手动检索');
           }
         }
@@ -609,11 +609,16 @@ abstract class _VideoPageController with Store implements Disposable {
     } catch (e) {
       if (session.isActive && danmakuSession.isActive) {
         playerController.danmaku.finishDanmakuLoad(disableDanmaku: true);
-        KazumiDialog.showToast(message: '弹幕加载失败，可手动检索');
+        if (_showDanmakuFailureToast) {
+          KazumiDialog.showToast(message: '弹幕加载失败，可手动检索');
+        }
       }
       KazumiLogger().w('VideoPageController: failed to load danmaku', error: e);
     }
   }
+
+  bool get _showDanmakuFailureToast =>
+      GStorage.getSetting(SettingsKeys.danmakuFailureToast);
 
   void cancelAutomaticDanmakuLoad() {
     _danmakuSessions.cancel();

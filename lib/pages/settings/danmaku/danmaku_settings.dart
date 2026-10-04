@@ -32,6 +32,7 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
   late bool danmakuGamerSource;
   late bool danmakuDanDanSource;
   late bool danmakuFollowSpeed;
+  late bool danmakuFailureToast;
 
   @override
   void didChangeDependencies() {
@@ -71,6 +72,8 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
         GStorage.getSetting<bool>(SettingsKeys.danmakuDanDanSource);
     danmakuFollowSpeed =
         GStorage.getSetting<bool>(SettingsKeys.danmakuFollowSpeed);
+    danmakuFailureToast =
+        GStorage.getSetting<bool>(SettingsKeys.danmakuFailureToast);
   }
 
   Future<void> resetDanmakuSettings() async {
@@ -190,6 +193,18 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                 },
                 title: Text('弹弹play'),
                 initialValue: danmakuDanDanSource,
+              ),
+              SettingsTile.switchTile(
+                leading: Icons.notifications_rounded,
+                onToggle: (value) async {
+                  danmakuFailureToast = value ?? !danmakuFailureToast;
+                  await GStorage.putSetting<bool>(
+                      SettingsKeys.danmakuFailureToast, danmakuFailureToast);
+                  setState(() {});
+                },
+                title: Text('加载失败提示'),
+                description: Text('自动匹配弹幕失败时弹出提示'),
+                initialValue: danmakuFailureToast,
               ),
             ],
           ),
