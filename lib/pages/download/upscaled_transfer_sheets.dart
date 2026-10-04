@@ -70,10 +70,7 @@ Future<void> showUpscaledImportFlow(
       actionLabel: '导入',
       items: [
         for (final c in candidates)
-          _TransferItem(
-            manifest: c.manifest,
-            replaces: controller.isAlreadyDownloaded(c.manifest),
-          ),
+          _TransferItem.of(controller, c.manifest),
       ],
       run: (index, onProgress) =>
           controller.importCandidate(candidates[index], onProgress: onProgress),
@@ -105,10 +102,7 @@ Future<void> showLanPullFlow(
       actionLabel: '开始拉取',
       items: [
         for (final m in manifests)
-          _TransferItem(
-            manifest: m,
-            replaces: controller.isAlreadyDownloaded(m),
-          ),
+          _TransferItem.of(controller, m),
       ],
       run: (index, _) => controller.pullFromLan(client, manifests[index]),
       // Pulls continue in the download manager, so the sheet only queues them.
@@ -118,10 +112,38 @@ Future<void> showLanPullFlow(
 }
 
 class _TransferItem {
-  const _TransferItem({required this.manifest, required this.replaces});
+  const _TransferItem({
+    required this.manifest,
+    required this.replaces,
+    this.skipTimesOnly = false,
+    this.upToDate = false,
+  });
+
+  factory _TransferItem.of(
+    UpscaleController controller,
+    UpscaledEpisodeManifest manifest,
+  ) {
+    final upToDate = controller.isUpToDate(manifest);
+    final skipTimesOnly = controller.onlySkipTimesChanged(manifest);
+    return _TransferItem(
+      manifest: manifest,
+      replaces:
+          !upToDate &&
+          !skipTimesOnly &&
+          controller.isAlreadyDownloaded(manifest),
+      skipTimesOnly: skipTimesOnly,
+      upToDate: upToDate,
+    );
+  }
 
   final UpscaledEpisodeManifest manifest;
   final bool replaces;
+
+  /// Same video already on the device; only the opening/ending times moved.
+  final bool skipTimesOnly;
+  final bool upToDate;
+
+  int get transferBytes => skipTimesOnly ? 0 : manifest.sizeBytes;
 }
 
 class _TransferSheet extends StatefulWidget {
@@ -144,11 +166,9 @@ class _TransferSheet extends StatefulWidget {
 }
 
 class _TransferSheetState extends State<_TransferSheet> {
-  late final List<bool> _selected = List.filled(
-    widget.items.length,
-    true,
-    growable: false,
-  );
+  late final List<bool> _selected = [
+    for (final item in widget.items) !item.upToDate,
+  ];
   final Map<int, double> _progress = {};
   final Set<int> _done = {};
   final Map<int, String> _errors = {};
@@ -159,7 +179,7 @@ class _TransferSheetState extends State<_TransferSheet> {
   int get _selectedBytes {
     var total = 0;
     for (var i = 0; i < widget.items.length; i++) {
-      if (_selected[i]) total += widget.items[i].manifest.sizeBytes;
+      if (_selected[i]) total += widget.items[i].transferBytes;
     }
     return total;
   }
@@ -225,6 +245,8 @@ class _TransferSheetState extends State<_TransferSheet> {
                 final error = _errors[i];
                 String subtitle = '${formatBytes(m.sizeBytes)} · 超分版';
                 if (item.replaces) subtitle += ' · 将替换已下载的版本';
+                if (item.skipTimesOnly) subtitle = '已导入 · 更新片头片尾';
+                if (item.upToDate) subtitle = '已导入 · 已是最新';
                 if (error != null) subtitle = '失败: $error';
                 return CheckboxListTile(
                   value: _selected[i],
@@ -244,7 +266,7 @@ class _TransferSheetState extends State<_TransferSheet> {
                         style: TextStyle(
                           color: error != null
                               ? colorScheme.error
-                              : item.replaces
+                              : item.replaces || item.skipTimesOnly
                               ? colorScheme.tertiary
                               : null,
                         ),

@@ -5,12 +5,14 @@ import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/pages/history/history_controller.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
+import 'package:kazumi/pages/player/stream_skip_lookup.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/library/library_playback.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/video_source/services.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:mobx/mobx.dart';
@@ -478,6 +480,16 @@ abstract class _VideoPageController with Store implements Disposable {
     );
   }
 
+  /// Library streams aren't in the repository, so fall back to the playlist
+  /// entry built from their manifest.
+  SkipSegments _skipSegmentsFor(DownloadEpisode? local, int episodeNumber) {
+    for (final episode in [local, _offlineEpisodesByNumber[episodeNumber]]) {
+      final segments = SkipSegments.decode(episode?.skipSegments ?? '');
+      if (!segments.isEmpty) return segments;
+    }
+    return SkipSegments.empty;
+  }
+
   Future<void> _changeOfflineEpisode(
     VideoEpisodeSelection selection,
     int offset, {
@@ -541,6 +553,10 @@ abstract class _VideoPageController with Store implements Disposable {
       bangumiName:
           bangumiItem.nameCn.isNotEmpty ? bangumiItem.nameCn : bangumiItem.name,
       preUpscaled: streamRemote || (downloadedEpisode?.preUpscaled ?? false),
+      skipSegments: _skipSegmentsFor(
+        streamRemote ? null : downloadedEpisode,
+        resolvedEpisode.historyEpisodeNumber,
+      ),
     );
 
     final initialized = await playerController.init(params);
@@ -671,6 +687,8 @@ abstract class _VideoPageController with Store implements Disposable {
           road: resolvedEpisode.roadIndex,
         );
         unawaited(_loadPlaybackDanmaku(playerController, params, session));
+        unawaited(loadStreamSkipSegments(
+            playerController, params, () => session.isActive));
       } else if (session.isActive) {
         _playbackSessions.cancel();
       }

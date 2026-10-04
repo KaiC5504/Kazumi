@@ -11,6 +11,7 @@ class FfmpegInfo {
     required this.executable,
     required this.version,
     required this.encoder,
+    this.chromaprint = false,
   });
 
   final String executable;
@@ -18,6 +19,9 @@ class FfmpegInfo {
 
   /// 'hevc_nvenc' when an NVIDIA GPU is usable, otherwise 'libx265' (slow).
   final String encoder;
+
+  /// Needed to fingerprint openings and endings; the essentials builds lack it.
+  final bool chromaprint;
 
   bool get hardwareEncoder => encoder != 'libx265';
 }
@@ -60,10 +64,17 @@ class UpscaleBaker {
           lastError = '$exe 不包含 libplacebo 滤镜，请安装 gyan.dev full 版本';
           continue;
         }
+        final muxers = await Process.run(exe, ['-hide_banner', '-muxers']);
+        final chromaprint = (muxers.stdout as String).contains('chromaprint');
 
         final encoder = await _probeNvenc(exe) ? 'hevc_nvenc' : 'libx265';
         return (
-          FfmpegInfo(executable: exe, version: versionLine, encoder: encoder),
+          FfmpegInfo(
+            executable: exe,
+            version: versionLine,
+            encoder: encoder,
+            chromaprint: chromaprint,
+          ),
           null,
         );
       } on ProcessException {
@@ -223,7 +234,7 @@ class UpscaleBaker {
       output,
     ];
 
-    final duration = await _probeDurationUs(ffmpeg.executable, input);
+    final duration = await probeDurationUs(ffmpeg.executable, input);
     KazumiLogger().i('UpscaleBaker: ${ffmpeg.executable} ${args.join(' ')}');
 
     // Filtergraph escaping of Windows paths is fragile, so run next to the
@@ -264,7 +275,7 @@ class UpscaleBaker {
     onProgress(1.0);
   }
 
-  Future<int> _probeDurationUs(String exe, String input) async {
+  static Future<int> probeDurationUs(String exe, String input) async {
     final result = await Process.run(exe, [
       '-hide_banner',
       if (input.toLowerCase().endsWith('.m3u8')) ...[

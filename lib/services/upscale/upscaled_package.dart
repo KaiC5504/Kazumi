@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 
 const String upscaledManifestFileName = 'kazumi_episode.json';
 const String upscaledVideoFileName = 'video.mp4';
@@ -30,6 +31,9 @@ class UpscaledEpisodeManifest {
   final int sizeBytes;
   final bool hasDanmaku;
 
+  /// Optional, so manifests stay at version 1 and older builds still import.
+  final SkipSegments skipSegments;
+
   const UpscaledEpisodeManifest({
     this.version = currentVersion,
     required this.bangumiId,
@@ -46,6 +50,7 @@ class UpscaledEpisodeManifest {
     required this.height,
     required this.sizeBytes,
     required this.hasDanmaku,
+    this.skipSegments = SkipSegments.empty,
   });
 
   factory UpscaledEpisodeManifest.fromEpisode(
@@ -71,6 +76,7 @@ class UpscaledEpisodeManifest {
       height: height,
       sizeBytes: sizeBytes,
       hasDanmaku: hasDanmaku,
+      skipSegments: SkipSegments.decode(episode.skipSegments),
     );
   }
 
@@ -95,6 +101,9 @@ class UpscaledEpisodeManifest {
       height: json['height'] as int? ?? 0,
       sizeBytes: json['sizeBytes'] as int? ?? 0,
       hasDanmaku: json['hasDanmaku'] as bool? ?? false,
+      skipSegments: json['skip'] is Map
+          ? SkipSegments.fromJson((json['skip'] as Map).cast<String, dynamic>())
+          : SkipSegments.empty,
     );
   }
 
@@ -114,6 +123,7 @@ class UpscaledEpisodeManifest {
     'height': height,
     'sizeBytes': sizeBytes,
     'hasDanmaku': hasDanmaku,
+    if (!skipSegments.isEmpty) 'skip': skipSegments.toJson(),
   };
 
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
@@ -161,6 +171,7 @@ class UpscaledEpisodeManifest {
       episodePageUrl,
       danDanBangumiID: danDanBangumiID,
       preUpscaled: true,
+      skipSegments: skipSegments.encode(),
     );
     return (record, episode);
   }

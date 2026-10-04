@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
@@ -9,6 +11,10 @@ import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/skip/aniskip_client.dart';
+import 'package:kazumi/services/skip/episode_fingerprint.dart';
+import 'package:kazumi/services/skip/skip_detector.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
@@ -54,6 +60,10 @@ class UpscaleController {
   String? _activeKey;
   final List<(String, int)> _uploadQueue = [];
   bool _uploading = false;
+  Future<void> _skipAnalysis = Future.value();
+
+  /// Record keys whose openings and endings are being analysed.
+  final ObservableSet<String> analyzingSkips = ObservableSet<String>();
 
   bool get canBake => isDesktop();
 
@@ -186,6 +196,11 @@ class UpscaleController {
         e.upscaledVideoPath = output;
         e.upscaledHeight = targetHeight;
       });
+      try {
+        await analyzeSkips(recordKey);
+      } catch (e) {
+        KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
+      }
       if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
           canUploadToLibrary) {
         enqueueUpload(recordKey, episodeNumber);
@@ -280,6 +295,193 @@ class UpscaleController {
       runInAction(() => exportProgress.remove(key));
     }
   }
+
+  /// Fingerprints the record's episodes that don't have one yet, then
+  /// re-detects openings and endings across all of them, since a new episode
+  /// gives the earlier ones something to match against. Returns how many
+  /// episodes changed, or null when ffmpeg can't fingerprint.
+  Future<int?> analyzeSkips(String recordKey) {
+    final run = _skipAnalysis.then((_) => _analyzeSkips(recordKey));
+    _skipAnalysis = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  Future<int?> _analyzeSkips(String recordKey) async {
+    var ffmpeg = _ffmpeg;
+    if (ffmpeg == null) {
+      (ffmpeg, _) = await detectFfmpeg();
+    }
+    if (ffmpeg == null || !ffmpeg.chromaprint) {
+      KazumiLogger().w(
+        'UpscaleController: ffmpeg lacks chromaprint, skip detection off',
+      );
+      return null;
+    }
+    final record = _repository.getRecord(recordKey);
+    if (record == null) return 0;
+
+    runInAction(() => analyzingSkips.add(recordKey));
+    try {
+      final prints = <int, EpisodeFingerprint>{};
+      for (final episode in record.episodes.values) {
+        final source = _fingerprintSource(episode);
+        if (source == null) continue;
+        var fingerprint = await EpisodeFingerprint.load(
+          episode.downloadDirectory,
+        );
+        if (fingerprint == null) {
+          try {
+            fingerprint = await EpisodeFingerprint.compute(ffmpeg, source);
+            await fingerprint.save(episode.downloadDirectory);
+          } catch (e) {
+            KazumiLogger().w(
+              'UpscaleController: fingerprint failed for '
+              '$recordKey ep${episode.episodeNumber}',
+              error: e,
+            );
+            continue;
+          }
+        }
+        prints[episode.episodeNumber] = fingerprint;
+      }
+
+      final detected = await Isolate.run(() => detectSkipSegments(prints));
+      final useAniSkip = GStorage.getSetting(SettingsKeys.aniSkipLookup);
+      var changed = 0;
+      for (final episodeNumber in prints.keys) {
+        var segments = detected[episodeNumber] ?? SkipSegments.empty;
+        if (useAniSkip &&
+            (segments.opening == null || segments.ending == null)) {
+          final fallback = await AniSkipClient.instance.lookup(
+            record.bangumiId,
+            episodeNumber,
+            prints[episodeNumber]!.duration,
+          );
+          segments = SkipSegments(
+            opening: segments.opening ?? fallback.opening,
+            ending: segments.ending ?? fallback.ending,
+          );
+        }
+        KazumiLogger().i(
+          'UpscaleController: $recordKey ep$episodeNumber $segments',
+        );
+        final encoded = segments.encode();
+        final current = _repository.getRecord(recordKey);
+        if (current?.episodes[episodeNumber]?.skipSegments == encoded) {
+          continue;
+        }
+        await _updateEpisode(recordKey, episodeNumber, (e) {
+          e.skipSegments = encoded;
+        });
+        await _refreshExportedManifest(recordKey, episodeNumber);
+        changed++;
+      }
+      return changed;
+    } finally {
+      runInAction(() => analyzingSkips.remove(recordKey));
+    }
+  }
+
+  String? _fingerprintSource(DownloadEpisode episode) {
+    if (episode.upscaleStatus == UpscaleStatus.done &&
+        File(episode.upscaledVideoPath).existsSync()) {
+      return episode.upscaledVideoPath;
+    }
+    if (episode.status == DownloadStatus.completed &&
+        episode.localM3u8Path.isNotEmpty &&
+        File(episode.localM3u8Path).existsSync()) {
+      return episode.localM3u8Path;
+    }
+    return null;
+  }
+
+  /// An already exported episode only needs its manifest rewritten for the
+  /// importing device to pick up new skip times; the video stays put.
+  Future<void> _refreshExportedManifest(
+    String recordKey,
+    int episodeNumber,
+  ) async {
+    final exportRoot = GStorage.getSetting(SettingsKeys.upscaleExportDirectory);
+    final record = _repository.getRecord(recordKey);
+    final episode = record?.episodes[episodeNumber];
+    if (exportRoot.isEmpty || record == null || episode == null) return;
+    final probe = UpscaledEpisodeManifest.fromEpisode(
+      record,
+      episode,
+      width: 0,
+      height: 0,
+      sizeBytes: 0,
+      hasDanmaku: false,
+    );
+    final file = File(
+      path.join(
+        exportRoot,
+        upscaledExportFolderName,
+        upscaledExportDirName(probe),
+        upscaledManifestFileName,
+      ),
+    );
+    if (!await file.exists()) return;
+    try {
+      final json =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      if (probe.skipSegments.isEmpty) {
+        json.remove('skip');
+      } else {
+        json['skip'] = probe.skipSegments.toJson();
+      }
+      final partial = File('${file.path}.part');
+      await partial.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(json),
+        flush: true,
+      );
+      await partial.rename(file.path);
+    } catch (e) {
+      KazumiLogger().w(
+        'UpscaleController: manifest refresh failed for $recordKey '
+        'ep$episodeNumber',
+        error: e,
+      );
+    }
+  }
+
+  /// The device already has this exact video; only the skip times differ.
+  bool onlySkipTimesChanged(UpscaledEpisodeManifest manifest) =>
+      _sameVideoAlreadyImported(manifest) &&
+      _importedSkipSegments(manifest) != manifest.skipSegments.encode();
+
+  bool isUpToDate(UpscaledEpisodeManifest manifest) =>
+      _sameVideoAlreadyImported(manifest) &&
+      _importedSkipSegments(manifest) == manifest.skipSegments.encode();
+
+  bool _sameVideoAlreadyImported(UpscaledEpisodeManifest manifest) {
+    final episode = _repository
+        .getRecord(manifest.recordKey)
+        ?.episodes[manifest.episodeNumber];
+    if (episode == null ||
+        !episode.preUpscaled ||
+        episode.status != DownloadStatus.completed) {
+      return false;
+    }
+    final localPath = _downloadController.getLocalVideoPath(
+      manifest.bangumiId,
+      manifest.pluginName,
+      manifest.episodeNumber,
+    );
+    if (localPath == null) return false;
+    final file = File(localPath);
+    return file.existsSync() && file.lengthSync() == manifest.sizeBytes;
+  }
+
+  String? _importedSkipSegments(UpscaledEpisodeManifest manifest) => _repository
+      .getRecord(manifest.recordKey)
+      ?.episodes[manifest.episodeNumber]
+      ?.skipSegments;
+
+  Future<void> _updateSkipTimes(UpscaledEpisodeManifest manifest) =>
+      _updateEpisode(manifest.recordKey, manifest.episodeNumber, (e) {
+        e.skipSegments = manifest.skipSegments.encode();
+      });
 
   bool get canUploadToLibrary =>
       GStorage.getSetting(SettingsKeys.libraryServer).isNotEmpty &&
@@ -400,6 +602,11 @@ class UpscaleController {
     void Function(double)? onProgress,
   }) async {
     final manifest = candidate.manifest;
+    if (onlySkipTimesChanged(manifest)) {
+      await _updateSkipTimes(manifest);
+      onProgress?.call(1);
+      return;
+    }
     final (record, episode) = manifest.toDownloadEntities();
     final targetDir = await _downloadManager.episodeDirectoryFor(
       manifest.bangumiId,
@@ -502,6 +709,10 @@ class UpscaleController {
     LanShareClient client,
     UpscaledEpisodeManifest manifest,
   ) async {
+    if (onlySkipTimesChanged(manifest)) {
+      await _updateSkipTimes(manifest);
+      return;
+    }
     if (isAlreadyDownloaded(manifest)) {
       await _downloadController.deleteEpisode(
         manifest.bangumiId,

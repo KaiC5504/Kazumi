@@ -18,6 +18,7 @@ import 'package:kazumi/pages/player/controller/player_screenshot_controller.dart
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
 import 'package:kazumi/utils/async_session.dart';
@@ -82,6 +83,7 @@ class PlayerController implements Disposable {
   late int currentDanmakuEpisodeNumber;
   late int currentRoad;
   late String referer;
+  SkipSegments skipSegments = SkipSegments.empty;
   String? coverUrl;
   String videoUrl = '';
   bool isLocalPlayback = false;
@@ -176,6 +178,7 @@ class PlayerController implements Disposable {
     currentDanmakuEpisodeNumber = params.danmakuEpisodeNumber;
     currentRoad = params.currentRoad;
     referer = params.referer;
+    skipSegments = params.skipSegments;
 
     KazumiLogger().i(
         'PlayerController: ${params.isLocalPlayback ? "local" : "online"} playback, url: ${params.videoUrl}');

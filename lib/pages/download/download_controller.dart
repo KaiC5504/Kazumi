@@ -342,6 +342,7 @@ abstract class _DownloadController with Store {
       upscaledVideoPath: episode.upscaledVideoPath,
       upscaleStatus: episode.upscaleStatus,
       upscaledHeight: episode.upscaledHeight,
+      skipSegments: episode.skipSegments,
     );
   }
 

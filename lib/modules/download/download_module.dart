@@ -103,6 +103,10 @@ class DownloadEpisode {
   @HiveField(19, defaultValue: 0)
   int upscaledHeight;
 
+  /// [SkipSegments] JSON, detected on the PC and carried in the manifest.
+  @HiveField(20, defaultValue: '')
+  String skipSegments;
+
   DownloadEpisode(
     this.episodeNumber,
     this.episodeName,
@@ -124,6 +128,7 @@ class DownloadEpisode {
     this.upscaledVideoPath = '',
     this.upscaleStatus = 0,
     this.upscaledHeight = 0,
+    this.skipSegments = '',
   });
 }
 

@@ -582,6 +582,21 @@ class SettingsKeys {
     false,
     group: SettingGroup.download,
   );
+  static const autoSkipOpening = SettingKey<bool>(
+    'autoSkipOpening',
+    false,
+    group: SettingGroup.player,
+  );
+  static const autoSkipEnding = SettingKey<bool>(
+    'autoSkipEnding',
+    false,
+    group: SettingGroup.player,
+  );
+  static const aniSkipLookup = SettingKey<bool>(
+    'aniSkipLookup',
+    true,
+    group: SettingGroup.player,
+  );
   static const shortcutDialogShown = SettingKey<bool>(
     _SettingBoxKey.shortcutDialogShown,
     false,
@@ -751,6 +766,9 @@ class SettingsKeys {
     librarySyncPlayEndPoint,
     libraryWifiOnly,
     libraryAutoUpload,
+    autoSkipOpening,
+    autoSkipEnding,
+    aniSkipLookup,
     shortcutDialogShown,
     bangumiSyncEnable,
     bangumiAccessToken,

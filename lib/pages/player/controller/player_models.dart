@@ -1,3 +1,4 @@
+import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/video_source/video_source_format.dart';
 
 class PlaybackInitParams {
@@ -23,6 +24,7 @@ class PlaybackInitParams {
 
   /// The local file was already upscaled on another device, so shaders stay off.
   final bool preUpscaled;
+  final SkipSegments skipSegments;
 
   const PlaybackInitParams({
     required this.videoUrl,
@@ -43,6 +45,7 @@ class PlaybackInitParams {
     this.coverUrl,
     this.bangumiName,
     this.preUpscaled = false,
+    this.skipSegments = SkipSegments.empty,
   });
 }
 

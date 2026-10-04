@@ -138,6 +138,11 @@ class _DownloadPageState extends State<DownloadPage> {
               label: '全部上传到片库',
               onPressed: () => _uploadAll(record),
             ),
+          if (upscaleController.canBake)
+            KazumiMenuItem(
+              label: '分析片头片尾',
+              onPressed: () => _analyzeSkips(record),
+            ),
         ],
         totalSpeed: totalSpeed,
         episodeTileBuilder: () {
@@ -381,6 +386,21 @@ class _DownloadPageState extends State<DownloadPage> {
         message: queued > 0
             ? '已加入 $queued 集到超分烘焙队列'
             : (lastError ?? '没有可烘焙的剧集'));
+  }
+
+  Future<void> _analyzeSkips(DownloadRecord record) async {
+    if (upscaleController.analyzingSkips.contains(record.key)) {
+      KazumiDialog.showToast(message: '正在分析中');
+      return;
+    }
+    KazumiDialog.showToast(message: '开始分析片头片尾，每集约需几秒');
+    final changed = await upscaleController.analyzeSkips(record.key);
+    KazumiDialog.showToast(
+        message: changed == null
+            ? 'ffmpeg 不支持 chromaprint，请使用 gyan.dev full 版本'
+            : changed > 0
+                ? '已更新 $changed 集的片头片尾，已导出的剧集请在 iPad 上重新导入'
+                : '片头片尾没有变化');
   }
 
   void _uploadEpisode(DownloadRecord record, DownloadEpisode episode) {

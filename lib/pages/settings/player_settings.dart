@@ -44,6 +44,9 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
   late int playerArrowKeySkipTime;
   late int playerLogLevel;
   late int playerControllerLayerDisappearTime;
+  late bool autoSkipOpening;
+  late bool autoSkipEnding;
+  late bool aniSkipLookup;
 
   @override
   void initState() {
@@ -78,6 +81,9 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
 
     brightnessVolumeGesture =
         GStorage.getSetting<bool>(SettingsKeys.brightnessVolumeGesture);
+    autoSkipOpening = GStorage.getSetting<bool>(SettingsKeys.autoSkipOpening);
+    autoSkipEnding = GStorage.getSetting<bool>(SettingsKeys.autoSkipEnding);
+    aniSkipLookup = GStorage.getSetting<bool>(SettingsKeys.aniSkipLookup);
 
     playerButtonSkipTime =
         GStorage.getSetting<int>(SettingsKeys.buttonSkipTime);
@@ -406,6 +412,47 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                 title: Text('隐身模式'),
                 description: Text('不保留观看记录'),
                 initialValue: privateMode,
+              ),
+            ],
+          ),
+          SettingsSection(
+            title: Text('片头片尾'),
+            tiles: [
+              SettingsTile.switchTile(
+                leading: Icons.fast_forward_rounded,
+                onToggle: (value) async {
+                  autoSkipOpening = value ?? !autoSkipOpening;
+                  await GStorage.putSetting<bool>(
+                      SettingsKeys.autoSkipOpening, autoSkipOpening);
+                  setState(() {});
+                },
+                title: Text('自动跳过片头'),
+                description: Text('仅对电脑端识别出的片头生效，一起看时不自动跳过'),
+                initialValue: autoSkipOpening,
+              ),
+              SettingsTile.switchTile(
+                leading: Icons.last_page_rounded,
+                onToggle: (value) async {
+                  autoSkipEnding = value ?? !autoSkipEnding;
+                  await GStorage.putSetting<bool>(
+                      SettingsKeys.autoSkipEnding, autoSkipEnding);
+                  setState(() {});
+                },
+                title: Text('自动跳过片尾'),
+                description: Text('跳过后接着播放片尾后的预告'),
+                initialValue: autoSkipEnding,
+              ),
+              SettingsTile.switchTile(
+                leading: Icons.public_rounded,
+                onToggle: (value) async {
+                  aniSkipLookup = value ?? !aniSkipLookup;
+                  await GStorage.putSetting<bool>(
+                      SettingsKeys.aniSkipLookup, aniSkipLookup);
+                  setState(() {});
+                },
+                title: Text('AniSkip 补充'),
+                description: Text('电脑端识别不出时，查询 AniSkip 的社区数据'),
+                initialValue: aniSkipLookup,
               ),
             ],
           ),

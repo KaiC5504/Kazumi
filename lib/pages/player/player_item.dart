@@ -8,6 +8,7 @@ import 'package:kazumi/pages/player/player_pointer_interaction.dart';
 import 'package:kazumi/pages/player/player_gesture_detector.dart';
 import 'package:kazumi/pages/player/player_screenshot_feedback_overlay.dart';
 import 'package:kazumi/pages/player/player_screenshot_sheet.dart';
+import 'package:kazumi/pages/player/skip_segment_pill.dart';
 import 'package:kazumi/pages/player/controller/player_screenshot_controller.dart';
 import 'package:kazumi/pages/player/syncplay_sheet.dart';
 import 'package:kazumi/utils/constants.dart';
@@ -567,6 +568,13 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   Future<void> skipOP() async {
+    final active = playerController.skipSegments.activeAt(
+        playerController.playback.playerPosition.inMilliseconds / 1000);
+    if (active != null) {
+      await playerController.seek(
+          Duration(milliseconds: (active.$2.end * 1000).round()));
+      return;
+    }
     await playerController.seekBy(
       Duration(seconds: playerController.playback.buttonSkipTime),
     );
@@ -1650,6 +1658,12 @@ class _PlayerItemState extends State<PlayerItem>
                                 _finishAdjustmentGesture();
                               },
                             ),
+                    ),
+                    Positioned.fill(
+                      child: SkipSegmentPill(
+                        playerController: playerController,
+                        onNextEpisode: () => handlePreNextEpisode('next'),
+                      ),
                     ),
                   ]),
                 ),

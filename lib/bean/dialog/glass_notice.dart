@@ -172,7 +172,6 @@ class _GlassPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(999));
     // Always light-on-dark: it usually floats over video.
     const foreground = Color(0xF2FFFFFF);
     // The overlay sits outside any Material, so take the app's font from the
@@ -185,6 +184,81 @@ class _GlassPill extends StatelessWidget {
       decoration: TextDecoration.none,
     );
     final action = actionLabel;
+    return GlassPillSurface(
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  9,
+                  action == null ? 16 : 12,
+                  9,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(icon, size: 17, color: foreground),
+                      const SizedBox(width: 8),
+                    ],
+                    Flexible(
+                      child: Text(
+                        message,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textStyle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (action != null) ...[
+              VerticalDivider(
+                width: 1,
+                thickness: 0.8,
+                indent: 8,
+                endIndent: 8,
+                color: Colors.white.withValues(alpha: 0.28),
+              ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onAction,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 9, 16, 9),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      action,
+                      style: textStyle?.copyWith(
+                        color: const Color(0xFFA8D8FF),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The frosted capsule behind [GlassNotice], also used for in-player pills.
+class GlassPillSurface extends StatelessWidget {
+  const GlassPillSurface({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = BorderRadius.all(Radius.circular(999));
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
@@ -216,67 +290,7 @@ class _GlassPill extends StatelessWidget {
                 width: 0.8,
               ),
             ),
-            child: IntrinsicHeight(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Flexible(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        9,
-                        action == null ? 16 : 12,
-                        9,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (icon != null) ...[
-                            Icon(icon, size: 17, color: foreground),
-                            const SizedBox(width: 8),
-                          ],
-                          Flexible(
-                            child: Text(
-                              message,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textStyle,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (action != null) ...[
-                    VerticalDivider(
-                      width: 1,
-                      thickness: 0.8,
-                      indent: 8,
-                      endIndent: 8,
-                      color: Colors.white.withValues(alpha: 0.28),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onAction,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 9, 16, 9),
-                        child: Center(
-                          widthFactor: 1,
-                          child: Text(
-                            action,
-                            style: textStyle?.copyWith(
-                              color: const Color(0xFFA8D8FF),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+            child: child,
           ),
         ),
       ),
