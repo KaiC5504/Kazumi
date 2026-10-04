@@ -280,9 +280,6 @@ abstract class _PlayerPlaybackController with Store {
         : SuperResolutionMode.fromStorageValue(
             GStorage.getSetting(SettingsKeys.defaultSuperResolutionMode),
           );
-    if (preUpscaled) {
-      KazumiDialog.showToast(message: '已是超分版本，已自动关闭实时超分');
-    }
     hAenable = GStorage.getSetting(SettingsKeys.hAenable);
     androidEnableOpenSLES =
         GStorage.getSetting(SettingsKeys.androidEnableOpenSLES);
