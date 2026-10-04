@@ -40,8 +40,9 @@ build time from upstream's `com.example.kazumi`; extensions: none). Repo
    (resolve conflicts in favour of keeping both sides). The owner wants every
    TestFlight build to carry the newest upstream Kazumi, not only fork changes.
 2. Push. Upstream's `pr.yaml` is the compile check. It only triggers on pull requests,
-   so dispatch it on the fork: `gh workflow run pr.yaml -R KaiC5504/Kazumi --ref
-   <branch>`, then `gh run list -R KaiC5504/Kazumi --branch <branch> --limit 1` and
+   so dispatch it on the fork, iOS only (with no `run_*` input it builds every
+   platform): `gh workflow run pr.yaml -R KaiC5504/Kazumi --ref <branch> -f
+   run_ios=true`, then `gh run list -R KaiC5504/Kazumi --branch <branch> --limit 1` and
    `gh run watch <id> -R KaiC5504/Kazumi --exit-status`. Without `-R`, `gh` lists
    upstream's runs.
 3. Merge to `main` and push. Re-check `git rev-list --count main..upstream/main` is 0;
