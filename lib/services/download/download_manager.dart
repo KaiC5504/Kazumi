@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/request/clients/download_http_client.dart';
 import 'package:kazumi/request/core/network_exception.dart';
+import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/utils/m3u8_parser.dart';
 import 'package:kazumi/utils/m3u8_ad_filter.dart';
 import 'package:kazumi/utils/format.dart' as fmt;
@@ -434,7 +435,7 @@ class DownloadManager implements IDownloadManager {
       // Pre-upscaled episodes are always a single mp4 served by another Kazumi
       // device; probing them as m3u8 would start pulling the whole file.
       if (episode.preUpscaled) {
-        await _runDirectFileDownload(
+        await _runPartedFileDownload(
           task: task,
           bangumiId: bangumiId,
           pluginName: pluginName,
@@ -985,6 +986,130 @@ class DownloadManager implements IDownloadManager {
     final file = File(episode.localM3u8Path);
     if (!file.existsSync()) return null;
     return episode.localM3u8Path;
+  }
+
+  /// Pre-upscaled episodes often cross a long, lossy link, so they're
+  /// fetched as byte ranges over several connections (see parted_transfer).
+  Future<void> _runPartedFileDownload({
+    required DownloadTask task,
+    required int bangumiId,
+    required String pluginName,
+    required String videoUrl,
+    required Map<String, String> httpHeaders,
+    required DownloadEpisode episode,
+  }) async {
+    final key = _taskKey(task.recordKey, task.episodeNumber);
+    try {
+      final episodeDir = await _prepareEpisodeDir(
+          episode, bangumiId, pluginName, task.episodeNumber);
+      final filePath = path.join(episodeDir, 'video.mp4');
+      final tmpFile = File('$filePath.tmp');
+
+      final totalSize = await _rangeTotalSize(videoUrl, httpHeaders, task);
+      if (totalSize == null) {
+        await _runDirectFileDownload(
+          task: task,
+          bangumiId: bangumiId,
+          pluginName: pluginName,
+          videoUrl: videoUrl,
+          httpHeaders: httpHeaders,
+          episode: episode,
+        );
+        return;
+      }
+
+      episode.totalSegments = 1;
+      episode.downloadedSegments = 0;
+      _speedTrackers[key] = _SpeedTracker();
+      bool stopped() => task.isPaused || task.cancelToken.isCancelled;
+
+      final complete = await downloadInParts(
+        tmpFile: tmpFile,
+        partsLog: File('$filePath.parts'),
+        totalSize: totalSize,
+        stopped: stopped,
+        retryable: (e) =>
+            !(e is NetworkException && e.type == NetworkExceptionType.cancel),
+        openRange: (start, end) async {
+          final response = await _http.getStream(
+            videoUrl,
+            headers: {...httpHeaders, 'Range': 'bytes=$start-${end - 1}'},
+            receiveTimeout: const Duration(seconds: 60),
+            cancelToken: task.cancelToken,
+          );
+          if (response.statusCode != 206) {
+            throw StateError('server ignored the range request');
+          }
+          return response.data!.stream;
+        },
+        onProgress: (received) {
+          episode.totalBytes = received;
+          episode.progressPercent = received / totalSize;
+          _speedTrackers[key]?.update(received);
+          _notifyProgress(task.recordKey, task.episodeNumber, episode);
+        },
+      );
+
+      if (!complete) {
+        if (task.isPaused) {
+          episode.status = DownloadStatus.paused;
+        }
+        _notifyProgress(task.recordKey, task.episodeNumber, episode);
+        return;
+      }
+
+      await tmpFile.rename(filePath);
+      episode.status = DownloadStatus.completed;
+      episode.localM3u8Path = filePath;
+      episode.downloadedSegments = 1;
+      episode.progressPercent = 1.0;
+      episode.completedAt = DateTime.now();
+      episode.totalBytes = totalSize;
+      _notifyProgress(task.recordKey, task.episodeNumber, episode);
+    } on _InsufficientStorageException catch (e) {
+      episode.status = DownloadStatus.failed;
+      episode.errorMessage =
+          '存储空间不足 (可用: ${fmt.formatBytes(e.availableBytes)})';
+      _notifyProgress(task.recordKey, task.episodeNumber, episode);
+    } on FileSystemException catch (e) {
+      episode.status = DownloadStatus.failed;
+      episode.errorMessage = _getStorageErrorMessage(e);
+      _notifyProgress(task.recordKey, task.episodeNumber, episode);
+      KazumiLogger().e('DownloadManager: file system error', error: e);
+    } on NetworkException catch (e) {
+      if (e.type == NetworkExceptionType.cancel) {
+        if (task.isPaused) {
+          episode.status = DownloadStatus.paused;
+        }
+      } else {
+        episode.status = DownloadStatus.failed;
+        episode.errorMessage = e.message;
+      }
+      _notifyProgress(task.recordKey, task.episodeNumber, episode);
+    } catch (e) {
+      episode.status = DownloadStatus.failed;
+      episode.errorMessage = e.toString();
+      _notifyProgress(task.recordKey, task.episodeNumber, episode);
+      KazumiLogger().e('DownloadManager: parted download failed', error: e);
+    }
+  }
+
+  /// The file size when the server answers range requests, otherwise null.
+  Future<int?> _rangeTotalSize(
+    String url,
+    Map<String, String> headers,
+    DownloadTask task,
+  ) async {
+    final response = await _http.getStream(
+      url,
+      headers: {...headers, 'Range': 'bytes=0-0'},
+      receiveTimeout: const Duration(seconds: 60),
+      cancelToken: task.cancelToken,
+    );
+    await response.data?.stream.drain<void>();
+    if (response.statusCode != 206) return null;
+    final range = response.headers.value('content-range') ?? '';
+    return int.tryParse(RegExp(r'/(\d+)$').firstMatch(range)?.group(1) ?? '');
   }
 }
 

@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
@@ -547,7 +549,7 @@ class UpscaleController {
     );
     final id = manifest.shareId;
 
-    await _uploadResumable(
+    await uploadInParts(
       api,
       id,
       upscaledVideoFileName,
@@ -559,6 +561,67 @@ class UpscaleController {
       await _uploadResumable(api, id, upscaledDanmakuFileName, danmaku);
     }
     await api.commit(id, manifest);
+  }
+
+  /// Sends the video as parts over several connections (see
+  /// parted_transfer); parts already on the server are skipped.
+  @visibleForTesting
+  static Future<void> uploadInParts(
+    LibraryApi api,
+    String id,
+    String file,
+    File source, {
+    void Function(int sent)? onProgress,
+    int partSize = transferPartSize,
+  }) async {
+    final done = await api.uploadedParts(id, file);
+    if (done == null) {
+      return _uploadResumable(api, id, file, source, onProgress: onProgress);
+    }
+    final size = await source.length();
+    int lengthOf(int i) => partLength(i, size, partSize);
+
+    final pending = <int>[];
+    var sent = 0;
+    for (var i = 0; i < partCount(size, partSize); i++) {
+      if (done[i] == lengthOf(i)) {
+        sent += lengthOf(i);
+      } else {
+        pending.add(i);
+      }
+    }
+    final inFlight = <int, int>{};
+    void report() => onProgress
+        ?.call(sent + inFlight.values.fold<int>(0, (sum, n) => sum + n));
+    report();
+
+    await runParts(
+      pending: pending,
+      attempts: 8,
+      stopped: () => false,
+      onRetry: (index, e) =>
+          KazumiLogger().w('UpscaleController: part $index retry: $e'),
+      transfer: (index) async {
+        try {
+          await api.uploadPart(
+            id,
+            file,
+            source,
+            index: index,
+            start: index * partSize,
+            end: index * partSize + lengthOf(index),
+            onProgress: (n) {
+              inFlight[index] = n;
+              report();
+            },
+          );
+        } finally {
+          inFlight.remove(index);
+        }
+        sent += lengthOf(index);
+        report();
+      },
+    );
   }
 
   /// Home upload links drop long transfers, so each attempt resumes from

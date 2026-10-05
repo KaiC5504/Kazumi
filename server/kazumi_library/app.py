@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import os
 from collections import defaultdict
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Path as PathParam
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, StringConstraints
@@ -269,6 +272,37 @@ def create_app(settings: Settings) -> FastAPI:
                 except ClientDisconnect:
                     log.info("upload of %s/%s interrupted at %d bytes", episode_id, name, f.tell())
             return JSONResponse({"size": file_size(path)})
+
+    @app.get("/api/upload/{episode_id}/{name}/parts", dependencies=admin)
+    def upload_parts(episode_id: EpisodeId, name: FileName) -> dict[str, dict[str, int]]:
+        parts = library.upload_parts(episode_id, name)
+        return {"parts": {str(index): size for index, size in sorted(parts.items())}}
+
+    # Parts let the uploader run several connections at once; one long-haul TCP stream
+    # from a home connection is far slower than the link itself.
+    @app.put("/api/upload/{episode_id}/{name}/parts/{index}", dependencies=admin)
+    async def upload_part(
+        request: Request, episode_id: EpisodeId, name: FileName, index: Annotated[int, PathParam(ge=0, le=100_000)]
+    ) -> Response:
+        parts = library.parts_dir(episode_id, name)
+        parts.mkdir(parents=True, exist_ok=True)
+        tmp = parts / f"{index}.{uuid4().hex}.tmp"
+        declared = request.headers.get("content-length", "")
+        try:
+            with open(tmp, "wb") as f:
+                try:
+                    async for chunk in request.stream():
+                        f.write(chunk)
+                except ClientDisconnect:
+                    log.info("part %d of %s/%s interrupted at %d bytes", index, episode_id, name, f.tell())
+                    return Response(status_code=400)
+                size = f.tell()
+            if declared.isdecimal() and int(declared) != size:
+                return JSONResponse({"size": size}, status_code=400)
+            os.replace(tmp, parts / str(index))
+        finally:
+            tmp.unlink(missing_ok=True)
+        return JSONResponse({"size": size})
 
     @app.post("/api/upload/{episode_id}/commit", dependencies=admin)
     async def commit(request: Request, episode_id: EpisodeId) -> Response:

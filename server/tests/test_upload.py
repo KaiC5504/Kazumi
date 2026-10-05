@@ -162,3 +162,107 @@ def test_delete_episode(client):
     r = client.delete("/api/episodes/ep1", headers=ADMIN)
     assert r.json() == {"deleted": True}
     assert client.get("/api/episodes", headers=VIEW).json() == {"episodes": []}
+
+
+PIECE = 4000
+
+
+def put_part(client, index, data, episode_id="ep1"):
+    return client.put(f"/api/upload/{episode_id}/video.mp4/parts/{index}", content=data, headers=ADMIN)
+
+
+def parts_of(client, episode_id="ep1"):
+    return client.get(f"/api/upload/{episode_id}/video.mp4/parts", headers=ADMIN).json()["parts"]
+
+
+def test_parts_arrive_in_any_order(client, settings):
+    assert parts_of(client) == {}
+    for index in (2, 0, 1):
+        r = put_part(client, index, VIDEO[index * PIECE : (index + 1) * PIECE])
+        assert r.status_code == 200, r.text
+    assert parts_of(client) == {"0": PIECE, "1": PIECE, "2": len(VIDEO) - 2 * PIECE}
+
+    r = client.post("/api/upload/ep1/commit", json=manifest(len(VIDEO)), headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert client.get("/episodes/ep1/video.mp4", headers=VIEW).content == VIDEO
+    assert not (settings.data_dir / "episodes/ep1/video.mp4.parts").exists()
+
+
+def test_commit_with_a_missing_part_keeps_the_rest(client):
+    put_part(client, 0, VIDEO[:PIECE])
+    put_part(client, 2, VIDEO[2 * PIECE :])
+    r = client.post("/api/upload/ep1/commit", json=manifest(len(VIDEO)), headers=ADMIN)
+    assert r.status_code == 409
+    assert set(parts_of(client)) == {"0", "2"}
+
+    put_part(client, 1, VIDEO[PIECE : 2 * PIECE])
+    r = client.post("/api/upload/ep1/commit", json=manifest(len(VIDEO)), headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert client.get("/episodes/ep1/video.mp4", headers=VIEW).content == VIDEO
+
+
+def test_commit_rejects_parts_of_the_wrong_total_size(client):
+    put_part(client, 0, VIDEO[:PIECE])
+    r = client.post("/api/upload/ep1/commit", json=manifest(PIECE + 1), headers=ADMIN)
+    assert r.status_code == 409
+    assert r.json() == {"size": PIECE}
+
+
+def test_resent_part_replaces_the_old_one(client):
+    put_part(client, 0, b"x" * 10)
+    put_part(client, 0, VIDEO)
+    assert parts_of(client) == {"0": len(VIDEO)}
+    r = client.post("/api/upload/ep1/commit", json=manifest(len(VIDEO)), headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert client.get("/episodes/ep1/video.mp4", headers=VIEW).content == VIDEO
+
+
+def test_part_index_is_validated(client):
+    assert put_part(client, -1, b"x").status_code == 422
+    assert put_part(client, "a", b"x").status_code == 422
+
+
+def test_parts_need_the_admin_key(client):
+    r = client.put("/api/upload/ep1/video.mp4/parts/0", content=b"x", headers=VIEW)
+    assert r.status_code == 401
+    assert client.get("/api/upload/ep1/video.mp4/parts", headers=VIEW).status_code == 401
+
+
+def test_interrupted_part_is_discarded(client, settings):
+    app = client.app
+
+    async def drive():
+        messages = [
+            {"type": "http.request", "body": b"first-", "more_body": True},
+            {"type": "http.disconnect"},
+        ]
+
+        async def receive():
+            if messages:
+                return messages.pop(0)
+            await asyncio.Event().wait()
+
+        async def send(message):
+            pass
+
+        path = "/api/upload/ep1/video.mp4/parts/0"
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "PUT",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"host", b"test"), (b"x-kazumi-token", ADMIN["X-Kazumi-Token"].encode())],
+            "client": ("127.0.0.1", 5000),
+            "server": ("test", 80),
+        }
+        await app(scope, receive, send)
+
+    asyncio.run(drive())
+    assert parts_of(client) == {}
+    assert list((settings.data_dir / "uploads/ep1/video.mp4.parts").iterdir()) == []
+

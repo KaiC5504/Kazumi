@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_invite.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 
 void main() {
@@ -189,5 +191,80 @@ void main() {
         );
       },
     );
+
+    test('uploads and downloads in parts over several connections', () async {
+      final admin = LibraryApi(url!, env['KAZUMI_LIBRARY_TEST_ADMIN_KEY']!);
+      final viewer = LibraryApi(url, env['KAZUMI_LIBRARY_TEST_VIEW_KEY']!);
+      const partSize = 256 * 1024;
+      const manifest = UpscaledEpisodeManifest(
+        bangumiId: 27364,
+        pluginName: 'parts',
+        bangumiName: '冰菓',
+        bangumiCover: '',
+        episodeNumber: 3,
+        episodeName: '第03集',
+        road: 0,
+        episodePageUrl: '',
+        danDanBangumiID: 0,
+        tier: 'quality',
+        width: 0,
+        height: 1440,
+        sizeBytes: 3 * 1024 * 1024 + 123,
+        hasDanmaku: false,
+      );
+      final bytes = List<int>.generate(manifest.sizeBytes, (i) => i * 7 % 253);
+      final video = File('${tmp.path}/video.mp4')..writeAsBytesSync(bytes);
+      final id = manifest.shareId;
+
+      // Parts from an earlier, interrupted run are kept and not sent again.
+      for (final index in [0, 5]) {
+        await admin.uploadPart(id, upscaledVideoFileName, video,
+            index: index,
+            start: index * partSize,
+            end: (index + 1) * partSize);
+      }
+      final before = await admin.uploadedParts(id, upscaledVideoFileName);
+      expect(before, {0: partSize, 5: partSize});
+
+      final progress = <int>[];
+      await UpscaleController.uploadInParts(
+        admin,
+        id,
+        upscaledVideoFileName,
+        video,
+        partSize: partSize,
+        onProgress: progress.add,
+      );
+      expect(progress.first, 2 * partSize);
+      expect(progress.last, bytes.length);
+      await admin.commit(id, manifest);
+
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final target = File('${tmp.path}/download.mp4.tmp');
+      final ok = await downloadInParts(
+        tmpFile: target,
+        partsLog: File('${tmp.path}/download.mp4.parts'),
+        totalSize: bytes.length,
+        partSize: partSize,
+        stopped: () => false,
+        openRange: (start, end) async {
+          final request = await client.getUrl(viewer.videoUri(id));
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-${end - 1}');
+          final response = await request.close();
+          expect(response.statusCode, HttpStatus.partialContent);
+          return response;
+        },
+      );
+      expect(ok, isTrue);
+      expect(await target.readAsBytes(), bytes);
+
+      await expectLater(
+        viewer.uploadedParts(id, upscaledVideoFileName),
+        throwsA(isA<LibraryException>()
+            .having((e) => e.statusCode, 'statusCode', 401)),
+        reason: 'the view key must not upload',
+      );
+    });
   }, skip: url == null ? 'KAZUMI_LIBRARY_TEST_URL not set' : false);
 }

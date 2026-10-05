@@ -296,6 +296,60 @@ class LibraryApi {
     }
   }
 
+  /// Finished parts as index → size, or null when the server predates parts.
+  Future<Map<int, int>?> uploadedParts(String id, String file) async {
+    try {
+      final json = await _json('GET', '/api/upload/$id/$file/parts');
+      final parts = json['parts'] as Map<String, dynamic>? ?? {};
+      return {
+        for (final e in parts.entries) int.parse(e.key): e.value as int,
+      };
+    } on LibraryException catch (e) {
+      if (e.statusCode == HttpStatus.notFound) return null;
+      rethrow;
+    }
+  }
+
+  /// Sends bytes [start]..[end) of [source] as part [index]. The server only
+  /// keeps a part once all of it has arrived.
+  Future<void> uploadPart(
+    String id,
+    String file,
+    File source, {
+    required int index,
+    required int start,
+    required int end,
+    void Function(int sentBytes)? onProgress,
+  }) async {
+    final client = _client();
+    try {
+      final uri = baseUri.replace(path: '/api/upload/$id/$file/parts/$index');
+      final request = await client.openUrl('PUT', uri);
+      request.headers.set(lanShareTokenHeader, key);
+      request.headers.contentType = ContentType.binary;
+      request.contentLength = end - start;
+      var sent = 0;
+      await request.addStream(
+        source.openRead(start, end).map((chunk) {
+          sent += chunk.length;
+          onProgress?.call(sent);
+          return chunk;
+        }),
+      );
+      final response = await request.close().timeout(_responseTimeout);
+      await response.drain<void>();
+      _check(response);
+    } on SocketException {
+      throw const LibraryException('上传中断');
+    } on HttpException {
+      throw const LibraryException('上传中断');
+    } on TimeoutException {
+      throw const LibraryException('上传超时');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<void> commit(String id, UpscaledEpisodeManifest manifest) async {
     await _json('POST', '/api/upload/$id/commit', body: manifest.toJson());
   }

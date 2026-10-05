@@ -93,6 +93,38 @@ class Library:
     def upload_file(self, episode_id: str, name: str) -> Path:
         return self.uploads_dir / episode_id / name
 
+    def parts_dir(self, episode_id: str, name: str) -> Path:
+        return self.uploads_dir / episode_id / f"{name}.parts"
+
+    def upload_parts(self, episode_id: str, name: str) -> dict[int, int]:
+        """Sizes of the finished parts; a part being received is still a .tmp file."""
+        d = self.parts_dir(episode_id, name)
+        if not d.is_dir():
+            return {}
+        return {int(p.name): p.stat().st_size for p in d.iterdir() if p.name.isdecimal()}
+
+    def assemble_parts(self, episode_id: str, name: str, expected_size: int | None) -> None:
+        """Concatenates uploaded parts into the upload file, if this upload used parts."""
+        d = self.parts_dir(episode_id, name)
+        if not d.is_dir():
+            return
+        parts = sorted(self.upload_parts(episode_id, name).items())
+        total = sum(size for _, size in parts)
+        contiguous = [index for index, _ in parts] == list(range(len(parts)))
+        if not contiguous or (expected_size is not None and total != expected_size):
+            raise SizeMismatch(total)
+        target = self.upload_file(episode_id, name)
+        tmp = target.with_name(f".{name}.{uuid4().hex}.tmp")
+        try:
+            with open(tmp, "wb") as out:
+                for index, _ in parts:
+                    with open(d / str(index), "rb") as f:
+                        shutil.copyfileobj(f, out, 1024 * 1024)
+            os.replace(tmp, target)
+        finally:
+            tmp.unlink(missing_ok=True)
+        shutil.rmtree(d)
+
     def list_episodes(self) -> list[dict[str, Any]]:
         entries = []
         with self._lock:
@@ -112,6 +144,8 @@ class Library:
     def commit(self, episode_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
         upload_dir = self.uploads_dir / episode_id
         video = upload_dir / "video.mp4"
+        for name in UPLOAD_FILES:
+            self.assemble_parts(episode_id, name, manifest["sizeBytes"] if name == "video.mp4" else None)
         with self._lock:
             size = file_size(video) if video.is_file() else 0
             if not video.is_file() or size != manifest["sizeBytes"]:
