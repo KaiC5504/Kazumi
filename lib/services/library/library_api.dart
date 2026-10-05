@@ -91,11 +91,15 @@ class LibraryConfig {
     required this.syncPlayEndPoint,
     required this.syncPlayTls,
     required this.room,
+    this.mirrors = const [],
   });
 
   final String syncPlayEndPoint;
   final bool syncPlayTls;
   final String room;
+
+  /// Relays that serve the same episode files, e.g. https://hk.example.com.
+  final List<String> mirrors;
 }
 
 class LibraryException implements Exception {
@@ -128,17 +132,54 @@ class LibraryApi {
 
   /// Media players and the download manager can't always send custom
   /// headers, so file URLs carry the key as a query parameter.
-  Uri videoUri(String id) => baseUri.replace(
+  /// [via] is a relay serving the same files; the server itself by default.
+  Uri videoUri(String id, {Uri? via}) => (via ?? baseUri).replace(
     path: '/episodes/$id/$upscaledVideoFileName',
     queryParameters: {'token': key},
   );
 
-  Uri danmakuUri(String id) => baseUri.replace(
+  Uri danmakuUri(String id, {Uri? via}) => (via ?? baseUri).replace(
     path: '/episodes/$id/$upscaledDanmakuFileName',
     queryParameters: {'token': key},
   );
 
-  bool ownsUrl(String url) => url.startsWith(baseUri.toString());
+  /// Matches file URLs from this library on any host, relays included.
+  bool ownsUrl(String url) {
+    final uri = Uri.tryParse(url);
+    return uri != null &&
+        uri.path.startsWith('/episodes/') &&
+        uri.queryParameters['token'] == key;
+  }
+
+  /// Time to fetch the first [bytes] of [url], or null if it failed.
+  static Future<Duration?> probe(
+    Uri url, {
+    int bytes = 512 * 1024,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final client = HttpClient()..connectionTimeout = timeout;
+    final watch = Stopwatch()..start();
+    try {
+      final request = await client.getUrl(url);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-${bytes - 1}');
+      final response = await request.close().timeout(timeout);
+      if (response.statusCode != HttpStatus.partialContent &&
+          response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        return null;
+      }
+      var received = 0;
+      await for (final chunk in response.timeout(timeout)) {
+        received += chunk.length;
+        if (received >= bytes) break;
+      }
+      return watch.elapsed;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   /// Trades a short invite code for the library key.
   static Future<String> redeem(String server, String code) async {
@@ -171,6 +212,10 @@ class LibraryApi {
       syncPlayEndPoint: json['syncplay'] as String? ?? '',
       syncPlayTls: json['syncplayTls'] as bool? ?? false,
       room: json['room'] as String? ?? '',
+      mirrors: [
+        for (final m in json['mirrors'] as List? ?? [])
+          if (m is String && m.startsWith('https://')) m,
+      ],
     );
   }
 

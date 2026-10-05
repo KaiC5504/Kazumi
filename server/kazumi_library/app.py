@@ -184,6 +184,7 @@ def create_app(settings: Settings) -> FastAPI:
             "syncplay": settings.syncplay_endpoint,
             "syncplayTls": settings.syncplay_tls,
             "room": settings.syncplay_room,
+            "mirrors": list(settings.download_mirrors),
         }
 
     @app.post("/api/invites", dependencies=admin)

@@ -14,6 +14,7 @@ import 'package:kazumi/pages/player/player_controller.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/download/mirror_selector.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/library/library_playback.dart';
@@ -48,6 +49,11 @@ class LibraryController implements OfflinePlaybackHooks {
   final Observable<String?> error = Observable(null);
   final Observable<String?> notice = Observable(null);
   final Observable<LibraryInvite?> pendingInvite = Observable(null);
+
+  /// Relays from the server config, and every host (server first until
+  /// ranked) ordered by how fast this device fetched a sample from each.
+  List<String> _mirrors = const [];
+  List<Uri> _hosts = const [];
   final Observable<int> configVersion = Observable(0);
 
   final StreamController<LibraryEpisode> _remotePicks =
@@ -177,6 +183,7 @@ class LibraryController implements OfflinePlaybackHooks {
   /// [SettingsKeys.librarySyncPlayEndPoint] is only set while the server
   /// offers TLS, because the player requests TLS from exactly that endpoint.
   Future<void> _applyConfig(LibraryConfig config) async {
+    _mirrors = config.mirrors;
     await GStorage.putSetting<String>(SettingsKeys.libraryRoom, config.room);
     if (config.syncPlayEndPoint.isEmpty) return;
     await GStorage.putSetting<String>(
@@ -277,9 +284,42 @@ class LibraryController implements OfflinePlaybackHooks {
     _startHeartbeat();
     await _refreshConfig();
     await refresh();
+    await _rankHosts();
     await cleanup();
     await prefetchFromLobby();
   }
+
+  /// Fetches the start of a real episode from the server and each relay at
+  /// once and keeps them fastest first. From mainland China a relay with a
+  /// better route can be many times faster; elsewhere the server usually wins.
+  Future<void> _rankHosts() async {
+    final api = _api;
+    if (api == null) return;
+    final hosts = [
+      api.baseUri,
+      for (final m in _mirrors) LibraryApi.normalizeServer(m),
+    ];
+    if (hosts.length < 2 || episodes.isEmpty) {
+      _hosts = hosts;
+      return;
+    }
+    final sample = episodes.first.id;
+    final times = await Future.wait([
+      for (final host in hosts) LibraryApi.probe(api.videoUri(sample, via: host)),
+    ]);
+    const failed = Duration(days: 1);
+    final ranked = [for (var i = 0; i < hosts.length; i++) (hosts[i], times[i])]
+      ..sort((a, b) => (a.$2 ?? failed).compareTo(b.$2 ?? failed));
+    _hosts = [for (final (host, _) in ranked) host];
+    KazumiLogger().i('LibraryController: hosts ranked ${[
+      for (final (host, time) in ranked) '${host.host}=${time?.inMilliseconds}ms',
+    ]}');
+  }
+
+  List<String> _videoUrls(LibraryApi api, LibraryEpisode episode) => [
+    for (final host in _hosts.isEmpty ? [api.baseUri] : _hosts)
+      api.videoUri(episode.id, via: host).toString(),
+  ];
 
   Future<void> leaveLobby() async {
     _inLobby = false;
@@ -410,7 +450,7 @@ class LibraryController implements OfflinePlaybackHooks {
         playlist.add(local);
       } else {
         playlist.add(e.manifest.toDownloadEntities().$2);
-        remote[e.manifest.episodeNumber] = api.videoUri(e.id).toString();
+        remote[e.manifest.episodeNumber] = _videoUrls(api, e).first;
       }
     }
 
@@ -563,10 +603,18 @@ class LibraryController implements OfflinePlaybackHooks {
   Future<void> _download(LibraryEpisode episode) async {
     final api = _api;
     if (api == null) return;
+    final urls = _videoUrls(api, episode);
     final local = localEpisode(episode);
     // Anything already on the device, including an original-quality download
-    // of the same episode, is left alone.
-    if (local != null && local.status != DownloadStatus.failed) return;
+    // of the same episode, is left alone. One still in progress keeps its URL
+    // but can fall back to the other hosts.
+    if (local != null && local.status != DownloadStatus.failed) {
+      final queued = local.networkM3u8Url;
+      if (local.preUpscaled && api.ownsUrl(queued)) {
+        MirrorRegistry.register([queued, ...urls.where((u) => u != queued)]);
+      }
+      return;
+    }
     if (!await _allowedToDownload()) return;
 
     final manifest = episode.manifest;
@@ -585,18 +633,23 @@ class LibraryController implements OfflinePlaybackHooks {
     );
     await Directory(targetDir).create(recursive: true);
     if (manifest.hasDanmaku) {
-      try {
-        final bytes = await api.download(api.danmakuUri(episode.id));
-        await File(
-          path.join(targetDir, upscaledDanmakuFileName),
-        ).writeAsBytes(bytes, flush: true);
-      } catch (e) {
-        KazumiLogger().w('LibraryController: danmaku skipped', error: e);
+      for (final host in _hosts.isEmpty ? [api.baseUri] : _hosts) {
+        try {
+          final bytes = await api.download(api.danmakuUri(episode.id, via: host));
+          await File(
+            path.join(targetDir, upscaledDanmakuFileName),
+          ).writeAsBytes(bytes, flush: true);
+          break;
+        } catch (e) {
+          KazumiLogger().w('LibraryController: danmaku via ${host.host} failed',
+              error: e);
+        }
       }
     }
+    MirrorRegistry.register(urls);
     entity
       ..downloadDirectory = targetDir
-      ..networkM3u8Url = api.videoUri(episode.id).toString();
+      ..networkM3u8Url = urls.first;
     await _downloadController.enqueuePreUpscaled(record, entity);
   }
 

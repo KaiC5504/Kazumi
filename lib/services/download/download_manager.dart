@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/request/clients/download_http_client.dart';
 import 'package:kazumi/request/core/network_exception.dart';
+import 'package:kazumi/services/download/mirror_selector.dart';
 import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/utils/m3u8_parser.dart';
 import 'package:kazumi/utils/m3u8_ad_filter.dart';
@@ -1005,7 +1006,8 @@ class DownloadManager implements IDownloadManager {
       final filePath = path.join(episodeDir, 'video.mp4');
       final tmpFile = File('$filePath.tmp');
 
-      final totalSize = await _rangeTotalSize(videoUrl, httpHeaders, task);
+      final mirrors = MirrorRegistry.forUrl(videoUrl);
+      final totalSize = await _rangeTotalSize(mirrors, httpHeaders, task);
       if (totalSize == null) {
         await _runDirectFileDownload(
           task: task,
@@ -1031,16 +1033,47 @@ class DownloadManager implements IDownloadManager {
         retryable: (e) =>
             !(e is NetworkException && e.type == NetworkExceptionType.cancel),
         openRange: (start, end) async {
-          final response = await _http.getStream(
-            videoUrl,
-            headers: {...httpHeaders, 'Range': 'bytes=$start-${end - 1}'},
-            receiveTimeout: const Duration(seconds: 60),
-            cancelToken: task.cancelToken,
-          );
+          final url = mirrors.pick();
+          final watch = Stopwatch()..start();
+          final Response<ResponseBody> response;
+          try {
+            response = await _http.getStream(
+              url,
+              headers: {...httpHeaders, 'Range': 'bytes=$start-${end - 1}'},
+              receiveTimeout: const Duration(seconds: 60),
+              cancelToken: task.cancelToken,
+            );
+          } on NetworkException catch (e) {
+            if (e.type != NetworkExceptionType.cancel) {
+              mirrors.reportFailure(url);
+            }
+            rethrow;
+          }
           if (response.statusCode != 206) {
+            mirrors.reportFailure(url);
             throw StateError('server ignored the range request');
           }
-          return response.data!.stream;
+          var received = 0;
+          return response.data!.stream.transform(
+            StreamTransformer<Uint8List, List<int>>.fromHandlers(
+              handleData: (chunk, sink) {
+                received += chunk.length;
+                sink.add(chunk);
+              },
+              handleError: (error, stackTrace, sink) {
+                mirrors.reportFailure(url);
+                sink.addError(error, stackTrace);
+              },
+              handleDone: (sink) {
+                if (received == end - start) {
+                  mirrors.reportSuccess(url, received, watch.elapsed);
+                } else if (!stopped()) {
+                  mirrors.reportFailure(url);
+                }
+                sink.close();
+              },
+            ),
+          );
         },
         onProgress: (received) {
           episode.totalBytes = received;
@@ -1096,16 +1129,29 @@ class DownloadManager implements IDownloadManager {
 
   /// The file size when the server answers range requests, otherwise null.
   Future<int?> _rangeTotalSize(
-    String url,
+    MirrorSet mirrors,
     Map<String, String> headers,
     DownloadTask task,
   ) async {
-    final response = await _http.getStream(
-      url,
-      headers: {...headers, 'Range': 'bytes=0-0'},
-      receiveTimeout: const Duration(seconds: 60),
-      cancelToken: task.cancelToken,
-    );
+    final first = mirrors.pick();
+    final candidates = [first, ...mirrors.urls.where((u) => u != first)];
+    late Response<ResponseBody> response;
+    for (final url in candidates) {
+      try {
+        response = await _http.getStream(
+          url,
+          headers: {...headers, 'Range': 'bytes=0-0'},
+          receiveTimeout: const Duration(seconds: 60),
+          cancelToken: task.cancelToken,
+        );
+        break;
+      } on NetworkException catch (e) {
+        if (e.type == NetworkExceptionType.cancel || url == candidates.last) {
+          rethrow;
+        }
+        mirrors.reportFailure(url);
+      }
+    }
     await response.data?.stream.drain<void>();
     if (response.statusCode != 206) return null;
     final range = response.headers.value('content-range') ?? '';

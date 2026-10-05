@@ -26,6 +26,11 @@ class ConfigError(RuntimeError):
     pass
 
 
+def _mirrors(value: str) -> tuple[str, ...]:
+    urls = (u.strip().rstrip("/") for u in value.replace(",", " ").split())
+    return tuple(u for u in urls if u.startswith("https://"))
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path
@@ -36,6 +41,9 @@ class Settings:
     # Only set once the Syncplay server has a certificate; clients that ask
     # for TLS from a plain server can't connect at all.
     syncplay_tls: bool = False
+    # Relays that serve the same /episodes/* files (e.g. a Hong Kong box with a
+    # better route into mainland China); clients pick whichever is fastest.
+    download_mirrors: tuple[str, ...] = ()
     clock: Callable[[], datetime] = field(default=utc_now, compare=False)
     # None disables the background loop; tests drive housekeeping directly.
     housekeeping_interval: float | None = 3600.0
@@ -50,6 +58,7 @@ class Settings:
             syncplay_endpoint=env.get("KAZUMI_SYNCPLAY_ENDPOINT", "").strip(),
             syncplay_room=env.get("KAZUMI_SYNCPLAY_ROOM", "").strip(),
             syncplay_tls=env.get("KAZUMI_SYNCPLAY_TLS", "").strip() == "1",
+            download_mirrors=_mirrors(env.get("KAZUMI_DOWNLOAD_MIRRORS", "")),
         )
 
     def validate(self) -> None:

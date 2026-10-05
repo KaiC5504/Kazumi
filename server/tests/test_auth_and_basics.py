@@ -25,6 +25,7 @@ def test_view_key_via_header_and_query(client):
         "syncplay": "kazumi.example.com:8999",
         "syncplayTls": False,
         "room": "sofa",
+        "mirrors": [],
     }
     assert client.get(f"/api/config?token={VIEW_KEY}").status_code == 200
 
@@ -133,6 +134,12 @@ def test_settings_from_env(tmp_path):
     s.validate()
     with TestClient(create_app(s)) as c:
         assert c.get("/api/config", headers=VIEW).json()["syncplay"] == "kazumi.kaic5504.com:8999"
+
+
+def test_download_mirrors_from_env():
+    s = Settings.from_env({"KAZUMI_DOWNLOAD_MIRRORS": " https://hk.example.com/, http://plain.example.com https://jp.example.com "})
+    assert s.download_mirrors == ("https://hk.example.com", "https://jp.example.com")
+    assert Settings.from_env({}).download_mirrors == ()
 
 
 def test_from_env_defaults_data_dir():

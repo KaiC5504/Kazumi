@@ -58,6 +58,15 @@ void main() {
       expect(video.queryParameters['token'], 'k 1');
       expect(api.ownsUrl(video.toString()), isTrue);
       expect(api.ownsUrl('http://192.168.1.2:38520/episodes/abc'), isFalse);
+
+      final relay = api.videoUri('abc', via: Uri.parse('https://hk.example.com'));
+      expect(relay.toString(),
+          'https://hk.example.com/episodes/abc/video.mp4?token=k+1');
+      expect(api.ownsUrl(relay.toString()), isTrue,
+          reason: 'downloads through a relay are still cleaned up');
+      expect(
+          api.ownsUrl('https://hk.example.com/episodes/abc/video.mp4?token=x'),
+          isFalse);
     });
 
     test('room state tolerates missing fields', () {
@@ -166,6 +175,15 @@ void main() {
 
         final config = await viewer.config();
         expect(config.room, isNotEmpty);
+        expect(config.mirrors, env['KAZUMI_LIBRARY_TEST_MIRRORS']?.split(',') ?? []);
+
+        final sample = await LibraryApi.probe(viewer.videoUri(id), bytes: 1024);
+        expect(sample, isNotNull);
+        expect(
+          await LibraryApi.probe(
+              viewer.videoUri(id, via: Uri.parse('http://127.0.0.1:1'))),
+          isNull,
+        );
 
         await viewer.heartbeat(deviceId: 'phone', name: '她', state: 'lobby');
         final picked = await viewer.select(

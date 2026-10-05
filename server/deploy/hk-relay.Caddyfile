@@ -1,0 +1,26 @@
+# Download relay for the Kazumi library on Hetzner (kazumi.kaic5504.com).
+# Only episode files pass through; Hetzner still checks the token on each request.
+hk.kaic5504.com {
+	handle /episodes/* {
+		reverse_proxy https://kazumi.kaic5504.com {
+			header_up Host kazumi.kaic5504.com
+			flush_interval -1
+		}
+	}
+	handle /healthz {
+		respond "ok" 200
+	}
+	handle /speedtest/* {
+		root * /srv
+		file_server
+	}
+	handle {
+		respond 404
+	}
+}
+
+# Plain-HTTP speed test by IP, for quick checks from China.
+:80 {
+	root * /srv/speedtest
+	file_server
+}
