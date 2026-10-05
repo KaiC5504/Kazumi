@@ -260,8 +260,10 @@ class LibraryApi {
     File source, {
     required int offset,
     void Function(int sentBytes)? onProgress,
+    Future<void>? cancelled,
   }) async {
     final client = _client();
+    cancelled?.whenComplete(() => client.close(force: true));
     try {
       final uri = baseUri.replace(
         path: '/api/upload/$id/$file',
@@ -320,8 +322,10 @@ class LibraryApi {
     required int start,
     required int end,
     void Function(int sentBytes)? onProgress,
+    Future<void>? cancelled,
   }) async {
     final client = _client();
+    cancelled?.whenComplete(() => client.close(force: true));
     try {
       final uri = baseUri.replace(path: '/api/upload/$id/$file/parts/$index');
       final request = await client.openUrl('PUT', uri);

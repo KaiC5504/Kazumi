@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -265,6 +266,68 @@ void main() {
             .having((e) => e.statusCode, 'statusCode', 401)),
         reason: 'the view key must not upload',
       );
+    });
+
+    test('a cancelled upload stops, keeps its parts and resumes', () async {
+      final admin = LibraryApi(url!, env['KAZUMI_LIBRARY_TEST_ADMIN_KEY']!);
+      const partSize = 64 * 1024;
+      const manifest = UpscaledEpisodeManifest(
+        bangumiId: 27364,
+        pluginName: 'cancel',
+        bangumiName: '冰菓',
+        bangumiCover: '',
+        episodeNumber: 8,
+        episodeName: '第08集',
+        road: 0,
+        episodePageUrl: '',
+        danDanBangumiID: 0,
+        tier: 'quality',
+        width: 0,
+        height: 1440,
+        sizeBytes: 64 * partSize,
+        hasDanmaku: false,
+      );
+      final bytes = List<int>.generate(manifest.sizeBytes, (i) => i % 241);
+      final video = File('${tmp.path}/video.mp4')..writeAsBytesSync(bytes);
+      final id = manifest.shareId;
+
+      final cancel = Completer<void>();
+      var sent = 0;
+      await expectLater(
+        UpscaleController.uploadInParts(
+          admin,
+          id,
+          upscaledVideoFileName,
+          video,
+          partSize: partSize,
+          cancel: cancel,
+          onProgress: (n) {
+            sent = n;
+            if (n >= 8 * partSize && !cancel.isCompleted) cancel.complete();
+          },
+        ),
+        throwsA(isA<UploadCancelled>()),
+      );
+      final kept = await admin.uploadedParts(id, upscaledVideoFileName);
+      expect(kept, isNotEmpty);
+      expect(kept!.length, lessThan(64), reason: 'it stopped early');
+      expect(sent, lessThan(bytes.length));
+
+      final progress = <int>[];
+      await UpscaleController.uploadInParts(
+        admin,
+        id,
+        upscaledVideoFileName,
+        video,
+        partSize: partSize,
+        onProgress: progress.add,
+      );
+      expect(progress.first, greaterThanOrEqualTo(kept.length * partSize));
+      await admin.commit(id, manifest);
+      final viewer = LibraryApi(url, env['KAZUMI_LIBRARY_TEST_VIEW_KEY']!);
+      expect(await viewer.download(viewer.videoUri(id)), bytes);
+      expect((await admin.episodes()).map((e) => e.id), contains(id),
+          reason: 'the admin key can list the library too');
     });
   }, skip: url == null ? 'KAZUMI_LIBRARY_TEST_URL not set' : false);
 }

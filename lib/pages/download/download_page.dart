@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -41,6 +43,9 @@ class _DownloadPageState extends State<DownloadPage> {
   void initState() {
     super.initState();
     downloadController.refreshRecords();
+    if (upscaleController.canBake) {
+      unawaited(upscaleController.refreshLibrary());
+    }
   }
 
   bool _isExpanded(String recordKey, DownloadRecord record) {
@@ -67,6 +72,13 @@ class _DownloadPageState extends State<DownloadPage> {
               icon: const Icon(Icons.wifi_rounded),
               tooltip: '从电脑拉取超分剧集',
               onPressed: () => showLanPullFlow(context, upscaleController),
+            ),
+          if (upscaleController.canBake &&
+              upscaleController.canUploadToLibrary)
+            IconButton(
+              icon: const Icon(Icons.cloud_sync_outlined),
+              tooltip: '刷新片库状态',
+              onPressed: _refreshLibrary,
             ),
         ],
       ),
@@ -169,7 +181,11 @@ class _DownloadPageState extends State<DownloadPage> {
         statusText: _getStatusText(record, episode,
             bakeProgress: bakeProgress,
             exportProgress: exportProgress,
-            uploadProgress: uploadProgress),
+            uploadProgress: uploadProgress,
+            uploadQueued: uploadProgress != null &&
+                upscaleController.activeUpload.value != key,
+            inLibrary: upscaleController.isInLibrary(
+                record.key, episode.episodeNumber)),
         actions: _getActionButtons(record, episode),
         taskProgress: uploadProgress ??
             exportProgress ??
@@ -183,11 +199,16 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   String _getStatusText(DownloadRecord record, DownloadEpisode episode,
-      {double? bakeProgress, double? exportProgress, double? uploadProgress}) {
+      {double? bakeProgress,
+      double? exportProgress,
+      double? uploadProgress,
+      bool uploadQueued = false,
+      bool inLibrary = false}) {
     switch (episode.status) {
       case DownloadStatus.completed:
         final base = '已完成 · ${formatBytes(episode.totalBytes)}';
         if (episode.preUpscaled) return '$base · 超分版';
+        if (uploadQueued) return '$base · 等待上传到片库';
         if (uploadProgress != null) {
           return '$base · 正在上传到片库 ${(uploadProgress * 100).toStringAsFixed(0)}%';
         }
@@ -201,7 +222,7 @@ class _DownloadPageState extends State<DownloadPage> {
             final percent = ((bakeProgress ?? 0) * 100).toStringAsFixed(0);
             return '$base · 正在烘焙超分 $percent%';
           case UpscaleStatus.done:
-            return '$base · 已烘焙超分';
+            return inLibrary ? '$base · 已烘焙超分 · 已在片库' : '$base · 已烘焙超分';
           case UpscaleStatus.failed:
             return episode.errorMessage.isNotEmpty
                 ? episode.errorMessage
@@ -336,13 +357,7 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '导出超分版本',
             visualDensity: VisualDensity.compact,
           ),
-          IconButton(
-            icon: Icon(Icons.cloud_upload_outlined,
-                size: 20, color: colorScheme.tertiary),
-            onPressed: () => _uploadEpisode(record, episode),
-            tooltip: '上传到片库',
-            visualDensity: VisualDensity.compact,
-          ),
+          _uploadAction(record, episode),
         ];
       default:
         return [
@@ -411,6 +426,65 @@ class _DownloadPageState extends State<DownloadPage> {
                 : '片头片尾没有变化');
   }
 
+  Widget _uploadAction(DownloadRecord record, DownloadEpisode episode) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final key =
+        UpscaleController.progressKey(record.key, episode.episodeNumber);
+    if (upscaleController.uploadProgress.containsKey(key)) {
+      return IconButton(
+        icon: const Icon(Icons.stop_circle_outlined, size: 20),
+        onPressed: () =>
+            upscaleController.cancelUpload(record.key, episode.episodeNumber),
+        tooltip: '取消上传',
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    if (upscaleController.isInLibrary(record.key, episode.episodeNumber)) {
+      return IconButton(
+        icon: Icon(Icons.cloud_done_rounded,
+            size: 20, color: colorScheme.tertiary),
+        onPressed: () => _confirmReupload(record, episode),
+        tooltip: '已在片库，点击重新上传',
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    return IconButton(
+      icon: Icon(Icons.cloud_upload_outlined,
+          size: 20, color: colorScheme.tertiary),
+      onPressed: () => _uploadEpisode(record, episode),
+      tooltip: '上传到片库',
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  void _confirmReupload(DownloadRecord record, DownloadEpisode episode) {
+    KazumiDialog.show(
+      builder: (context) => AlertDialog(
+        title: const Text('重新上传'),
+        content: const Text('片库里已有这一集，要重新上传吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => KazumiDialog.dismiss(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              KazumiDialog.dismiss();
+              _uploadEpisode(record, episode);
+            },
+            child: const Text('重新上传'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshLibrary() async {
+    await upscaleController.refreshLibrary();
+    KazumiDialog.showToast(
+        message: '片库中有 ${upscaleController.libraryIds.length} 集');
+  }
+
   void _uploadEpisode(DownloadRecord record, DownloadEpisode episode) {
     final error =
         upscaleController.enqueueUpload(record.key, episode.episodeNumber);
@@ -422,8 +496,13 @@ class _DownloadPageState extends State<DownloadPage> {
     String? lastError;
     final episodes = record.episodes.values.toList()
       ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+    var skipped = 0;
     for (final episode in episodes) {
       if (episode.upscaleStatus != UpscaleStatus.done) continue;
+      if (upscaleController.isInLibrary(record.key, episode.episodeNumber)) {
+        skipped++;
+        continue;
+      }
       final error =
           upscaleController.enqueueUpload(record.key, episode.episodeNumber);
       if (error == null) {
@@ -435,7 +514,9 @@ class _DownloadPageState extends State<DownloadPage> {
     KazumiDialog.showToast(
         message: queued > 0
             ? '已加入 $queued 集到片库上传队列'
-            : (lastError ?? '没有已烘焙的剧集，请先烘焙超分'));
+            : skipped > 0
+                ? '已烘焙的剧集都在片库里了'
+                : (lastError ?? '没有已烘焙的剧集，请先烘焙超分'));
   }
 
   Future<void> _exportEpisode(

@@ -135,8 +135,10 @@ class UpscaledEpisodeManifest {
 
   String get recordKey => '${pluginName}_$bangumiId';
 
-  /// Stable id used in LAN share URLs.
-  String get shareId => base64Url
+  /// Stable id used in LAN share URLs and as the library episode id.
+  String get shareId => shareIdFor(recordKey, episodeNumber);
+
+  static String shareIdFor(String recordKey, int episodeNumber) => base64Url
       .encode(utf8.encode('$recordKey|$episodeNumber'))
       .replaceAll('=', '');
 

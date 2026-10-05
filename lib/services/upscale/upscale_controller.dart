@@ -61,6 +61,15 @@ class UpscaleController {
   String? _activeKey;
   final List<(String, int)> _uploadQueue = [];
   bool _uploading = false;
+  Completer<void>? _uploadCancel;
+
+  /// Progress key of the episode being uploaded; the rest of
+  /// [uploadProgress] is waiting in the queue.
+  final Observable<String?> activeUpload = Observable(null);
+
+  /// Ids of the episodes the library server holds, from the last refresh.
+  final ObservableSet<String> libraryIds = ObservableSet<String>();
+  Future<void>? _libraryRefresh;
   Future<void> _skipAnalysis = Future.value();
 
   /// Record keys whose openings and endings are being analysed.
@@ -503,6 +512,43 @@ class UpscaleController {
     return null;
   }
 
+  void cancelUpload(String recordKey, int episodeNumber) {
+    final key = progressKey(recordKey, episodeNumber);
+    if (activeUpload.value == key) {
+      final cancel = _uploadCancel;
+      if (cancel != null && !cancel.isCompleted) cancel.complete();
+      return;
+    }
+    _uploadQueue.remove((recordKey, episodeNumber));
+    runInAction(() => uploadProgress.remove(key));
+  }
+
+  bool isInLibrary(String recordKey, int episodeNumber) => libraryIds
+      .contains(UpscaledEpisodeManifest.shareIdFor(recordKey, episodeNumber));
+
+  /// Reloads [libraryIds]. A failed refresh keeps the last known list.
+  Future<void> refreshLibrary() {
+    if (!canUploadToLibrary) return Future.value();
+    return _libraryRefresh ??= () async {
+      try {
+        final api = LibraryApi(
+          GStorage.getSetting(SettingsKeys.libraryServer),
+          GStorage.getSetting(SettingsKeys.libraryAdminKey),
+        );
+        final ids = [for (final e in await api.episodes()) e.id];
+        runInAction(() {
+          libraryIds
+            ..clear()
+            ..addAll(ids);
+        });
+      } catch (e) {
+        KazumiLogger().w('UpscaleController: library refresh failed', error: e);
+      } finally {
+        _libraryRefresh = null;
+      }
+    }();
+  }
+
   Future<void> _pumpUploadQueue() async {
     if (_uploading) return;
     _uploading = true;
@@ -510,14 +556,24 @@ class UpscaleController {
       while (_uploadQueue.isNotEmpty) {
         final (recordKey, episodeNumber) = _uploadQueue.removeAt(0);
         final key = progressKey(recordKey, episodeNumber);
+        final cancel = Completer<void>();
+        _uploadCancel = cancel;
+        runInAction(() => activeUpload.value = key);
         try {
-          await _uploadOne(recordKey, episodeNumber, key);
+          await _uploadOne(recordKey, episodeNumber, key, cancel);
           KazumiDialog.showToast(message: '已上传到片库');
+          unawaited(refreshLibrary());
+        } on UploadCancelled {
+          KazumiDialog.showToast(message: '已取消上传');
         } catch (e) {
           KazumiLogger().e('UpscaleController: upload failed for $key', error: e);
           KazumiDialog.showToast(message: '上传到片库失败: $e');
         } finally {
-          runInAction(() => uploadProgress.remove(key));
+          _uploadCancel = null;
+          runInAction(() {
+            activeUpload.value = null;
+            uploadProgress.remove(key);
+          });
         }
       }
     } finally {
@@ -525,7 +581,12 @@ class UpscaleController {
     }
   }
 
-  Future<void> _uploadOne(String recordKey, int episodeNumber, String key) async {
+  Future<void> _uploadOne(
+    String recordKey,
+    int episodeNumber,
+    String key,
+    Completer<void> cancel,
+  ) async {
     final record = _repository.getRecord(recordKey);
     final episode = record?.episodes[episodeNumber];
     if (record == null || episode == null) return;
@@ -554,12 +615,15 @@ class UpscaleController {
       id,
       upscaledVideoFileName,
       video,
+      cancel: cancel,
       onProgress: (sent) =>
           runInAction(() => uploadProgress[key] = sent / size),
     );
     if (hasDanmaku) {
-      await _uploadResumable(api, id, upscaledDanmakuFileName, danmaku);
+      await _uploadResumable(api, id, upscaledDanmakuFileName, danmaku,
+          cancel: cancel);
     }
+    if (cancel.isCompleted) throw const UploadCancelled();
     await api.commit(id, manifest);
   }
 
@@ -572,11 +636,13 @@ class UpscaleController {
     String file,
     File source, {
     void Function(int sent)? onProgress,
+    Completer<void>? cancel,
     int partSize = transferPartSize,
   }) async {
     final done = await api.uploadedParts(id, file);
     if (done == null) {
-      return _uploadResumable(api, id, file, source, onProgress: onProgress);
+      return _uploadResumable(api, id, file, source,
+          onProgress: onProgress, cancel: cancel);
     }
     final size = await source.length();
     int lengthOf(int i) => partLength(i, size, partSize);
@@ -598,7 +664,7 @@ class UpscaleController {
     await runParts(
       pending: pending,
       attempts: 8,
-      stopped: () => false,
+      stopped: () => cancel?.isCompleted ?? false,
       onRetry: (index, e) =>
           KazumiLogger().w('UpscaleController: part $index retry: $e'),
       transfer: (index) async {
@@ -610,6 +676,7 @@ class UpscaleController {
             index: index,
             start: index * partSize,
             end: index * partSize + lengthOf(index),
+            cancelled: cancel?.future,
             onProgress: (n) {
               inFlight[index] = n;
               report();
@@ -622,6 +689,7 @@ class UpscaleController {
         report();
       },
     );
+    if (cancel?.isCompleted ?? false) throw const UploadCancelled();
   }
 
   /// Home upload links drop long transfers, so each attempt resumes from
@@ -632,10 +700,12 @@ class UpscaleController {
     String file,
     File source, {
     void Function(int sent)? onProgress,
+    Completer<void>? cancel,
   }) async {
     final size = await source.length();
     var attempt = 0;
     while (true) {
+      if (cancel?.isCompleted ?? false) throw const UploadCancelled();
       final offset = await api.uploadedSize(id, file);
       if (offset == size) return;
       if (offset > size) {
@@ -643,9 +713,12 @@ class UpscaleController {
       }
       try {
         await api.upload(id, file, source,
-            offset: offset, onProgress: onProgress);
+            offset: offset,
+            onProgress: onProgress,
+            cancelled: cancel?.future);
         return;
       } on LibraryException catch (e) {
+        if (cancel?.isCompleted ?? false) throw const UploadCancelled();
         if (++attempt >= 8) rethrow;
         KazumiLogger().w('UpscaleController: upload retry $attempt: $e');
         await Future.delayed(Duration(seconds: 2 * attempt));
@@ -833,4 +906,8 @@ class UpscaleController {
     final dir = Directory(dirPath);
     if (await dir.exists()) await dir.delete(recursive: true);
   }
+}
+
+class UploadCancelled implements Exception {
+  const UploadCancelled();
 }
