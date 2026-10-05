@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>线路测速</title>
+<style>
+  :root {
+    --bg-1: #0b0f1d;
+    --bg-2: #1b1240;
+    --glass: rgba(255, 255, 255, 0.07);
+    --glass-edge: rgba(255, 255, 255, 0.14);
+    --text: #f2f3f8;
+    --muted: #a3a8c3;
+    --accent: #7c8cff;
+    --accent-2: #c36bff;
+    --good: #5be3a1;
+    --warn: #ffc65c;
+    --bad: #ff6b81;
+    --radius: 22px;
+    --gap: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font: 16px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    color: var(--text);
+    background: radial-gradient(120% 80% at 10% 0%, var(--bg-2), var(--bg-1) 60%) fixed;
+    padding: max(24px, env(safe-area-inset-top)) 16px 40px;
+  }
+  main { max-width: 520px; margin: 0 auto; display: grid; gap: var(--gap); }
+  h1 { font-size: 28px; margin: 8px 0 0; letter-spacing: 0.5px; }
+  p.lead { color: var(--muted); margin: 0; }
+  .card {
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    border-radius: var(--radius);
+    padding: 20px;
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .seg button {
+    padding: 12px; border-radius: 14px; border: 1px solid var(--glass-edge);
+    background: transparent; color: var(--text); font-size: 16px;
+  }
+  .seg button[aria-pressed="true"] { background: rgba(124, 140, 255, 0.25); border-color: var(--accent); }
+  #start {
+    width: 100%; padding: 18px; border: 0; border-radius: 18px; font-size: 19px; font-weight: 600;
+    color: white; background: linear-gradient(120deg, var(--accent), var(--accent-2));
+    box-shadow: 0 10px 30px rgba(124, 140, 255, 0.35);
+    transition: transform 0.15s ease, opacity 0.2s ease;
+  }
+  #start:active { transform: scale(0.98); }
+  #start:disabled { opacity: 0.45; }
+  .phase { font-size: 15px; color: var(--muted); min-height: 1.5em; }
+  .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.3s ease; }
+  .live { font-size: 40px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .live small { font-size: 16px; color: var(--muted); font-weight: 500; }
+  .result h2 { font-size: 18px; margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .grid div span { display: block; color: var(--muted); font-size: 13px; }
+  .grid div b { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .note { color: var(--muted); font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>线路测速</h1>
+  <p class="lead">测一下到香港和新加坡两台服务器的网络，大约需要 1–2 分钟。测速时请保持这个页面在前台。</p>
+
+  <section class="card">
+    <div>现在用的是：</div>
+    <div class="seg" role="group">
+      <button type="button" data-net="wifi" aria-pressed="true">Wi-Fi</button>
+      <button type="button" data-net="cellular" aria-pressed="false">手机流量</button>
+    </div>
+    <p class="note" id="usage">Wi-Fi 下最多用约 500 MB 流量；选手机流量会少测一些（约 180 MB）。</p>
+  </section>
+
+  <button id="start" type="button">开始测速</button>
+
+  <section class="card" id="progress" hidden>
+    <div class="phase" id="phase">准备中…</div>
+    <div class="live" id="live">–</div>
+    <div class="bar"><div id="bar"></div></div>
+  </section>
+
+  <div id="results"></div>
+
+  <p class="note">测速数据（速度、延迟、你的 IP 和时间）会自动发送给 Kai，用来排查看番卡不卡。不会保存任何文件到手机。</p>
+</main>
+
+<script>
+"use strict";
+
+const KEY = new URLSearchParams(location.search).get("k") || "";
+const SERVERS = [
+  { name: "hk", label: "香港", base: "https://hk.kaic5504.com/speed" },
+  { name: "sg", label: "新加坡", base: "https://kazumi.kaic5504.com/speed" },
+];
+const PLAN = {
+  wifi: { pings: 30, down: 8, up: 6, cap: 100 << 20 },
+  cellular: { pings: 20, down: 5, up: 4, cap: 35 << 20 },
+};
+const STEPS = 5;
+
+let network = "wifi";
+document.querySelectorAll(".seg button").forEach((button) => {
+  button.addEventListener("click", () => {
+    network = button.dataset.net;
+    document.querySelectorAll(".seg button").forEach((b) =>
+      b.setAttribute("aria-pressed", String(b === button)));
+  });
+});
+
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const url = (server, path, extra = "") =>
+  `${server.base}/${path}?k=${encodeURIComponent(KEY)}&r=${Math.random().toString(36).slice(2)}${extra}`;
+const mbps = (bytes, seconds) => seconds > 0 ? (bytes * 8) / seconds / 1e6 : 0;
+const round = (x, d = 1) => Math.round(x * 10 ** d) / 10 ** d;
+
+function median(xs) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function percentile(xs, p) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.round((s.length - 1) * p))];
+}
+function jitter(xs) {
+  if (xs.length < 2) return null;
+  let sum = 0;
+  for (let i = 1; i < xs.length; i++) sum += Math.abs(xs[i] - xs[i - 1]);
+  return sum / (xs.length - 1);
+}
+
+let step = 0;
+function phase(text, live = "–") {
+  $("phase").textContent = text;
+  $("live").innerHTML = live;
+  $("bar").style.width = `${Math.min(100, (step / (STEPS * SERVERS.length)) * 100)}%`;
+}
+
+async function timedFetch(resource, options = {}, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(resource, { ...options, cache: "no-store", signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// One request at a time over a warm connection.
+async function pingTest(server, count, gapMs, label) {
+  const samples = [];
+  const failures = [];
+  for (let i = 0; i < count; i++) {
+    const target = url(server, "ping");
+    const t0 = performance.now();
+    try {
+      const res = await timedFetch(target, {}, 3000);
+      await res.json();
+      const rtt = performance.now() - t0;
+      samples.push(round(rtt));
+      phase(label, `${Math.round(rtt)}<small> ms</small>`);
+    } catch (e) {
+      failures.push({ i, error: e.name });
+    }
+    if (gapMs) await sleep(gapMs);
+  }
+  return {
+    samples, failures: failures.length, failureDetail: failures,
+    median: median(samples), p90: percentile(samples, 0.9),
+    min: samples.length ? Math.min(...samples) : null,
+    max: samples.length ? Math.max(...samples) : null,
+    jitter: jitter(samples),
+  };
+}
+
+// Pulls data over `connections` streams at once for `seconds`, logging bytes
+// every 250 ms so stalls and slow starts are visible, not just the average.
+async function downloadTest(server, connections, seconds, cap, label) {
+  const controller = new AbortController();
+  const tick = 250;
+  const series = [];
+  const firstByte = [];
+  const errors = [];
+  let total = 0;
+  let lastTotal = 0;
+  const start = performance.now();
+  const deadline = start + seconds * 1000;
+  const sampler = setInterval(() => {
+    series.push(total - lastTotal);
+    lastTotal = total;
+    const recent = series.slice(-4).reduce((a, b) => a + b, 0);
+    phase(label, `${round(mbps(recent, Math.min(series.length, 4) * tick / 1000))}<small> Mbps</small>`);
+  }, tick);
+
+  async function stream(index) {
+    while (performance.now() < deadline && total < cap) {
+      const t0 = performance.now();
+      try {
+        const res = await fetch(url(server, "down", `&bytes=${25 << 20}`),
+          { cache: "no-store", signal: controller.signal });
+        const reader = res.body.getReader();
+        let first = true;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (first) { firstByte.push(round(performance.now() - t0)); first = false; }
+          total += value.byteLength;
+          if (performance.now() >= deadline || total >= cap) {
+            controller.abort();
+            break;
+          }
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") errors.push({ index, error: String(e) });
+        if (controller.signal.aborted) return;
+        await sleep(300);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: connections }, (_, i) => stream(i)));
+  clearInterval(sampler);
+  const elapsed = (performance.now() - start) / 1000;
+  const perSecond = [];
+  for (let i = 0; i + 4 <= series.length; i += 4) {
+    perSecond.push(round(mbps(series.slice(i, i + 4).reduce((a, b) => a + b, 0), 1)));
+  }
+  let stalls = 0;
+  for (let i = 4; i + 4 <= series.length; i++) {
+    if (series.slice(i, i + 4).every((b) => b === 0)) { stalls++; i += 3; }
+  }
+  return {
+    connections, seconds: round(elapsed, 2), bytes: total,
+    mbps: round(mbps(total, elapsed)),
+    peakMbps: perSecond.length ? Math.max(...perSecond) : 0,
+    perSecondMbps: perSecond,
+    stallSeconds: stalls,
+    firstByteMs: firstByte,
+    errors,
+  };
+}
+
+async function uploadTest(server, connections, seconds, cap, label) {
+  const chunk = new Uint8Array(1 << 20);
+  for (let i = 0; i < chunk.length; i += 65536) {
+    crypto.getRandomValues(chunk.subarray(i, i + 65536));
+  }
+  const blob = new Blob([chunk], { type: "text/plain" });
+  const requests = [];
+  const errors = [];
+  let total = 0;
+  const start = performance.now();
+  const deadline = start + seconds * 1000;
+
+  async function stream(index) {
+    while (performance.now() < deadline && total < cap) {
+      const t0 = performance.now();
+      try {
+        const res = await timedFetch(url(server, "up"), { method: "POST", body: blob }, 20000);
+        await res.json();
+        const ms = performance.now() - t0;
+        total += blob.size;
+        requests.push(round(ms));
+        phase(label, `${round(mbps(total, (performance.now() - start) / 1000))}<small> Mbps</small>`);
+      } catch (e) {
+        errors.push({ index, error: e.name });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: connections }, (_, i) => stream(i)));
+  const elapsed = (performance.now() - start) / 1000;
+  return {
+    connections, seconds: round(elapsed, 2), bytes: total,
+    mbps: round(mbps(total, elapsed)), requestMs: requests, errors,
+  };
+}
+
+async function testServer(server, plan, id) {
+  const result = { server: server.name, startedAt: new Date().toISOString() };
+  try {
+    const target = url(server, "start", `&id=${id}`);
+    const t0 = performance.now();
+    const res = await timedFetch(target, { method: "POST", body: "" }, 8000);
+    result.seenAs = await res.json();
+    // The first request to a server pays for DNS, TCP and TLS setup.
+    const entry = performance.getEntriesByName(target).pop();
+    result.firstRequest = entry ? {
+      total: round(performance.now() - t0),
+      dns: round(entry.domainLookupEnd - entry.domainLookupStart),
+      connect: round(entry.connectEnd - entry.connectStart),
+      tls: entry.secureConnectionStart > 0 ? round(entry.connectEnd - entry.secureConnectionStart) : null,
+      firstByte: round(entry.responseStart - entry.requestStart),
+      protocol: entry.nextHopProtocol || null,
+    } : { total: round(performance.now() - t0) };
+  } catch (e) {
+    result.unreachable = String(e);
+    step += STEPS;
+    return result;
+  }
+  const name = server.label;
+
+  step++;
+  result.ping = await pingTest(server, plan.pings, 150, `${name}：测延迟`);
+  step++;
+  result.download1 = await downloadTest(server, 1, plan.down, plan.cap, `${name}：单线下载`);
+  step++;
+  const loadedPings = [];
+  let pinging = true;
+  const pinger = (async () => {
+    while (pinging) {
+      const t0 = performance.now();
+      try {
+        const r = await timedFetch(url(server, "ping"), {}, 3000);
+        await r.json();
+        loadedPings.push(round(performance.now() - t0));
+      } catch (e) {
+        loadedPings.push(null);
+      }
+      await sleep(500);
+    }
+  })();
+  // Browsers open at most six HTTP/1.1 connections to a host; the pings
+  // above need one of them.
+  result.downloadMulti = await downloadTest(server, 5, plan.down, plan.cap, `${name}：多线下载`);
+  pinging = false;
+  await pinger;
+  const ok = loadedPings.filter((x) => x !== null);
+  result.pingUnderLoad = {
+    samples: loadedPings, median: median(ok),
+    p90: percentile(ok, 0.9), failures: loadedPings.length - ok.length,
+  };
+  step++;
+  result.upload1 = await uploadTest(server, 1, plan.up, plan.cap / 4, `${name}：单线上传`);
+  step++;
+  result.upload4 = await uploadTest(server, 4, plan.up, plan.cap / 4, `${name}：4 线上传`);
+  result.finishedAt = new Date().toISOString();
+  return result;
+}
+
+function grade(value, good, ok, higherIsBetter = true) {
+  if (value == null) return "";
+  if (higherIsBetter) return value >= good ? "good" : value >= ok ? "warn" : "bad";
+  return value <= good ? "good" : value <= ok ? "warn" : "bad";
+}
+
+function render(result) {
+  if (result.unreachable) {
+    return `<section class="card result"><h2>${SERVERS.find((s) => s.name === result.server).label}</h2>
+      <p class="bad">连不上</p></section>`;
+  }
+  const label = SERVERS.find((s) => s.name === result.server).label;
+  const p = result.ping;
+  const rows = [
+    ["延迟", p.median, "ms", grade(p.median, 80, 200, false)],
+    ["抖动", p.jitter == null ? null : round(p.jitter), "ms", grade(p.jitter, 15, 50, false)],
+    ["丢包/超时", `${p.failures}/${p.samples.length + p.failures}`, "", p.failures ? "bad" : "good"],
+    ["下载时延迟", result.pingUnderLoad.median, "ms", grade(result.pingUnderLoad.median, 150, 400, false)],
+    ["单线下载", result.download1.mbps, "Mbps", grade(result.download1.mbps, 20, 5)],
+    ["多线下载", result.downloadMulti.mbps, "Mbps", grade(result.downloadMulti.mbps, 40, 10)],
+    ["单线上传", result.upload1.mbps, "Mbps", grade(result.upload1.mbps, 5, 1)],
+    ["4 线上传", result.upload4.mbps, "Mbps", grade(result.upload4.mbps, 10, 2)],
+  ];
+  return `<section class="card result"><h2>${label}</h2><div class="grid">${rows.map(([k, v, unit, cls]) =>
+    `<div><span>${k}</span><b class="${cls}">${v ?? "–"}${v == null ? "" : ` <small>${unit}</small>`}</b></div>`).join("")}</div></section>`;
+}
+
+$("start").addEventListener("click", async () => {
+  if (!KEY) {
+    $("results").innerHTML = `<section class="card"><p class="bad">链接不完整，请用 Kai 发的完整链接打开。</p></section>`;
+    return;
+  }
+  $("start").disabled = true;
+  $("progress").hidden = false;
+  $("results").innerHTML = "";
+  step = 0;
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const plan = PLAN[network];
+  const report = {
+    id, network, plan,
+    localTime: new Date().toString(),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    userAgent: navigator.userAgent,
+    connection: navigator.connection ? {
+      effectiveType: navigator.connection.effectiveType,
+      downlink: navigator.connection.downlink,
+      rtt: navigator.connection.rtt,
+    } : null,
+    servers: [],
+  };
+  for (const server of SERVERS) {
+    report.servers.push(await testServer(server, plan, id));
+  }
+  phase("正在保存结果…");
+  await Promise.all(SERVERS.map((server) =>
+    timedFetch(url(server, "finish", `&id=${id}`),
+      { method: "POST", body: JSON.stringify(report) }, 10000).catch(() => null)));
+  step = STEPS * SERVERS.length;
+  phase("测完了，谢谢！", "✓");
+  $("results").innerHTML = report.servers.map(render).join("");
+  $("start").disabled = false;
+  $("start").textContent = "再测一次";
+});
+</script>
+</body>
+</html>

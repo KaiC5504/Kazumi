@@ -1,0 +1,19 @@
+[Unit]
+Description=Network probe for the Kazumi servers (speed test and route diagnostics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/netprobe.env
+ExecStart=/usr/bin/python3 /opt/netprobe/netprobe.py
+DynamicUser=yes
+StateDirectory=netprobe
+Environment=NETPROBE_DATA=/var/lib/netprobe
+Environment=NETPROBE_PAGE=/opt/netprobe/index.html
+# mtr sends raw ICMP probes.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

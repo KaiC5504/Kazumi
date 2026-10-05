@@ -1,3 +1,11 @@
+{
+	servers {
+		# One TCP connection per request, like the app's parallel downloads,
+		# so the speed test's multi-connection numbers are real.
+		protocols h1
+	}
+}
+
 # Download relay for the Kazumi library on Hetzner (kazumi.kaic5504.com).
 # Only episode files pass through; Hetzner still checks the token on each request.
 hk.kaic5504.com {
@@ -9,6 +17,12 @@ hk.kaic5504.com {
 	}
 	handle /healthz {
 		respond "ok" 200
+	}
+	@netprobe path /speed /speed/*
+	handle @netprobe {
+		reverse_proxy 127.0.0.1:8780 {
+			flush_interval -1
+		}
 	}
 	handle /speedtest/* {
 		root * /srv

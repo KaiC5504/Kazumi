@@ -4,8 +4,23 @@ kazumi.kaic5504.com {
 		max_size 4GB
 	}
 
-	reverse_proxy 127.0.0.1:8770 {
-		# Stream video bytes straight through instead of buffering them.
-		flush_interval -1
+	# WebDAV sync between devices; rclone checks the credentials.
+	handle /dav/* {
+		reverse_proxy 127.0.0.1:8771
+	}
+
+	# Speed and route diagnostics (server/netprobe); the page lives on hk.
+	@netprobe path /speed /speed/*
+	handle @netprobe {
+		reverse_proxy 127.0.0.1:8780 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8770 {
+			# Stream video bytes straight through instead of buffering them.
+			flush_interval -1
+		}
 	}
 }
