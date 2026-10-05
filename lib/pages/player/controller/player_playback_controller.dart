@@ -548,6 +548,16 @@ abstract class _PlayerPlaybackController with Store {
     }
   }
 
+  /// Watch-together catch-up: scales the actual rate without touching the
+  /// speed the user picked.
+  Future<void> applySyncRate(double factor) async {
+    try {
+      await mediaPlayer?.setRate(playerSpeed * factor);
+    } catch (e) {
+      KazumiLogger().w('PlayerController: failed to set sync rate', error: e);
+    }
+  }
+
   Future<void> setVolume(double value) async {
     updateVolume(value);
     await syncVolumeToDevice(preciseVolume >= 0 ? preciseVolume : volume);

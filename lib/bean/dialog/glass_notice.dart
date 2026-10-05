@@ -46,6 +46,10 @@ class GlassNotice {
     overlay.insert(entry);
   }
 
+  static bool get isShowing => _entry != null;
+
+  static void hide() => _remove();
+
   static void _remove() {
     _entry?.remove();
     _entry = null;

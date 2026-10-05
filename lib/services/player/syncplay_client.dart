@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-const double _pingMovingAverageWeight = 0.85;
+import 'package:kazumi/services/player/syncplay_drift.dart';
+
 const Duration _tlsHandshakeTimeout = Duration(seconds: 10);
 const Duration _socketWriteTimeout = Duration(seconds: 10);
 
@@ -214,6 +215,7 @@ class SyncplayClient {
   String? _username;
   String? _currentRoom;
   String? _currentFileName;
+  String? _ownFileName;
   double _currentPositon = 0.0;
   bool _isPaused = true;
   StreamController<Map<String, dynamic>>? _generalMessageController =
@@ -233,6 +235,12 @@ class SyncplayClient {
   double _serverRtt = 0.0;
   double _avrRtt = 0.0;
   double _fd = 0.0;
+  final SyncplayRttWindow _rttWindow = SyncplayRttWindow();
+  bool _lastRttLate = false;
+
+  /// Where the player is right now, reported back with every state reply.
+  /// Without it the reply echoes the room position the server just sent.
+  double Function()? livePosition;
 
   // IgnoringOnTheFly
   int _clientIgnoringOnTheFly = 0;
@@ -242,6 +250,7 @@ class SyncplayClient {
       !_closed && _socket != null && (_tlsHandshakeCompleter == null || _isTLS);
   String? get username => _username;
   String? get currentFileName => _currentFileName;
+  String? get ownFileName => _ownFileName;
 
   Stream<Map<String, dynamic>> get onGeneralMessage {
     _generalMessageController ??= StreamController.broadcast();
@@ -378,6 +387,7 @@ class SyncplayClient {
       );
       return;
     }
+    _ownFileName = bangumiName;
     await _sendMessage(SetMessage(
         duration: duration,
         fileName: bangumiName,
@@ -417,6 +427,8 @@ class SyncplayClient {
     _currentRoom = null;
     _username = null;
     _currentFileName = null;
+    _ownFileName = null;
+    livePosition = null;
     _currentPositon = 0.0;
     _isPaused = true;
     _lastLatencyCalculation = null;
@@ -426,6 +438,8 @@ class SyncplayClient {
     _serverRtt = 0.0;
     _avrRtt = 0.0;
     _fd = 0.0;
+    _rttWindow.clear();
+    _lastRttLate = false;
   }
 
   void setPosition(double position) {
@@ -495,7 +509,8 @@ class SyncplayClient {
           return;
         }
         if (event == RawSocketEvent.read) {
-          while (true) {
+          // Reading with nothing buffered fails a plain socket on Windows.
+          while (socket.available() > 0) {
             final data = socket.read();
             if (data == null || data.isEmpty) {
               break;
@@ -619,6 +634,7 @@ class SyncplayClient {
       return;
     }
     if (json.containsKey('State')) {
+      _lastRttLate = false;
       if (json['State'].containsKey('ping')) {
         _lastLatencyCalculation =
             json['State']['ping']['latencyCalculation']?.toDouble();
@@ -658,11 +674,12 @@ class SyncplayClient {
           'serverRtt': _serverRtt,
           'avrRtt': _avrRtt,
           'fd': _fd,
+          'late': _lastRttLate,
         });
       }
       _runInBackground(
         _sendState(
-          position: _currentPositon,
+          position: livePosition?.call() ?? _currentPositon,
           paused: _isPaused,
         ),
       );
@@ -932,18 +949,15 @@ class SyncplayClient {
     if (newClientRtt < 0 || senderRtt < 0) return;
     _clientRtt = newClientRtt;
 
-    // If it's the first time calculating, initialize the average RTT
-    if (_avrRtt == 0) {
-      _avrRtt = _clientRtt;
-    }
-
-    // Use moving average to update RTT, smooth the delay data
-    _avrRtt = _avrRtt * _pingMovingAverageWeight +
-        _clientRtt * (1 - _pingMovingAverageWeight);
+    // The median ignores the odd message held up by packet loss, which a
+    // moving average would let drag the estimate around for a while.
+    _lastRttLate = _rttWindow.isLate(_clientRtt);
+    _rttWindow.add(_clientRtt);
+    _avrRtt = _rttWindow.median;
 
     // Calculate the forward delay based on the sender's RTT
-    if (senderRtt < _clientRtt) {
-      _fd = _avrRtt / 2 + (_clientRtt - senderRtt);
+    if (senderRtt < _avrRtt) {
+      _fd = _avrRtt / 2 + (_avrRtt - senderRtt);
     } else {
       _fd = _avrRtt / 2;
     }

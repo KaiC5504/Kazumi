@@ -1219,7 +1219,9 @@ class _PlayerItemState extends State<PlayerItem>
           // Replay stale near-end resumes instead of advancing to the next episode.
           unawaited(playerController.playback.restartFromBeginning());
         } else if (playingSelection.episode < playingRoadData.data.length &&
-            autoPlayNext) {
+            (autoPlayNext ||
+                playerController.syncplay.followEpisode ==
+                    playingSelection.episode + 1)) {
           final nextSelection = VideoEpisodeSelection(
             episode: playingSelection.episode + 1,
             road: playingSelection.road,

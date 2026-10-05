@@ -61,9 +61,12 @@ class PlayerController implements Disposable {
     currentPosition: () => playback.currentPosition,
     playerPosition: () => playback.playerPosition,
     duration: () => playback.duration,
+    completed: () => playback.completed,
     pause: pause,
     play: play,
     seek: seek,
+    setRateFactor: playback.applySyncRate,
+    clock: DateTime.now,
   );
   late final PlayerSeekController seeking = PlayerSeekController(
     playback: playback,
@@ -280,7 +283,7 @@ class PlayerController implements Disposable {
     coverUrl = params.coverUrl;
 
     if (syncplay.syncplayController?.isConnected ?? false) {
-      if (syncplay.syncplayController!.currentFileName !=
+      if (syncplay.syncplayController!.ownFileName !=
           "$bangumiId[$currentEpisode]") {
         setSyncPlayPlayingBangumi(
             forceSyncPlaying: true, forceSyncPosition: 0.0);
