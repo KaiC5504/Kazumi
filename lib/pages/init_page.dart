@@ -105,7 +105,8 @@ class _InitPageState extends State<InitPage> {
     }
     final updateController = myController;
     unawaited(runStartupUpdateCheck(
-      isEnabled: () => GStorage.getSetting(SettingsKeys.autoUpdate),
+      isEnabled: () =>
+          Platform.isIOS || GStorage.getSetting(SettingsKeys.autoUpdate),
       checkForUpdate: () async {
         await updateController.checkUpdate(type: 'auto');
       },

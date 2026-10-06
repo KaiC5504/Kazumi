@@ -4,6 +4,7 @@ import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/widget/content_section.dart';
 import 'package:kazumi/pages/about/about_widgets.dart';
 import 'package:kazumi/request/config/api_endpoints.dart';
+import 'package:kazumi/services/update/testflight_update.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key, required this.onCheckUpdate});
@@ -121,7 +122,7 @@ class _ProjectHeader extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            ApiEndpoints.version,
+            TestflightUpdate.versionLabel,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colors.onSurfaceVariant,
             ),

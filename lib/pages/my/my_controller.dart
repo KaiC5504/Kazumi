@@ -8,6 +8,7 @@ import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/repositories/history_repository.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/update/auto_updater.dart';
+import 'package:kazumi/services/update/testflight_update.dart';
 import 'package:mobx/mobx.dart';
 
 part 'my_controller.g.dart';
@@ -153,6 +154,9 @@ abstract class _MyController with Store {
   }
 
   Future<bool> checkUpdate({String type = 'manual'}) async {
+    if (TestflightUpdate.replacesUpstream) {
+      return TestflightUpdate.instance.check(manual: type == 'manual');
+    }
     try {
       final autoUpdater = AutoUpdater();
 

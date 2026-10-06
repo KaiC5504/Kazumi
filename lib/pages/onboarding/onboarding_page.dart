@@ -161,7 +161,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
     if (!mounted) return;
     final myController = widget.myController;
     unawaited(runStartupUpdateCheck(
-      isEnabled: () => GStorage.getSetting(SettingsKeys.autoUpdate),
+      isEnabled: () =>
+          Platform.isIOS || GStorage.getSetting(SettingsKeys.autoUpdate),
       checkForUpdate: () => myController.checkUpdate(type: 'auto'),
     ));
     context.navigate(GStorage.getSetting(SettingsKeys.defaultStartupPage));

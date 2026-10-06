@@ -24,6 +24,13 @@ hk.kaic5504.com {
 			flush_interval -1
 		}
 	}
+	# latest.json for the app's update prompt; written by
+	# `scripts/codemagic.py publish-latest`.
+	handle /app/* {
+		header Cache-Control no-store
+		root * /srv
+		file_server
+	}
 	handle /speedtest/* {
 		root * /srv
 		file_server

@@ -48,8 +48,16 @@ build time from upstream's `com.example.kazumi`; extensions: none). Repo
 3. Merge to `main` and push. Re-check `git rev-list --count main..upstream/main` is 0;
    if upstream moved during the check, merge again and re-run Actions.
 4. `python scripts/codemagic.py status`, then `start main`, then `watch`.
-5. Report the TestFlight build number, what changed (fork and upstream) and test steps
-   for iPhone/iPad.
+5. Once it passes: `python scripts/codemagic.py publish-latest --notes "<短中文说明>"`.
+   This writes `https://hk.kaic5504.com/app/latest.json`, and installed apps prompt
+   for the update on launch, with 去更新 opening TestFlight. Add `--required` only when
+   older builds must not keep running, e.g. a protocol change in 一起看. It locks
+   older builds out 30 min later, so ask the owner first.
+6. Report the TestFlight build number as `version (build)`, what changed (fork and
+   upstream) and test steps for iPhone/iPad.
+
+The fork's own version is the `--build-name` in `codemagic.yaml` (3.0.0 from build
+15). Bump it there for a release, never in `pubspec.yaml`, which stays upstream's.
 
 DanDanPlay danmaku needs our own `DANDANAPI_APPID` / `DANDANAPI_KEY` (Codemagic env
 group, never committed). Without them danmaku search returns nothing.

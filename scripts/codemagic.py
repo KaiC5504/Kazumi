@@ -10,16 +10,21 @@ this repository. Nothing here writes a token anywhere.
     python scripts/codemagic.py status         # latest build
     python scripts/codemagic.py watch          # poll until it finishes, then report
     python scripts/codemagic.py start [branch] # trigger one by hand
+    python scripts/codemagic.py publish-latest [--required] [--notes TEXT]
+        # after a build passes: tell installed apps about it (HK latest.json)
 """
 
 from __future__ import annotations
 
+import argparse
 import html
 import json
 import os
 import re
+import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -165,6 +170,63 @@ def cmd_start(branch: str) -> int:
     return 0
 
 
+# The app reads this on every launch (lib/services/update/testflight_update.dart).
+LATEST_HOST = "KaiCHK"
+LATEST_PATH = "/srv/app/latest.json"
+
+
+def ssh(command: str, stdin: str | None = None) -> str:
+    result = subprocess.run(
+        ["ssh", LATEST_HOST, command],
+        input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=60,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"ssh {LATEST_HOST} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def cmd_publish_latest(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="codemagic.py publish-latest")
+    parser.add_argument("--required", action="store_true",
+                        help="builds older than this one must update")
+    parser.add_argument("--notes", default="", help="shown in the update dialog")
+    args = parser.parse_args(argv)
+
+    build = latest()
+    if not build or build.get("status") != "finished":
+        raise SystemExit("The latest Codemagic build hasn't passed; nothing to publish.")
+    ipa = next((a for a in build.get("artefacts") or [] if a.get("type") == "ipa"), None)
+    if not ipa or not str(ipa.get("versionCode", "")).isdigit():
+        raise SystemExit("The build has no IPA with a build number.")
+    number, version = int(ipa["versionCode"]), ipa.get("versionName") or ipa.get("version")
+
+    previous = {}
+    raw = ssh(f"sudo cat {LATEST_PATH} 2>/dev/null || true")
+    if raw.strip():
+        previous = json.loads(raw)
+    if previous.get("build", 0) > number:
+        raise SystemExit(f"HK already announces build {previous['build']}, newer than {number}.")
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    latest_json = {
+        "build": number,
+        "version": version,
+        "minBuild": number if args.required else previous.get("minBuild", 0),
+        "requiredSince": now if args.required else previous.get("requiredSince"),
+        "notes": args.notes,
+        "publishedAt": now,
+    }
+    body = json.dumps(latest_json, ensure_ascii=False, indent=1) + "\n"
+    ssh(f"sudo mkdir -p {Path(LATEST_PATH).parent.as_posix()} && "
+        f"sudo tee {LATEST_PATH}.tmp >/dev/null && sudo chmod 644 {LATEST_PATH}.tmp && "
+        f"sudo mv {LATEST_PATH}.tmp {LATEST_PATH}", stdin=body)
+    print(f"published {version} ({number})"
+          + (" as required" if args.required else "")
+          + f" -> https://hk.kaic5504.com/app/latest.json")
+    print(body)
+    return 0
+
+
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else "status"
     if command == "status":
@@ -173,6 +235,8 @@ def main() -> int:
         return cmd_watch()
     if command == "start":
         return cmd_start(sys.argv[2] if len(sys.argv) > 2 else "main")
+    if command == "publish-latest":
+        return cmd_publish_latest(sys.argv[2:])
     print(__doc__)
     return 2
 
