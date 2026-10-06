@@ -1,6 +1,6 @@
 # Cloud bake: rent a Sydney GPU from inside Kazumi
 
-Date: 2026-10-06. Status: approved in conversation, awaiting written-spec review.
+Date: 2026-10-06. Status: approved by the owner 2026-10-06.
 
 ## Goal
 
@@ -384,12 +384,8 @@ stdlib `unittest`, with ffmpeg and runpodctl stubbed through env overrides):
 **Owner check on the PC:** press ☁ on a show, watch the banner and ☁
 progress, then confirm the pod is gone in the Runpod console.
 
-## Open items to verify in planning (cheap, before coding)
+## Open items, resolved in planning (2026-10-06)
 
-1. A pod's scoped `RUNPOD_API_KEY` can delete its own pod via `runpodctl`.
-   If not, drop worker self-destruct and rely on the app delete, the cap via
-   app, and the startup check. Tell the owner.
-2. Runpod's env size limit allows the gzip+base64 worker. If not, use the
-   bootstrap fallback.
-3. The exact REST endpoints and fields for stock and price in OC-AU-1, pod
-   create, and the port mapping.
+1. **Self-delete works, through GraphQL.** The pod's own key gets 403 on REST v2. On GraphQL, `podTerminate` with a fake id returned `POD_NOT_FOUND`, not `UNAUTHORIZED`. The worker therefore calls `podTerminate` on its own pod.
+2. **The env size limit is fine.** An 8 KB env value was accepted on a throwaway CPU pod, so the worker ships in env with no bootstrap fallback.
+3. **REST v2 endpoints are pinned.** See the plan, `docs/superpowers/plans/2026-10-06-cloud-bake.md` ("Changes from the spec").
