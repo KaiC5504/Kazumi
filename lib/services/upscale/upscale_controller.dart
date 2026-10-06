@@ -83,9 +83,15 @@ class UpscaleController {
       '${recordKey}_$episodeNumber';
 
   Future<void> init() async {
+    final adopted = <(String, int)>[];
     for (final record in _repository.getAllRecords()) {
       var changed = false;
       for (final episode in record.episodes.values) {
+        if (adoptCloudBake(episode)) {
+          adopted.add((record.key, episode.episodeNumber));
+          changed = true;
+          continue;
+        }
         final interrupted =
             episode.upscaleStatus == UpscaleStatus.queued ||
             episode.upscaleStatus == UpscaleStatus.baking;
@@ -100,6 +106,7 @@ class UpscaleController {
       }
       if (changed) await _repository.putRecord(record);
     }
+    if (adopted.isNotEmpty) unawaited(_finishAdopted(adopted));
     if (canBake && GStorage.getSetting(SettingsKeys.lanShareEnabled)) {
       try {
         await startLanShare();
@@ -108,6 +115,58 @@ class UpscaleController {
           'UpscaleController: LAN share failed to start',
           error: e,
         );
+      }
+    }
+  }
+
+  /// Episodes baked off this machine (e.g. on a rented GPU) arrive as
+  /// upscaled/video.mp4 plus a cloud_baked.json marker; treat them as if
+  /// they had been baked here.
+  @visibleForTesting
+  static bool adoptCloudBake(DownloadEpisode episode) {
+    if (episode.preUpscaled || episode.upscaleStatus == UpscaleStatus.done) {
+      return false;
+    }
+    if (episode.downloadDirectory.isEmpty) return false;
+    final dir = path.join(episode.downloadDirectory, 'upscaled');
+    final marker = File(path.join(dir, cloudBakeMarkerFileName));
+    final video = File(path.join(dir, upscaledVideoFileName));
+    if (!marker.existsSync() || !video.existsSync()) return false;
+    var height = 1440;
+    try {
+      final json =
+          jsonDecode(marker.readAsStringSync()) as Map<String, dynamic>;
+      height = (json['height'] as num?)?.toInt() ?? height;
+    } catch (e) {
+      KazumiLogger().w('UpscaleController: bad cloud bake marker', error: e);
+    }
+    episode
+      ..upscaleStatus = UpscaleStatus.done
+      ..upscaledVideoPath = video.path
+      ..upscaledHeight = height;
+    KazumiLogger().i('UpscaleController: adopted cloud bake ${video.path}');
+    return true;
+  }
+
+  /// Runs the same follow-up a local bake gets: skip detection, then the
+  /// auto export if it's on.
+  Future<void> _finishAdopted(List<(String, int)> adopted) async {
+    for (final recordKey in {for (final (key, _) in adopted) key}) {
+      _downloadController.syncRecord(recordKey);
+      try {
+        await analyzeSkips(recordKey);
+      } catch (e) {
+        KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
+      }
+    }
+    if (!GStorage.getSetting(SettingsKeys.upscaleAutoExport) ||
+        GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isEmpty) {
+      return;
+    }
+    for (final (recordKey, episodeNumber) in adopted) {
+      final error = await export(recordKey, episodeNumber);
+      if (error != null) {
+        KazumiLogger().w('UpscaleController: auto export failed: $error');
       }
     }
   }

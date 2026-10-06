@@ -5,6 +5,7 @@ import 'package:kazumi/services/skip/skip_segments.dart';
 
 const String upscaledManifestFileName = 'kazumi_episode.json';
 const String upscaledVideoFileName = 'video.mp4';
+const String cloudBakeMarkerFileName = 'cloud_baked.json';
 const String upscaledDanmakuFileName = 'danmaku.json';
 const String upscaledExportFolderName = 'Kazumi Upscaled';
 const String lanShareTokenHeader = 'X-Kazumi-Token';
