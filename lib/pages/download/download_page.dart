@@ -113,7 +113,10 @@ class _DownloadPageState extends State<DownloadPage> {
     if (!upscaleController.canBake) return list;
     return Column(
       children: [
-        CloudBakeBanner(controller: upscaleController),
+        CloudBakeBanner(
+          session: upscaleController.cloudSession,
+          onStop: upscaleController.stopCloudBake,
+        ),
         Expanded(child: list),
       ],
     );

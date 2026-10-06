@@ -4,6 +4,7 @@ import 'package:kazumi/pages/download/cloud_bake_sheets.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
 import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
+import 'package:mobx/mobx.dart';
 
 void main() {
   CloudBakeQuote quote({bool includeLocal = true}) => CloudBakeQuote(
@@ -71,5 +72,35 @@ void main() {
       ),
       '☁ 下载中 100%',
     );
+  });
+
+  testWidgets('stop stays available while the laptop finishes the season', (
+    tester,
+  ) async {
+    final session = Observable<CloudBakeSessionView?>(
+      CloudBakeSessionView(
+        phase: CloudBakePhase.finishing,
+        cloudDone: 0,
+        localDone: 1,
+        failed: 0,
+        total: 4,
+        startedAt: DateTime.now(),
+        pricePerHour: 1.09,
+        message: '云端 GPU 启动超时，改用本机烘焙',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudBakeBanner(session: session, onStop: () async {}),
+        ),
+      ),
+    );
+    final stop = tester.widget<TextButton>(
+      find.widgetWithText(TextButton, '停止'),
+    );
+    expect(stop.onPressed, isNotNull);
+    expect(find.text('云端 GPU 启动超时，改用本机烘焙'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
   });
 }

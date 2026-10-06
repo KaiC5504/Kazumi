@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:mobx/mobx.dart';
 import 'package:kazumi/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
@@ -254,9 +255,14 @@ class _Stat extends StatelessWidget {
 
 /// Shown above the download list while a cloud bake runs.
 class CloudBakeBanner extends StatefulWidget {
-  const CloudBakeBanner({super.key, required this.controller});
+  const CloudBakeBanner({
+    super.key,
+    required this.session,
+    required this.onStop,
+  });
 
-  final UpscaleController controller;
+  final Observable<CloudBakeSessionView?> session;
+  final Future<void> Function() onStop;
 
   @override
   State<CloudBakeBanner> createState() => _CloudBakeBannerState();
@@ -271,7 +277,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     super.initState();
     // Elapsed time and cost move every second without a state change.
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && widget.controller.cloudSession.value != null) {
+      if (mounted && widget.session.value != null) {
         setState(() {});
       }
     });
@@ -302,7 +308,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     );
     if (confirmed != true) return;
     setState(() => _stopping = true);
-    await widget.controller.stopCloudBake();
+    await widget.onStop();
     if (mounted) setState(() => _stopping = false);
   }
 
@@ -312,7 +318,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     final textTheme = Theme.of(context).textTheme;
     return Observer(
       builder: (context) {
-        final view = widget.controller.cloudSession.value;
+        final view = widget.session.value;
         return AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
@@ -344,6 +350,11 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     final busy =
         view.phase == CloudBakePhase.starting ||
         view.phase == CloudBakePhase.running;
+    // After a cloud failure the laptop may still have the whole season to
+    // go, so stopping must stay possible until the session ends.
+    final canStop =
+        view.phase != CloudBakePhase.done &&
+        view.phase != CloudBakePhase.stopped;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Center(
@@ -410,7 +421,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
                     ),
                   ),
                   TextButton(
-                    onPressed: _stopping || !busy ? null : _stop,
+                    onPressed: _stopping || !canStop ? null : _stop,
                     child: const Text('停止'),
                   ),
                 ],
