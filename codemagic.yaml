@@ -70,7 +70,7 @@ workflows:
       - name: Build IPA
         script: |
           flutter build ipa --release \
-            --build-name=3.0.0 \
+            --build-name=3.1.0 \
             --build-number="$BUILD_NUMBER" \
             --export-options-plist=/Users/builder/export_options.plist \
             --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID:-}" \
