@@ -1,0 +1,9 @@
+[Unit]
+Description=Mirror Predidit/KazumiRules into /srv/rules for hk.kaic5504.com/rules/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=kai
+ExecStart=/bin/sh -c 'if [ ! -d /srv/rules/.git ]; then git clone --depth 1 https://github.com/Predidit/KazumiRules.git /srv/rules; else git -C /srv/rules fetch --depth 1 -q origin main && git -C /srv/rules reset -q --hard FETCH_HEAD; fi'

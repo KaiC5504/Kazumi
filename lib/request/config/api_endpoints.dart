@@ -21,8 +21,9 @@ class ApiEndpoints {
       'https://raw.githubusercontent.com/Predidit/KazumiRules/main/';
 
   /// 规则仓库镜像
-  static const String pluginShopMirror =
-      'https://raw.gitcode.com/gh_mirrors/ka/KazumiRules/raw/main/';
+  // Fork: GitCode's WAF rejects the app, so mirror via our HK box instead
+  // (server/deploy/kazumi-rules-sync.*).
+  static const String pluginShopMirror = 'https://hk.kaic5504.com/rules/';
 
   /// 在线升级
   static const String latestApp =

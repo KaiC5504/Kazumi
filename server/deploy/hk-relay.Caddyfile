@@ -31,6 +31,15 @@ hk.kaic5504.com {
 		root * /srv
 		file_server
 	}
+	# Official rule catalog for mainland China, where GitHub raw is blocked and
+	# GitCode's WAF rejects the app. Kept fresh by kazumi-rules-sync.timer.
+	handle_path /rules/* {
+		header Cache-Control "public, max-age=300"
+		root * /srv/rules
+		file_server {
+			hide .git
+		}
+	}
 	handle /speedtest/* {
 		root * /srv
 		file_server
