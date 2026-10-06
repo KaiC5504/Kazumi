@@ -17,6 +17,7 @@ import 'package:kazumi/services/skip/episode_fingerprint.dart';
 import 'package:kazumi/services/skip/skip_detector.dart';
 import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/services/upscale/keep_awake.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
 import 'package:kazumi/services/upscale/upscaled_import_service.dart';
@@ -57,6 +58,7 @@ class UpscaleController {
 
   FfmpegInfo? _ffmpeg;
   final List<(String, int)> _bakeQueue = [];
+  bool _baking = false;
   UpscaleBaker? _activeBaker;
   String? _activeKey;
   final List<(String, int)> _uploadQueue = [];
@@ -155,10 +157,17 @@ class UpscaleController {
   }
 
   Future<void> _pumpBakeQueue() async {
-    if (_activeKey != null) return;
-    while (_bakeQueue.isNotEmpty) {
-      final (recordKey, episodeNumber) = _bakeQueue.removeAt(0);
-      await _bakeOne(recordKey, episodeNumber);
+    if (_baking) return;
+    _baking = true;
+    KeepAwake.instance.acquire();
+    try {
+      while (_bakeQueue.isNotEmpty) {
+        final (recordKey, episodeNumber) = _bakeQueue.removeAt(0);
+        await _bakeOne(recordKey, episodeNumber);
+      }
+    } finally {
+      _baking = false;
+      KeepAwake.instance.release();
     }
   }
 
@@ -552,6 +561,7 @@ class UpscaleController {
   Future<void> _pumpUploadQueue() async {
     if (_uploading) return;
     _uploading = true;
+    KeepAwake.instance.acquire();
     try {
       while (_uploadQueue.isNotEmpty) {
         final (recordKey, episodeNumber) = _uploadQueue.removeAt(0);
@@ -578,6 +588,7 @@ class UpscaleController {
       }
     } finally {
       _uploading = false;
+      KeepAwake.instance.release();
     }
   }
 
