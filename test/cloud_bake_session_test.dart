@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -92,8 +91,9 @@ class FakeWorker implements CloudWorker {
     void Function(int sent)? onProgress,
     bool Function()? stopped,
   }) async {
-    if (uploadFailIds.contains(id))
+    if (uploadFailIds.contains(id)) {
       throw const CloudWorkerException('upload broke');
+    }
     onProgress?.call(await source.length());
   }
 

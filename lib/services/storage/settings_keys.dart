@@ -582,6 +582,16 @@ class SettingsKeys {
     false,
     group: SettingGroup.download,
   );
+  static const runpodApiKey = SettingKey<String>(
+    'runpodApiKey',
+    '',
+    group: SettingGroup.download,
+  );
+  static const cloudBakeIncludeLocal = SettingKey<bool>(
+    'cloudBakeIncludeLocal',
+    true,
+    group: SettingGroup.download,
+  );
   static const autoSkipOpening = SettingKey<bool>(
     'autoSkipOpening',
     false,
@@ -771,6 +781,8 @@ class SettingsKeys {
     librarySyncPlayEndPoint,
     libraryWifiOnly,
     libraryAutoUpload,
+    runpodApiKey,
+    cloudBakeIncludeLocal,
     autoSkipOpening,
     autoSkipEnding,
     aniSkipLookup,
