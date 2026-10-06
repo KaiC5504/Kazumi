@@ -572,6 +572,11 @@ class SettingsKeys {
     '',
     group: SettingGroup.download,
   );
+  static const libraryMirrors = SettingKey<String>(
+    'libraryMirrors',
+    '',
+    group: SettingGroup.download,
+  );
   static const libraryWifiOnly = SettingKey<bool>(
     'libraryWifiOnly',
     true,
@@ -769,6 +774,7 @@ class SettingsKeys {
     libraryDeviceId,
     libraryRoom,
     librarySyncPlayEndPoint,
+    libraryMirrors,
     libraryWifiOnly,
     libraryAutoUpload,
     autoSkipOpening,

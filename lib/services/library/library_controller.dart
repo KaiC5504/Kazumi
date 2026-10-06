@@ -32,7 +32,9 @@ class LibraryController implements OfflinePlaybackHooks {
     this._repository,
     this._downloadController,
     this._downloadManager,
-  );
+  ) {
+    MirrorRegistry.expand = _mirrorUrlsFor;
+  }
 
   final IDownloadRepository _repository;
   final DownloadController _downloadController;
@@ -50,10 +52,10 @@ class LibraryController implements OfflinePlaybackHooks {
   final Observable<String?> notice = Observable(null);
   final Observable<LibraryInvite?> pendingInvite = Observable(null);
 
-  /// Relays from the server config, and every host (server first until
-  /// ranked) ordered by how fast this device fetched a sample from each.
-  List<String> _mirrors = const [];
+  /// Every host ordered by how fast this device fetched a sample from each;
+  /// empty until ranked.
   List<Uri> _hosts = const [];
+  Future<void>? _ranking;
   final Observable<int> configVersion = Observable(0);
 
   final StreamController<LibraryEpisode> _remotePicks =
@@ -100,6 +102,22 @@ class LibraryController implements OfflinePlaybackHooks {
   }
 
   LibraryApi? get _api => isConfigured ? LibraryApi(server, key) : null;
+
+  /// Relays from the last server config. Kept in settings so downloads
+  /// resumed before the lobby is opened can use them too.
+  List<String> get _mirrors => GStorage.getSetting(
+    SettingsKeys.libraryMirrors,
+  ).split('\n').where((m) => m.isNotEmpty).toList();
+
+  List<Uri> _hostsFor(LibraryApi api) => LibraryApi.hostOrder(api.baseUri, [
+    for (final m in _mirrors) LibraryApi.normalizeServer(m),
+  ], _hosts);
+
+  List<String>? _mirrorUrlsFor(String url) {
+    final api = _api;
+    if (api == null || !api.ownsUrl(url)) return null;
+    return [for (final host in _hostsFor(api)) LibraryApi.rehost(url, host)];
+  }
 
   Future<void> init() async {
     // A backgrounded phone or a PC minimised to the tray can't follow a pick,
@@ -183,7 +201,10 @@ class LibraryController implements OfflinePlaybackHooks {
   /// [SettingsKeys.librarySyncPlayEndPoint] is only set while the server
   /// offers TLS, because the player requests TLS from exactly that endpoint.
   Future<void> _applyConfig(LibraryConfig config) async {
-    _mirrors = config.mirrors;
+    await GStorage.putSetting<String>(
+      SettingsKeys.libraryMirrors,
+      config.mirrors.join('\n'),
+    );
     await GStorage.putSetting<String>(SettingsKeys.libraryRoom, config.room);
     if (config.syncPlayEndPoint.isEmpty) return;
     await GStorage.putSetting<String>(
@@ -245,6 +266,7 @@ class LibraryController implements OfflinePlaybackHooks {
       SettingsKeys.libraryServer,
       SettingsKeys.libraryKey,
       SettingsKeys.libraryRoom,
+      SettingsKeys.libraryMirrors,
     ]) {
       await GStorage.putSetting<String>(key, '');
     }
@@ -284,7 +306,7 @@ class LibraryController implements OfflinePlaybackHooks {
     _startHeartbeat();
     await _refreshConfig();
     await refresh();
-    await _rankHosts();
+    await (_ranking = _rankHosts());
     await cleanup();
     await prefetchFromLobby();
   }
@@ -300,24 +322,25 @@ class LibraryController implements OfflinePlaybackHooks {
       for (final m in _mirrors) LibraryApi.normalizeServer(m),
     ];
     if (hosts.length < 2 || episodes.isEmpty) {
-      _hosts = hosts;
+      _hosts = const [];
       return;
     }
     final sample = episodes.first.id;
     final times = await Future.wait([
-      for (final host in hosts) LibraryApi.probe(api.videoUri(sample, via: host)),
+      for (final host in hosts)
+        LibraryApi.probe(api.videoUri(sample, via: host)),
     ]);
     const failed = Duration(days: 1);
     final ranked = [for (var i = 0; i < hosts.length; i++) (hosts[i], times[i])]
       ..sort((a, b) => (a.$2 ?? failed).compareTo(b.$2 ?? failed));
     _hosts = [for (final (host, _) in ranked) host];
-    KazumiLogger().i('LibraryController: hosts ranked ${[
-      for (final (host, time) in ranked) '${host.host}=${time?.inMilliseconds}ms',
-    ]}');
+    KazumiLogger().i(
+      'LibraryController: hosts ranked ${[for (final (host, time) in ranked) '${host.host}=${time?.inMilliseconds}ms']}',
+    );
   }
 
   List<String> _videoUrls(LibraryApi api, LibraryEpisode episode) => [
-    for (final host in _hosts.isEmpty ? [api.baseUri] : _hosts)
+    for (final host in _hostsFor(api))
       api.videoUri(episode.id, via: host).toString(),
   ];
 
@@ -436,6 +459,9 @@ class LibraryController implements OfflinePlaybackHooks {
     if (announce) {
       unawaited(_announce(api, episode));
     }
+    // The player gets a single URL, so streaming from the slow host would
+    // last the whole episode. Each probe gives up after 10 s on its own.
+    await _ranking;
 
     final series = seriesOf(episode);
     final playlist = <DownloadEpisode>[];
@@ -633,16 +659,20 @@ class LibraryController implements OfflinePlaybackHooks {
     );
     await Directory(targetDir).create(recursive: true);
     if (manifest.hasDanmaku) {
-      for (final host in _hosts.isEmpty ? [api.baseUri] : _hosts) {
+      for (final host in _hostsFor(api)) {
         try {
-          final bytes = await api.download(api.danmakuUri(episode.id, via: host));
+          final bytes = await api.download(
+            api.danmakuUri(episode.id, via: host),
+          );
           await File(
             path.join(targetDir, upscaledDanmakuFileName),
           ).writeAsBytes(bytes, flush: true);
           break;
         } catch (e) {
-          KazumiLogger().w('LibraryController: danmaku via ${host.host} failed',
-              error: e);
+          KazumiLogger().w(
+            'LibraryController: danmaku via ${host.host} failed',
+            error: e,
+          );
         }
       }
     }

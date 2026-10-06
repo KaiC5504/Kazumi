@@ -151,6 +151,24 @@ class LibraryApi {
         uri.queryParameters['token'] == key;
   }
 
+  /// The same file URL served from [host], token included.
+  static String rehost(String url, Uri host) {
+    final uri = Uri.parse(url);
+    return Uri(
+      scheme: host.scheme,
+      host: host.host,
+      port: host.hasPort ? host.port : null,
+      path: uri.path,
+      query: uri.hasQuery ? uri.query : null,
+    ).toString();
+  }
+
+  /// Hosts to try for a file, best first. Once [ranked] by a speed probe that
+  /// order wins; before then relays go first, since the viewer they exist for
+  /// is the one on the slow route to the server.
+  static List<Uri> hostOrder(Uri server, List<Uri> relays, List<Uri> ranked) =>
+      ranked.isNotEmpty ? ranked : [...relays, server];
+
   /// Time to fetch the first [bytes] of [url], or null if it failed.
   static Future<Duration?> probe(
     Uri url, {
@@ -348,9 +366,7 @@ class LibraryApi {
     try {
       final json = await _json('GET', '/api/upload/$id/$file/parts');
       final parts = json['parts'] as Map<String, dynamic>? ?? {};
-      return {
-        for (final e in parts.entries) int.parse(e.key): e.value as int,
-      };
+      return {for (final e in parts.entries) int.parse(e.key): e.value as int};
     } on LibraryException catch (e) {
       if (e.statusCode == HttpStatus.notFound) return null;
       rethrow;

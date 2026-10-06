@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// One file reachable through several hosts, e.g. the library server and a
 /// relay with a better route into mainland China. Each part goes to the host
 /// that has been fastest lately; a host that fails is rested for a while, and
@@ -9,8 +11,8 @@ class MirrorSet {
     this.exploreEvery = 8,
     this.restAfterFailure = const Duration(seconds: 30),
     DateTime Function()? clock,
-  })  : urls = List.unmodifiable(urls),
-        _clock = clock ?? DateTime.now;
+  }) : urls = List.unmodifiable(urls),
+       _clock = clock ?? DateTime.now;
 
   /// In preference order; the first wins until speeds are known.
   final List<String> urls;
@@ -24,8 +26,9 @@ class MirrorSet {
 
   String pick() {
     final now = _clock();
-    final awake =
-        urls.where((u) => !(_restUntil[u]?.isAfter(now) ?? false)).toList();
+    final awake = urls
+        .where((u) => !(_restUntil[u]?.isAfter(now) ?? false))
+        .toList();
     final pool = awake.isEmpty ? urls : awake;
     if (pool.length == 1) return pool.first;
 
@@ -54,7 +57,8 @@ class MirrorSet {
 
   void reportSuccess(String url, int bytes, Duration took) {
     if (bytes <= 0 || took <= Duration.zero) return;
-    final speed = bytes / (took.inMicroseconds / Duration.microsecondsPerSecond);
+    final speed =
+        bytes / (took.inMicroseconds / Duration.microsecondsPerSecond);
     final old = _speed[url];
     _speed[url] = old == null ? speed : old * 0.6 + speed * 0.4;
     _restUntil.remove(url);
@@ -68,10 +72,14 @@ class MirrorSet {
 }
 
 /// Lets whoever queues a download tell the download manager which other URLs
-/// serve the same file. Lives for the app session; a download resumed after a
-/// restart simply uses the URL it was queued with.
+/// serve the same file. Lives for the app session. A download resumed after a
+/// restart, or queued by an older build, gets its set from [expand].
 class MirrorRegistry {
   static final Map<String, MirrorSet> _sets = {};
+
+  /// Every URL serving the same file as the given one, in preference order,
+  /// or null if it isn't known to be mirrored.
+  static List<String>? Function(String url)? expand;
 
   static void register(List<String> urls) {
     if (urls.length < 2) return;
@@ -81,5 +89,18 @@ class MirrorRegistry {
     }
   }
 
-  static MirrorSet forUrl(String url) => _sets[url] ?? MirrorSet([url]);
+  static MirrorSet forUrl(String url) {
+    final known = _sets[url];
+    if (known != null) return known;
+    final urls = expand?.call(url);
+    if (urls == null || urls.length < 2) return MirrorSet([url]);
+    register(urls.contains(url) ? urls : [...urls, url]);
+    return _sets[url]!;
+  }
+
+  @visibleForTesting
+  static void reset() {
+    _sets.clear();
+    expand = null;
+  }
 }
