@@ -331,13 +331,17 @@ class CloudBakeWorkerClient implements CloudWorker {
         base.replace(pathSegments: segments),
       );
       request.headers.set(tokenHeader, token);
-      if (body != null) {
-        request.headers.contentType = ContentType.json;
-        request.write(jsonEncode(body));
-      } else if (raw != null) {
-        request.headers.contentType = ContentType.binary;
-        request.contentLength = raw.length;
-        request.add(raw);
+      // Python's http.server can't read chunked bodies, so always send a
+      // length.
+      final bytes = body != null ? utf8.encode(jsonEncode(body)) : raw;
+      if (bytes != null) {
+        request.headers.contentType = body != null
+            ? ContentType.json
+            : ContentType.binary;
+        request.contentLength = bytes.length;
+        request.add(bytes);
+      } else {
+        request.contentLength = 0;
       }
       final response = await request.close().timeout(_timeout);
       final text = await utf8.decodeStream(response);

@@ -352,6 +352,10 @@ def make_handler(worker, terminate):
             if not hmac.compare_digest(self.headers.get('X-Kazumi-Token', ''), worker.token):
                 return self.reply(403, {'error': 'forbidden'})
             worker.touch()
+            # http.server can't decode chunked bodies; reading Content-Length
+            # would silently see an empty one.
+            if 'chunked' in self.headers.get('Transfer-Encoding', '').lower():
+                return self.reply(411, {'error': 'send Content-Length'})
             parts = self.path.split('?')[0].strip('/').split('/')
             try:
                 if parts == ['status'] and method == 'GET':

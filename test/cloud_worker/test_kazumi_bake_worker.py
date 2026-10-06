@@ -232,6 +232,14 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(self.call('GET', '/out/a.b')[0], 404)
         self.assertEqual(self.call('GET', '/out/e1/x')[0], 404)
 
+    def test_chunked_body_is_refused(self):
+        import http.client
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=5)
+        conn.request('POST', '/in/e1/commit', body=iter([b'{"size": 5}']),
+                     headers={'X-Kazumi-Token': TOKEN}, encode_chunked=True)
+        self.assertEqual(conn.getresponse().status, 411)
+        conn.close()
+
     def test_shutdown_terminates(self):
         self.assertEqual(self.call('POST', '/shutdown', b'')[0], 200)
         self.assertTrue(self.terminated.wait(5))
