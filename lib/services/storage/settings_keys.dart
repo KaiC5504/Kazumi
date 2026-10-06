@@ -582,6 +582,11 @@ class SettingsKeys {
     true,
     group: SettingGroup.download,
   );
+  static const officialRulesKnown = SettingKey<String>(
+    'officialRulesKnown',
+    '',
+    group: SettingGroup.update,
+  );
   static const libraryAutoUpload = SettingKey<bool>(
     'libraryAutoUpload',
     false,
@@ -777,6 +782,7 @@ class SettingsKeys {
     libraryMirrors,
     libraryWifiOnly,
     libraryAutoUpload,
+    officialRulesKnown,
     autoSkipOpening,
     autoSkipEnding,
     aniSkipLookup,

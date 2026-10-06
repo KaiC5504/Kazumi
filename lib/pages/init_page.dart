@@ -13,7 +13,7 @@ import 'package:kazumi/pages/collect/collect_controller.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
-import 'package:kazumi/pages/plugin_editor/plugin_update_actions.dart';
+import 'package:kazumi/services/plugin/official_rules_sync.dart';
 import 'package:kazumi/services/download/background_download_service.dart';
 import 'package:kazumi/services/platform/windows_shortcut.dart';
 import 'package:kazumi/services/platform/platform_environment_service.dart';
@@ -319,28 +319,13 @@ class _InitPageState extends State<InitPage> {
   }
 
   Future<void> _pluginUpdate() async {
-    final checkOnStartup =
-        GStorage.getSetting(SettingsKeys.checkPluginUpdateOnStartup);
-    late final int count;
-    try {
-      count = await pluginsController.checkPluginUpdatesOnStartup(
-        enabled: checkOnStartup,
-      );
-    } catch (_) {
-      return;
-    }
-    if (count != 0) {
-      KazumiDialog.showToast(
-        message: '检测到 $count 条规则可以更新',
-        showActionButton: true,
-        actionLabel: '全部更新',
-        onActionPressed: () => updateAllPluginsWithFeedback(
-          pluginsController,
-          ensureCatalog: false,
-        ),
-        duration: const Duration(seconds: 5),
-      );
-    }
+    // First launch goes through onboarding, which syncs after the disclaimer.
+    if (pluginsController.pluginList.isEmpty) return;
+    await syncOfficialRulesWithFeedback(
+      pluginsController,
+      updateExisting:
+          GStorage.getSetting(SettingsKeys.checkPluginUpdateOnStartup),
+    );
   }
 
   @override

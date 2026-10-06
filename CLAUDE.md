@@ -12,7 +12,8 @@ stays easy:
 
 Fork-only code (dart format is fine here): `lib/services/upscale/`, `lib/services/skip/`,
 `lib/services/library/` + `lib/pages/library/` (一起看 shared library),
-`lib/services/update/testflight_update.dart`, `lib/services/player/syncplay_drift.dart`,
+`lib/services/update/testflight_update.dart`,
+`lib/services/plugin/official_rules_sync.dart` (auto-installs official rules), `lib/services/player/syncplay_drift.dart`,
 `lib/bean/dialog/glass_notice.dart`, and `server/` (library server, HK relay, netprobe).
 For any other file, `git log --oneline upstream/main -- <file>` printing nothing means
 the fork added it.
