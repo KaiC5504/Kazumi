@@ -10,7 +10,14 @@ stays easy:
 - Regenerating code with build_runner reformats every `.g.dart`; keep only the ones
   whose source you changed (`git checkout` the rest).
 
-Fork-only features: pre-upscaled episodes. The PC bakes the 质量档 Anime4K chain into
+Fork-only code (dart format is fine here): `lib/services/upscale/`, `lib/services/skip/`,
+`lib/services/library/` + `lib/pages/library/` (一起看 shared library),
+`lib/services/update/testflight_update.dart`, `lib/services/player/syncplay_drift.dart`,
+`lib/bean/dialog/glass_notice.dart`, and `server/` (library server, HK relay, netprobe).
+For any other file, `git log --oneline upstream/main -- <file>` printing nothing means
+the fork added it.
+
+Pre-upscaled episodes: the PC bakes the 质量档 Anime4K chain into
 HEVC with ffmpeg + libplacebo (`lib/services/upscale/`), exports to a synced folder or
 serves on the LAN, and weak devices (iPad Pro 3) import and play it with shaders off
 (`DownloadEpisode.preUpscaled`). Also a 均衡档 tier using the Anime4K L models.
@@ -64,4 +71,4 @@ group, never committed). Without them danmaku search returns nothing.
 
 The owner has authorised commit, push, Actions and Codemagic runs without asking.
 Codemagic minutes are limited (500 a month across all apps; a Flutter iOS build is
-~20-25 min), so never start a build before Actions is green.
+~10 min), so never start a build before Actions is green.
