@@ -468,13 +468,30 @@ class UpscaleController {
     _baking = true;
     KeepAwake.instance.acquire();
     try {
-      while (_bakeQueue.isNotEmpty) {
-        final (recordKey, episodeNumber) = _bakeQueue.removeAt(0);
-        await _onGpu(() => _bakeOne(recordKey, episodeNumber));
-      }
+      await drainOnGpu(
+        _bakeQueue,
+        _onGpu,
+        (item) => _bakeOne(item.$1, item.$2),
+      );
     } finally {
       _baking = false;
       KeepAwake.instance.release();
+    }
+  }
+
+  @visibleForTesting
+  static Future<void> drainOnGpu<T>(
+    List<T> queue,
+    Future<void> Function(Future<void> Function() bake) onGpu,
+    Future<void> Function(T item) bake,
+  ) async {
+    // Dequeue only once the GPU is free: while waiting, the episode must
+    // still look queued so it can be cancelled and isn't queued twice.
+    while (queue.isNotEmpty) {
+      await onGpu(() async {
+        if (queue.isEmpty) return;
+        await bake(queue.removeAt(0));
+      });
     }
   }
 

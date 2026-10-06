@@ -254,10 +254,17 @@ class HttpTest(unittest.TestCase):
     def test_chunked_body_is_refused(self):
         import http.client
         conn = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=5)
-        conn.request('POST', '/in/e1/commit', body=iter([b'{"size": 5}']),
-                     headers={'X-Kazumi-Token': TOKEN}, encode_chunked=True)
-        self.assertEqual(conn.getresponse().status, 411)
+        self.call('PUT', '/in/e1/parts/0', b'hello')
+        # The server closes on refusal; on Windows the client may see the
+        # reset before the 411. Either way the commit must not go through.
+        try:
+            conn.request('POST', '/in/e1/commit', body=iter([b'{"size": 5}']),
+                         headers={'X-Kazumi-Token': TOKEN}, encode_chunked=True)
+            self.assertEqual(conn.getresponse().status, 411)
+        except ConnectionError:
+            pass
         conn.close()
+        self.assertEqual(self.w.status()['episodes']['e1']['state'], 'receiving')
 
     def test_shutdown_terminates(self):
         self.assertEqual(self.call('POST', '/shutdown', b'')[0], 200)

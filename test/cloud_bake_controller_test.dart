@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
@@ -32,4 +34,23 @@ void main() {
       'kazumi-bake-ghi789',
     ]);
   });
+
+  test(
+    'a queued episode stays cancellable while it waits for the GPU',
+    () async {
+      final queue = [1, 2];
+      final gate = Completer<void>();
+      final baked = <int>[];
+      final drained = UpscaleController.drainOnGpu<int>(queue, (bake) async {
+        await gate.future;
+        await bake();
+      }, (item) async => baked.add(item));
+      await Future<void>.delayed(Duration.zero);
+      expect(queue, [1, 2]);
+      queue.remove(2);
+      gate.complete();
+      await drained;
+      expect(baked, [1]);
+    },
+  );
 }
