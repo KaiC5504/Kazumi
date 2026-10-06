@@ -462,9 +462,11 @@ class _LobbyView extends StatelessWidget {
                       else
                         for (final (index, key) in seriesKeys.indexed)
                           _Entrance(
+                            key: ValueKey(key),
                             delay: Duration(milliseconds: 80 * (index + 1)),
                             child: _SeriesSection(
                               controller: controller,
+                              initiallyExpanded: seriesKeys.length == 1,
                               episodes: controller.seriesOf(
                                 episodes.firstWhere(
                                   (e) => e.manifest.recordKey == key,
@@ -656,58 +658,117 @@ class _MemberChip extends StatelessWidget {
   }
 }
 
-class _SeriesSection extends StatelessWidget {
-  const _SeriesSection({required this.controller, required this.episodes});
+class _SeriesSection extends StatefulWidget {
+  const _SeriesSection({
+    required this.controller,
+    required this.episodes,
+    required this.initiallyExpanded,
+  });
 
   final LibraryController controller;
   final List<LibraryEpisode> episodes;
+  final bool initiallyExpanded;
+
+  @override
+  State<_SeriesSection> createState() => _SeriesSectionState();
+}
+
+class _SeriesSectionState extends State<_SeriesSection> {
+  static const _expandDuration = Duration(milliseconds: 250);
+  static const _expandCurve = Curves.easeInOutCubic;
+
+  late bool _expanded = widget.initiallyExpanded;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final episodes = widget.episodes;
     final manifest = episodes.first.manifest;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+    final watched = episodes.where(widget.controller.isWatchedByMe).length;
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              NetworkImgLayer(
-                src: manifest.bangumiCover,
-                width: 48,
-                height: 66,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      manifest.bangumiName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
+              child: Row(
+                children: [
+                  NetworkImgLayer(
+                    src: manifest.bangumiCover,
+                    width: 48,
+                    height: 66,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          manifest.bangumiName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            '${episodes.length} 集',
+                            if (watched > 0) '已看 $watched',
+                            '${manifest.height}p 超分',
+                          ].join(' · '),
+                          style: text.bodySmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${episodes.length} 集 · ${manifest.height}p 超分',
-                      style: text.bodySmall?.copyWith(
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: _expandDuration,
+                      curve: _expandCurve,
+                      child: Icon(
+                        Icons.expand_more,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
-          for (final episode in episodes)
-            _EpisodeRow(controller: controller, episode: episode),
+          AnimatedSize(
+            duration: _expandDuration,
+            curve: _expandCurve,
+            alignment: Alignment.topCenter,
+            child: _expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
+                    child: Column(
+                      children: [
+                        for (final episode in episodes)
+                          _EpisodeRow(
+                            controller: widget.controller,
+                            episode: episode,
+                          ),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
         ],
       ),
     );
@@ -906,7 +967,7 @@ class _Banner extends StatelessWidget {
 }
 
 class _Entrance extends StatelessWidget {
-  const _Entrance({required this.child, this.delay = Duration.zero});
+  const _Entrance({super.key, required this.child, this.delay = Duration.zero});
 
   final Widget child;
   final Duration delay;
