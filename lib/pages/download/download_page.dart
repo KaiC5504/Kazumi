@@ -9,11 +9,13 @@ import 'package:kazumi/bean/widget/empty_state_widget.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/pages/download/cloud_bake_sheets.dart';
 import 'package:kazumi/pages/download/download_widgets.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/pages/download/upscaled_transfer_sheets.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/services/logging/logger.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/utils/format.dart';
@@ -82,7 +84,7 @@ class _DownloadPageState extends State<DownloadPage> {
             ),
         ],
       ),
-      body: Observer(builder: (context) {
+      body: _withCloudBanner(Observer(builder: (context) {
         final recordKeys = downloadController.recordKeys.toList();
         _expanded.removeWhere((key, _) => !recordKeys.contains(key));
         if (recordKeys.isEmpty) {
@@ -103,7 +105,17 @@ class _DownloadPageState extends State<DownloadPage> {
             );
           },
         );
-      }),
+      })),
+    );
+  }
+
+  Widget _withCloudBanner(Widget list) {
+    if (!upscaleController.canBake) return list;
+    return Column(
+      children: [
+        CloudBakeBanner(controller: upscaleController),
+        Expanded(child: list),
+      ],
     );
   }
 
@@ -148,6 +160,16 @@ class _DownloadPageState extends State<DownloadPage> {
             ),
           if (upscaleController.canBake)
             KazumiMenuItem(
+              label: '☁ 云端烘焙全部',
+              onPressed: () => showCloudBakeFlow(
+                context,
+                upscaleController,
+                record,
+                bakeAllLocally: () => _bakeAll(record),
+              ),
+            ),
+          if (upscaleController.canBake)
+            KazumiMenuItem(
               label: '全部上传到片库',
               onPressed: () => _uploadAll(record),
             ),
@@ -176,12 +198,14 @@ class _DownloadPageState extends State<DownloadPage> {
       final bakeProgress = upscaleController.bakeProgress[key];
       final exportProgress = upscaleController.exportProgress[key];
       final uploadProgress = upscaleController.uploadProgress[key];
+      final cloudPhase = upscaleController.cloudPhases[key];
       return DownloadEpisodeTile(
         episode: episode,
         statusText: _getStatusText(record, episode,
             bakeProgress: bakeProgress,
             exportProgress: exportProgress,
             uploadProgress: uploadProgress,
+            cloudPhase: cloudPhase,
             uploadQueued: uploadProgress != null &&
                 upscaleController.activeUpload.value != key,
             inLibrary: upscaleController.isInLibrary(
@@ -189,6 +213,7 @@ class _DownloadPageState extends State<DownloadPage> {
         actions: _getActionButtons(record, episode),
         taskProgress: uploadProgress ??
             exportProgress ??
+            cloudPhase?.progress ??
             bakeProgress ??
             (episode.upscaleStatus == UpscaleStatus.queued ? 0 : null),
         onPlay: episode.status == DownloadStatus.completed
@@ -202,6 +227,7 @@ class _DownloadPageState extends State<DownloadPage> {
       {double? bakeProgress,
       double? exportProgress,
       double? uploadProgress,
+      CloudEpisodePhase? cloudPhase,
       bool uploadQueued = false,
       bool inLibrary = false}) {
     switch (episode.status) {
@@ -215,6 +241,7 @@ class _DownloadPageState extends State<DownloadPage> {
         if (exportProgress != null) {
           return '$base · 正在导出 ${(exportProgress * 100).toStringAsFixed(0)}%';
         }
+        if (cloudPhase != null) return '$base · ${cloudStatusText(cloudPhase)}';
         switch (episode.upscaleStatus) {
           case UpscaleStatus.queued:
             return '$base · 等待烘焙超分';
@@ -335,6 +362,11 @@ class _DownloadPageState extends State<DownloadPage> {
 
   List<Widget> _upscaleActions(DownloadRecord record, DownloadEpisode episode) {
     if (!upscaleController.canBake || episode.preUpscaled) return const [];
+    // Cloud-held episodes are cancelled with the banner's stop button.
+    if (episode.upscaleStatus == UpscaleStatus.queued &&
+        upscaleController.cloudHolds(record.key, episode.episodeNumber)) {
+      return const [];
+    }
     final colorScheme = Theme.of(context).colorScheme;
     switch (episode.upscaleStatus) {
       case UpscaleStatus.queued:
