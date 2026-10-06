@@ -125,6 +125,25 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(ep['state'], 'failed')
         self.assertIn('Could not write header', ep['error'])
 
+    def test_an_unexpected_error_fails_the_episode_not_the_slot(self):
+        self.queue_one()
+
+        def broken(cmd, on_line):
+            raise OSError('cannot start ffmpeg')
+
+        self.w.run_ffmpeg = broken
+        self.w.bake_next()
+        ep = self.w.status()['episodes']['e1']
+        self.assertEqual(ep['state'], 'failed')
+        self.assertIn('cannot start ffmpeg', ep['error'])
+
+    def test_an_episode_dropped_while_queued_is_skipped(self):
+        self.queue_one()
+        self.w.drop('e1')
+        self.w.run_ffmpeg = lambda cmd, on_line: self.fail('baked a dropped episode')
+        self.w.bake_next()
+        self.assertNotIn('e1', self.w.status()['episodes'])
+
     def test_unknown_duration_does_not_divide_by_zero(self):
         self.queue_one(duration=0)
 

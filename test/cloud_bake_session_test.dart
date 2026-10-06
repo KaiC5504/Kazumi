@@ -66,6 +66,9 @@ class FakeWorker implements CloudWorker {
   final episodes = <String, WorkerEpisode>{};
   final failIds = <String>{};
   final uploadFailIds = <String>{};
+  final vanishIds = <String>{};
+  var shaderFailures = 0;
+  var garbledStatusCall = -1;
   final shaders = <String>[];
   final drops = <String>[];
   var bakeForever = false;
@@ -78,11 +81,17 @@ class FakeWorker implements CloudWorker {
     if (++statusCalls > goDarkAfterStatus) {
       throw const CloudWorkerException('down');
     }
+    if (statusCalls == garbledStatusCall) {
+      throw const FormatException('Unexpected end of input');
+    }
     return WorkerStatus(state: 'ready', episodes: Map.of(episodes));
   }
 
   @override
-  Future<void> putShader(String glsl) async => shaders.add(glsl);
+  Future<void> putShader(String glsl) async {
+    if (shaderFailures-- > 0) throw const CloudWorkerException('blip');
+    shaders.add(glsl);
+  }
 
   @override
   Future<void> upload(
@@ -104,6 +113,7 @@ class FakeWorker implements CloudWorker {
     required double durationSec,
     required int height,
   }) async {
+    if (vanishIds.contains(id)) return;
     episodes[id] = failIds.contains(id)
         ? const WorkerEpisode(
             state: 'failed',
@@ -158,6 +168,7 @@ void main() {
     int count = 4,
     Duration localTime = Duration.zero,
     Duration readyTimeout = const Duration(seconds: 2),
+    Duration stallAfter = const Duration(minutes: 10),
   }) {
     return CloudBakeSession(
       api: api,
@@ -195,6 +206,7 @@ void main() {
       readyTimeout: readyTimeout,
       lostAfter: const Duration(milliseconds: 30),
       deleteTimeout: const Duration(milliseconds: 50),
+      stallAfter: stallAfter,
     );
   }
 
@@ -329,6 +341,60 @@ void main() {
     expect(returned..sort(), [1, 2, 3, 4]);
     expect(localBaked, isEmpty);
     expect(s.view.phase, CloudBakePhase.stopped);
+  });
+
+  test('an episode that vanishes from the pod goes to the laptop', () async {
+    final worker = FakeWorker()..vanishIds.add('ep2');
+    await runIt(make(FakePodApi(), worker, includeLocal: false));
+    expect(localBaked, [2]);
+    expect(cloudBaked..sort(), [1, 3, 4]);
+  });
+
+  test('an episode stuck baking goes to the laptop', () async {
+    final api = FakePodApi();
+    final worker = FakeWorker()..bakeForever = true;
+    await runIt(
+      make(
+        api,
+        worker,
+        includeLocal: false,
+        count: 2,
+        stallAfter: const Duration(milliseconds: 30),
+      ),
+    );
+    expect(localBaked..sort(), [1, 2]);
+    expect(api.deleted, ['pod1']);
+  });
+
+  test('a garbled status reply is retried, not fatal', () async {
+    final worker = FakeWorker()..garbledStatusCall = 2;
+    await runIt(make(FakePodApi(), worker, includeLocal: false));
+    expect(cloudBaked..sort(), [1, 2, 3, 4]);
+    expect(localBaked, isEmpty);
+  });
+
+  test('a failed shader upload is retried', () async {
+    final worker = FakeWorker()..shaderFailures = 2;
+    await runIt(make(FakePodApi(), worker, includeLocal: false));
+    expect(cloudBaked..sort(), [1, 2, 3, 4]);
+  });
+
+  test('the summary carries what went wrong', () {
+    final start = DateTime(2026, 10, 6, 12);
+    final view = CloudBakeSessionView(
+      phase: CloudBakePhase.done,
+      cloudDone: 0,
+      localDone: 4,
+      failed: 0,
+      total: 4,
+      startedAt: start,
+      pricePerHour: 1.09,
+      message: '云端 GPU 启动超时，改用本机烘焙',
+    );
+    expect(
+      view.summary(start.add(const Duration(minutes: 40))),
+      '云端烘焙完成 · 4 集 · 40 分钟 · \$0.00 · 云端 GPU 启动超时，改用本机烘焙',
+    );
   });
 
   test('a partial download left by an earlier run is discarded', () async {

@@ -158,21 +158,28 @@ class Worker:
             while not self.queue:
                 self.cond.wait()
             ep = self.queue.pop(0)
-            info = self.episodes[ep]
+            info = self.episodes.get(ep)
+            if info is None:
+                return
             info['state'] = 'baking'
         error = None
-        for copy_audio in (True, False):
-            error = self.bake(ep, info, copy_audio)
-            if error is None:
-                break
-            log('%s failed (copy_audio=%s): %s' % (ep, copy_audio, error))
+        try:
+            for copy_audio in (True, False):
+                error = self.bake(ep, info, copy_audio)
+                if error is None:
+                    break
+                log('%s failed (copy_audio=%s): %s' % (ep, copy_audio, error))
+            size = os.path.getsize(self.output(ep)) if error is None else 0
+        except Exception as e:
+            # A dead slot would leave the episode "baking" while the pod bills.
+            error = 'worker error: %s' % e
         try:
             os.remove(self.source(ep))
         except OSError:
             pass
         with self.cond:
             if error is None:
-                info.update(state='done', progress=1.0, outBytes=os.path.getsize(self.output(ep)))
+                info.update(state='done', progress=1.0, outBytes=size)
             else:
                 info.update(state='failed', error=error)
 

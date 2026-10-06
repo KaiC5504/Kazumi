@@ -104,7 +104,9 @@ class CloudBakeSessionView {
     final cost = '\$${costAt(now).toStringAsFixed(2)}';
     if (phase == CloudBakePhase.stopped) return '已停止云端烘焙 · 费用 $cost';
     final failedText = failed > 0 ? ' · $failed 集失败' : '';
-    return '云端烘焙完成 · ${cloudDone + localDone} 集 · $minutes 分钟 · $cost$failedText';
+    final note = message == null ? '' : ' · $message';
+    return '云端烘焙完成 · ${cloudDone + localDone} 集 · $minutes 分钟 · '
+        '$cost$failedText$note';
   }
 }
 
@@ -152,6 +154,7 @@ class CloudBakeSession {
     this.readyTimeout = const Duration(minutes: 5),
     this.lostAfter = const Duration(minutes: 10),
     this.deleteTimeout = const Duration(minutes: 2),
+    this.stallAfter = const Duration(minutes: 10),
   }) : _pending = List.of(jobs),
        total = jobs.length,
        token = newCloudToken(),
@@ -184,6 +187,9 @@ class CloudBakeSession {
   final Duration readyTimeout;
   final Duration lostAfter;
   final Duration deleteTimeout;
+
+  /// A bake whose progress hasn't moved for this long is given up on.
+  final Duration stallAfter;
   final int total;
   final String token;
 
@@ -192,6 +198,8 @@ class CloudBakeSession {
   final Map<String, CloudJob> _held = {};
   final Set<String> _downloading = {};
   final Set<String> _freshDownloads = {};
+  final Set<String> _committed = {};
+  final Map<String, (double, DateTime)> _lastProgress = {};
   CloudJob? _local;
   CloudWorker? _worker;
   String? _podId;
@@ -302,7 +310,15 @@ class CloudBakeSession {
       if (_stopped) return;
       final worker = await _waitReady(pod.id);
       _worker = worker;
-      await worker.putShader(shader);
+      for (var attempt = 1; ; attempt++) {
+        try {
+          await worker.putShader(shader);
+          break;
+        } on CloudWorkerException {
+          if (attempt >= 3) rethrow;
+          await Future.delayed(pollInterval);
+        }
+      }
       if (_stopped) return;
       _phase = CloudBakePhase.running;
       _notify();
@@ -395,6 +411,7 @@ class CloudBakeSession {
             durationSec: job.durationSec.toDouble(),
             height: targetHeight,
           );
+          _committed.add(job.id);
           _setPhase(job, const CloudEpisodePhase(CloudEpisodeStage.waiting));
         } catch (e) {
           if (_stopped) return;
@@ -431,7 +448,8 @@ class CloudBakeSession {
       try {
         status = await worker.status();
         lastOk = DateTime.now();
-      } on CloudWorkerException catch (e) {
+      } catch (e) {
+        // Anything short of the pod staying silent for [lostAfter] is retried.
         if (DateTime.now().difference(lastOk) > lostAfter) {
           KazumiLogger().w('CloudBakeSession: pod unreachable: $e');
           _lost = true;
@@ -443,7 +461,18 @@ class CloudBakeSession {
       if (status != null) {
         for (final job in _held.values.toList()) {
           final episode = status.episodes[job.id];
-          if (episode == null || _downloading.contains(job.id)) continue;
+          if (_downloading.contains(job.id)) continue;
+          if (episode == null) {
+            // Committed but unknown: the worker restarted or lost it.
+            if (_committed.contains(job.id)) _toLaptop(job);
+            continue;
+          }
+          if (episode.state == 'baking' && _stalled(job.id, episode.progress)) {
+            KazumiLogger().w('CloudBakeSession: ${job.id} stalled on the pod');
+            unawaited(worker.drop(job.id).then((_) {}, onError: (_) {}));
+            _toLaptop(job);
+            continue;
+          }
           switch (episode.state) {
             case 'queued':
               _setPhase(
@@ -476,6 +505,25 @@ class CloudBakeSession {
       await _waitWake();
     }
     await Future.wait(downloads);
+  }
+
+  void _toLaptop(CloudJob job) {
+    _held.remove(job.id);
+    _committed.remove(job.id);
+    _lastProgress.remove(job.id);
+    _setPhase(job, null);
+    _fallback.add(job);
+    _wake();
+  }
+
+  bool _stalled(String id, double progress) {
+    final now = DateTime.now();
+    final last = _lastProgress[id];
+    if (last == null || last.$1 != progress) {
+      _lastProgress[id] = (progress, now);
+      return false;
+    }
+    return now.difference(last.$2) > stallAfter;
   }
 
   Future<void> _download(CloudWorker worker, CloudJob job, int bytes) async {
