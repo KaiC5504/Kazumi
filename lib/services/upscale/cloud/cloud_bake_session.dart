@@ -13,10 +13,17 @@ enum CloudBakePhase { waiting, starting, running, finishing, done, stopped }
 enum CloudEpisodeStage { queued, uploading, waiting, baking, downloading }
 
 class CloudEpisodePhase {
-  const CloudEpisodePhase(this.stage, [this.progress = 0]);
+  const CloudEpisodePhase(this.stage, [this.progress = 0]) : laptop = false;
+
+  /// Queued, but the laptop should get to it before the pod does.
+  const CloudEpisodePhase.laptopNext()
+    : stage = CloudEpisodeStage.queued,
+      progress = 0,
+      laptop = true;
 
   final CloudEpisodeStage stage;
   final double progress;
+  final bool laptop;
 }
 
 enum LocalBakeOutcome { done, failed, cancelled }
@@ -351,6 +358,7 @@ class CloudBakeSession {
   String? _encoder;
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
   CloudJob? _local;
+  DateTime? _localStartedAt;
   CloudWorker? _worker;
   String? _podId;
   Future<void>? _release;
@@ -450,7 +458,12 @@ class CloudBakeSession {
 
   /// Seconds until the pod should have every queued episode home, from where
   /// each one is now.
-  double remainingPodSec() {
+  double remainingPodSec() => _plan().podSec;
+
+  /// Splits the queue the way the quote does: the pod takes from the front
+  /// and the laptop from the back, whichever would finish its next one
+  /// first. Returns the pod's remaining time and what the laptop should take.
+  ({double podSec, Set<String> laptop}) _plan() {
     final now = DateTime.now();
     final podStart = _podStartedAt;
     final double readyIn;
@@ -502,10 +515,63 @@ class CloudBakeSession {
     };
     final held = _held.values.toList()
       ..sort((a, b) => order(a).compareTo(order(b)));
-    return simulatePod([
-      for (final job in held) left(job),
-      for (final job in _pending) left(job),
-    ], readyInSec: readyIn);
+    final onPod = [for (final job in held) left(job)];
+    final laptop = <String>{};
+    final queue = [..._pending];
+    var localFree = includeLocal ? _localBusySec(now) : double.infinity;
+    while (queue.isNotEmpty) {
+      final back = queue.lastIndexWhere((j) => !j.cloudOnly);
+      final podDone = simulatePod([
+        ...onPod,
+        left(queue.first),
+      ], readyInSec: readyIn);
+      final localDone = back < 0
+          ? double.infinity
+          : localFree +
+                queue[back].load.durationSec / CloudBakeRates.localRealtime;
+      if (podDone <= localDone) {
+        onPod.add(left(queue.removeAt(0)));
+      } else {
+        localFree = localDone;
+        laptop.add(queue.removeAt(back).id);
+      }
+    }
+    return (podSec: simulatePod(onPod, readyInSec: readyIn), laptop: laptop);
+  }
+
+  /// Keeps the list from showing every queued episode as headed for the pod.
+  void _labelQueue() {
+    if (_pending.isEmpty) return;
+    final laptop = _cloudOver ? null : _plan().laptop;
+    for (final job in _pending) {
+      final phase = _phases[job.id];
+      if (phase == null || phase.stage != CloudEpisodeStage.queued) continue;
+      final onLaptop = laptop?.contains(job.id) ?? true;
+      if (phase.laptop == onLaptop) continue;
+      final next = onLaptop
+          ? const CloudEpisodePhase.laptopNext()
+          : const CloudEpisodePhase(CloudEpisodeStage.queued);
+      _phases[job.id] = next;
+      onPhase?.call(job, next);
+    }
+  }
+
+  /// What the laptop owes before it can take another queued episode.
+  double _localBusySec(DateTime now) {
+    var sec = 0.0;
+    final job = _local;
+    final start = _localStartedAt;
+    if (job != null && start != null) {
+      sec = max(
+        0.0,
+        job.load.durationSec / CloudBakeRates.localRealtime -
+            now.difference(start).inSeconds,
+      );
+    }
+    for (final job in _fallback) {
+      sec += job.load.durationSec / CloudBakeRates.localRealtime;
+    }
+    return sec;
   }
 
   /// Keeps the pod's cap at 1.5x what is left on top of what it has used,
@@ -647,6 +713,7 @@ class CloudBakeSession {
         continue;
       }
       _local = job;
+      _localStartedAt = DateTime.now();
       _setPhase(job, null);
       _notify();
       final outcome = await bakeLocally(job);
@@ -1099,6 +1166,7 @@ class CloudBakeSession {
 
   void _notify() {
     _lastNotify = DateTime.now();
+    _labelQueue();
     onChanged?.call(view);
   }
 

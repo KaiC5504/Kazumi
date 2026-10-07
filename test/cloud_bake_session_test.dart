@@ -176,6 +176,7 @@ void main() {
   late Directory dir;
   late List<int> cloudBaked, localBaked, returned, failed;
   late Map<int, CloudEpisodeStage?> stages;
+  late Map<int, CloudEpisodePhase?> phases;
   late List<String> errors;
 
   setUp(() {
@@ -185,6 +186,7 @@ void main() {
     returned = [];
     failed = [];
     stages = {};
+    phases = {};
     errors = [];
   });
   tearDown(() => dir.deleteSync(recursive: true));
@@ -238,7 +240,10 @@ void main() {
         failed.add(job.episodeNumber);
         errors.add(error);
       },
-      onPhase: (job, phase) => stages[job.episodeNumber] = phase?.stage,
+      onPhase: (job, phase) {
+        stages[job.episodeNumber] = phase?.stage;
+        phases[job.episodeNumber] = phase;
+      },
       pollInterval: const Duration(milliseconds: 1),
       offerInterval: const Duration(milliseconds: 2),
       readyTimeout: readyTimeout,
@@ -512,6 +517,38 @@ void main() {
     await until(() => worker.caps.isNotEmpty);
     // 1700 s used and a half-baked episode left: the pod gets well past 1800.
     expect(worker.caps.last, greaterThan(1700 + 300));
+    await s.stop();
+    await running;
+  });
+
+  test('while waiting, the banner splits the queue like the quote', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(
+      api,
+      FakeWorker(),
+      includeLocal: true,
+      count: 13,
+      localTime: const Duration(seconds: 1),
+    );
+    final running = runIt(s);
+    await until(
+      () => s.view.phase == CloudBakePhase.waiting && stages[13] == null,
+    );
+    // The laptop has just started the last episode; twelve are queued.
+    final quote = CloudBakeEstimate.forLoads(
+      [for (var i = 0; i < 12; i++) const CloudLoad(1440)],
+      includeLocal: true,
+      localBusySec: (1440 / CloudBakeRates.localRealtime).ceil(),
+    );
+    expect(s.remainingPodSec(), closeTo(quote.cloudSec, 5));
+    // The quote's laptop share, minus the one it already has, shows as the
+    // laptop's: the back of the queue.
+    final laptopNext = [
+      for (var n = 1; n <= 12; n++)
+        if (phases[n]?.laptop ?? false) n,
+    ];
+    expect(quote.localCount, greaterThan(0));
+    expect(laptopNext, [for (var n = 13 - quote.localCount; n <= 12; n++) n]);
     await s.stop();
     await running;
   });

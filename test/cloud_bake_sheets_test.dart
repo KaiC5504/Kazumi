@@ -74,6 +74,7 @@ void main() {
       cloudStatusText(const CloudEpisodePhase(CloudEpisodeStage.queued)),
       '☁ 排队中',
     );
+    expect(cloudStatusText(const CloudEpisodePhase.laptopNext()), '本机排队中');
     expect(
       cloudStatusText(
         const CloudEpisodePhase(CloudEpisodeStage.uploading, 0.42),

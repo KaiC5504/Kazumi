@@ -16,7 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 String cloudStatusText(CloudEpisodePhase phase) {
   final percent = '${(phase.progress * 100).toStringAsFixed(0)}%';
   return switch (phase.stage) {
-    CloudEpisodeStage.queued => '☁ 排队中',
+    CloudEpisodeStage.queued => phase.laptop ? '本机排队中' : '☁ 排队中',
     CloudEpisodeStage.uploading => '☁ 上传中 $percent',
     CloudEpisodeStage.waiting => '☁ 等待 GPU',
     CloudEpisodeStage.baking => '☁ 烘焙中 $percent',
