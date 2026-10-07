@@ -577,6 +577,16 @@ class SettingsKeys {
     '',
     group: SettingGroup.download,
   );
+  static const libraryRoute = SettingKey<String>(
+    'libraryRoute',
+    'auto',
+    group: SettingGroup.download,
+  );
+  static const libraryRouteCheck = SettingKey<String>(
+    'libraryRouteCheck',
+    '',
+    group: SettingGroup.download,
+  );
   static const libraryWifiOnly = SettingKey<bool>(
     'libraryWifiOnly',
     true,
@@ -790,6 +800,8 @@ class SettingsKeys {
     libraryRoom,
     librarySyncPlayEndPoint,
     libraryMirrors,
+    libraryRoute,
+    libraryRouteCheck,
     libraryWifiOnly,
     libraryAutoUpload,
     officialRulesKnown,

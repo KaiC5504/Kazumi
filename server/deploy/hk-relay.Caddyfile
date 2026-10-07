@@ -15,6 +15,13 @@ hk.kaic5504.com {
 			flush_interval -1
 		}
 	}
+	# Lobby and room API for the partner: her route to Hetzner loses ~20% of
+	# packets at night. Uploads and invite redemption stay direct.
+	handle /api/* {
+		reverse_proxy https://kazumi.kaic5504.com {
+			header_up Host kazumi.kaic5504.com
+		}
+	}
 	handle /healthz {
 		respond "ok" 200
 	}

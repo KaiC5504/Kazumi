@@ -60,9 +60,15 @@ class _InitPageState extends State<InitPage> {
   void initState() {
     super.initState();
     unawaited(_initializeApp());
+    // Off the boot path: never awaited, and a no-op once a result is stored.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Timer(const Duration(seconds: 2),
+          () => widget.libraryController.scheduleRouteCheckOnce());
+    });
   }
 
   Future<void> _initializeApp() async {
+    final initWatch = Stopwatch()..start();
     widget.danmakuShieldSync.start();
     _migrateStorage();
     _loadShaders();
@@ -97,6 +103,7 @@ class _InitPageState extends State<InitPage> {
     // OnboardingPage takes care of navigating to the default page and
     // triggering the auto update check afterwards.
     if (pluginsController.pluginList.isEmpty) {
+      KazumiLogger().i('InitPage: init took ${initWatch.elapsedMilliseconds}ms');
       context.navigate('/onboarding');
       return;
     }
@@ -112,6 +119,7 @@ class _InitPageState extends State<InitPage> {
         await updateController.checkUpdate(type: 'auto');
       },
     ));
+    KazumiLogger().i('InitPage: init took ${initWatch.elapsedMilliseconds}ms');
     _startDefaultPage();
     unawaited(checkLeftoverCloudPods(widget.upscaleController));
   }

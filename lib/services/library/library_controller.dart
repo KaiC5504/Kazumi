@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:app_links/app_links.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
@@ -15,9 +16,12 @@ import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/download/mirror_selector.dart';
+import 'package:kazumi/services/library/host_router.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/library/library_playback.dart';
+import 'package:kazumi/services/library/route_check_store.dart';
+import 'package:kazumi/services/library/route_probe.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
@@ -52,11 +56,14 @@ class LibraryController implements OfflinePlaybackHooks {
   final Observable<String?> notice = Observable(null);
   final Observable<LibraryInvite?> pendingInvite = Observable(null);
 
-  /// Every host ordered by how fast this device fetched a sample from each;
-  /// empty until ranked.
-  List<Uri> _hosts = const [];
-  Future<void>? _ranking;
   final Observable<int> configVersion = Observable(0);
+  final Observable<int> routeVersion = Observable(0);
+  late final RouteCheckStore _routeStore = RouteCheckStore(
+    read: () => GStorage.getSetting(SettingsKeys.libraryRouteCheck),
+    write: (v) =>
+        GStorage.putSetting<String>(SettingsKeys.libraryRouteCheck, v),
+  );
+  HostRouter? _router;
 
   final StreamController<LibraryEpisode> _remotePicks =
       StreamController<LibraryEpisode>.broadcast();
@@ -101,7 +108,113 @@ class LibraryController implements OfflinePlaybackHooks {
     return id;
   }
 
-  LibraryApi? get _api => isConfigured ? LibraryApi(server, key) : null;
+  LibraryApi? get _api => isConfigured
+      ? LibraryApi(server, key, apiHost: router.order.first)
+      : null;
+
+  /// Lobby calls go through the chosen host; one retry on the other host
+  /// when it can't be reached.
+  Future<T> _call<T>(Future<T> Function(LibraryApi api) call) async {
+    final order = router.order;
+    try {
+      return await call(LibraryApi(server, key, apiHost: order.first));
+    } on LibraryException catch (e) {
+      final status = e.statusCode;
+      // A relay without the /api route answers 404 itself.
+      final unreachable =
+          status == null ||
+          status >= 500 ||
+          (status == HttpStatus.notFound && router.isRelay(order.first));
+      if (!unreachable || order.length < 2) rethrow;
+      router.reportFailure(order.first);
+      return call(LibraryApi(server, key, apiHost: order[1]));
+    }
+  }
+
+  RouteMode get routeMode =>
+      RouteMode.parse(GStorage.getSetting(SettingsKeys.libraryRoute));
+
+  RouteCheckResult? get storedRoute => _routeStore.stored;
+
+  HostRouter get router {
+    final server = LibraryApi.normalizeServer(this.server);
+    final relays = [for (final m in _mirrors) LibraryApi.normalizeServer(m)];
+    final stored = _routeStore.stored;
+    final current = _router;
+    if (current != null &&
+        current.server == server &&
+        current.mode == routeMode &&
+        current.stored?.at == stored?.at &&
+        listEquals(current.relays, relays)) {
+      return current;
+    }
+    return _router = HostRouter(
+      server: server,
+      relays: relays,
+      mode: routeMode,
+      stored: stored,
+    );
+  }
+
+  Future<void> setRouteMode(RouteMode mode) async {
+    await GStorage.putSetting<String>(
+      SettingsKeys.libraryRoute,
+      mode.storageValue,
+    );
+    runInAction(() => routeVersion.value++);
+  }
+
+  Future<RouteCheckResult?> _check({required bool force}) async {
+    final RouteCheckResult? result;
+    try {
+      final r = router;
+      result = await _routeStore.ensure(
+        configured: isConfigured,
+        force: force,
+        check: () async {
+          final sampleId = await _sampleEpisodeId();
+          final api = LibraryApi(server, key);
+          return runRouteCheck(
+            server: r.server,
+            relays: r.relays,
+            sampleFor: (host) => sampleId == null
+                ? host.replace(path: '/speedtest/1m.bin')
+                : api.videoUri(sampleId, via: host),
+          );
+        },
+      );
+    } catch (e) {
+      KazumiLogger().w('LibraryController: route check failed', error: e);
+      return null;
+    }
+    runInAction(() => routeVersion.value++);
+    return result;
+  }
+
+  /// At launch the lobby hasn't loaded episodes yet. A real episode keeps
+  /// Singapore comparable: it has no /speedtest file, so a 404 there would
+  /// count as unreachable.
+  Future<String?> _sampleEpisodeId() async {
+    if (episodes.isNotEmpty) return episodes.first.id;
+    try {
+      final list = await _call((api) => api.episodes());
+      return list.isEmpty ? null : list.first.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Background, once ever: the answer is stored and reused.
+  void scheduleRouteCheckOnce() {
+    try {
+      if (!isConfigured || _routeStore.stored != null) return;
+    } catch (_) {
+      return;
+    }
+    unawaited(_check(force: false));
+  }
+
+  Future<RouteCheckResult?> recheckRoute() => _check(force: true);
 
   /// Relays from the last server config. Kept in settings so downloads
   /// resumed before the lobby is opened can use them too.
@@ -109,9 +222,7 @@ class LibraryController implements OfflinePlaybackHooks {
     SettingsKeys.libraryMirrors,
   ).split('\n').where((m) => m.isNotEmpty).toList();
 
-  List<Uri> _hostsFor(LibraryApi api) => LibraryApi.hostOrder(api.baseUri, [
-    for (final m in _mirrors) LibraryApi.normalizeServer(m),
-  ], _hosts);
+  List<Uri> _hostsFor(LibraryApi api) => router.order;
 
   List<String>? _mirrorUrlsFor(String url) {
     final api = _api;
@@ -190,6 +301,7 @@ class LibraryController implements OfflinePlaybackHooks {
         pendingInvite.value = null;
         configVersion.value++;
       });
+      scheduleRouteCheckOnce();
       return null;
     } on LibraryException catch (e) {
       return e.message;
@@ -219,8 +331,8 @@ class LibraryController implements OfflinePlaybackHooks {
 
   Future<void> _refreshConfig() async {
     try {
-      final config = await _api?.config();
-      if (config != null) await _applyConfig(config);
+      if (!isConfigured) return;
+      await _applyConfig(await _call((api) => api.config()));
     } catch (e) {
       KazumiLogger().w('LibraryController: config refresh failed', error: e);
     }
@@ -285,7 +397,7 @@ class LibraryController implements OfflinePlaybackHooks {
       error.value = null;
     });
     try {
-      final list = await api.episodes();
+      final list = await _call((api) => api.episodes());
       runInAction(() {
         episodes
           ..clear()
@@ -306,37 +418,8 @@ class LibraryController implements OfflinePlaybackHooks {
     _startHeartbeat();
     await _refreshConfig();
     await refresh();
-    await (_ranking = _rankHosts());
     await cleanup();
     await prefetchFromLobby();
-  }
-
-  /// Fetches the start of a real episode from the server and each relay at
-  /// once and keeps them fastest first. From mainland China a relay with a
-  /// better route can be many times faster; elsewhere the server usually wins.
-  Future<void> _rankHosts() async {
-    final api = _api;
-    if (api == null) return;
-    final hosts = [
-      api.baseUri,
-      for (final m in _mirrors) LibraryApi.normalizeServer(m),
-    ];
-    if (hosts.length < 2 || episodes.isEmpty) {
-      _hosts = const [];
-      return;
-    }
-    final sample = episodes.first.id;
-    final times = await Future.wait([
-      for (final host in hosts)
-        LibraryApi.probe(api.videoUri(sample, via: host)),
-    ]);
-    const failed = Duration(days: 1);
-    final ranked = [for (var i = 0; i < hosts.length; i++) (hosts[i], times[i])]
-      ..sort((a, b) => (a.$2 ?? failed).compareTo(b.$2 ?? failed));
-    _hosts = [for (final (host, _) in ranked) host];
-    KazumiLogger().i(
-      'LibraryController: hosts ranked ${[for (final (host, time) in ranked) '${host.host}=${time?.inMilliseconds}ms']}',
-    );
   }
 
   List<String> _videoUrls(LibraryApi api, LibraryEpisode episode) => [
@@ -366,7 +449,7 @@ class LibraryController implements OfflinePlaybackHooks {
     // device straight back in the room.
     await _beatInFlight;
     try {
-      await api.leave(deviceId);
+      await _call((api) => api.leave(deviceId));
     } catch (e) {
       KazumiLogger().w('LibraryController: leave failed', error: e);
     }
@@ -383,11 +466,13 @@ class LibraryController implements OfflinePlaybackHooks {
     final done = Completer<void>();
     _beatInFlight = done.future;
     try {
-      final result = await api.heartbeat(
-        deviceId: deviceId,
-        name: displayName,
-        state: _playingId != null ? 'watching' : 'lobby',
-        episodeId: _playingId,
+      final result = await _call(
+        (api) => api.heartbeat(
+          deviceId: deviceId,
+          name: displayName,
+          state: _playingId != null ? 'watching' : 'lobby',
+          episodeId: _playingId,
+        ),
       );
       runInAction(() => room.value = result);
       await _handleSelection(result.selection);
@@ -457,11 +542,8 @@ class LibraryController implements OfflinePlaybackHooks {
     final api = _api;
     if (api == null) return;
     if (announce) {
-      unawaited(_announce(api, episode));
+      unawaited(_announce(episode));
     }
-    // The player gets a single URL, so streaming from the slow host would
-    // last the whole episode. Each probe gives up after 10 s on its own.
-    await _ranking;
 
     final series = seriesOf(episode);
     final playlist = <DownloadEpisode>[];
@@ -513,12 +595,14 @@ class LibraryController implements OfflinePlaybackHooks {
     );
   }
 
-  Future<void> _announce(LibraryApi api, LibraryEpisode episode) async {
+  Future<void> _announce(LibraryEpisode episode) async {
     try {
-      final result = await api.select(
-        deviceId: deviceId,
-        name: displayName,
-        episodeId: episode.id,
+      final result = await _call(
+        (api) => api.select(
+          deviceId: deviceId,
+          name: displayName,
+          episodeId: episode.id,
+        ),
       );
       _lastSelectionSeq = result.selection?.seq ?? _lastSelectionSeq;
       runInAction(() => room.value = result);
@@ -570,6 +654,16 @@ class LibraryController implements OfflinePlaybackHooks {
   @override
   void onStreamHostFailed(String failedUrl) {
     KazumiLogger().w('LibraryController: stream host failed $failedUrl');
+    final uri = Uri.tryParse(failedUrl);
+    if (uri == null || !isConfigured) return;
+    router.reportFailure(
+      Uri(
+        scheme: uri.scheme,
+        host: uri.host,
+        port: uri.hasPort ? uri.port : null,
+      ),
+    );
+    runInAction(() => routeVersion.value++);
   }
 
   @override
@@ -588,7 +682,8 @@ class LibraryController implements OfflinePlaybackHooks {
   Future<void> _markWatched(LibraryEpisode episode) async {
     _watchedHere.add(episode.id);
     try {
-      await _api?.markWatched(episode.id, displayName);
+      if (!isConfigured) return;
+      await _call((api) => api.markWatched(episode.id, displayName));
     } catch (e) {
       KazumiLogger().w('LibraryController: mark watched failed', error: e);
     }

@@ -8,6 +8,7 @@ import 'package:kazumi/bean/appbar/sys_app_bar.dart';
 import 'package:kazumi/bean/card/network_img_layer.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/pages/library/route_sheet.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
@@ -444,6 +445,23 @@ class _LobbyView extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _Entrance(child: _RoomCard(controller: controller)),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Observer(
+                          builder: (context) {
+                            controller.routeVersion.value;
+                            return TextButton.icon(
+                              onPressed: () =>
+                                  showRouteSheet(context, controller),
+                              icon: const Icon(
+                                Icons.alt_route_rounded,
+                                size: 18,
+                              ),
+                              label: Text(routeLabel(controller)),
+                            );
+                          },
+                        ),
+                      ),
                       if (notice != null) ...[
                         const SizedBox(height: 12),
                         _Banner(icon: Icons.wifi_off_rounded, text: notice),

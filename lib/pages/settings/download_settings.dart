@@ -10,7 +10,9 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
+import 'package:kazumi/pages/library/route_sheet.dart';
 import 'package:kazumi/services/library/library_api.dart';
+import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/platform/secure_bookmark_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
@@ -427,6 +429,13 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
             title: Text('生成邀请码'),
             description: Text('对方在「我的 → 一起看」输入邀请码即可加入，7 天内有效'),
             onPressed: (_) => _createInviteCode(),
+          ),
+          SettingsTile(
+            leading: Icons.alt_route_rounded,
+            title: Text('一起看线路'),
+            description: Text('默认香港；可重新测速'),
+            onPressed: (_) =>
+                showRouteSheet(context, inject<LibraryController>()),
           ),
           SettingsTile.switchTile(
             leading: Icons.cloud_upload_rounded,
