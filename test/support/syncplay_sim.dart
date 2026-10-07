@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
+import 'package:kazumi/services/player/playback_end_guard.dart';
 import 'package:kazumi/services/player/syncplay_watchdog.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:logger/logger.dart';
@@ -511,6 +512,15 @@ class SimSeek {
       '${from.toStringAsFixed(1)} -> ${to.toStringAsFixed(1)}';
 }
 
+/// A server the episode streams from; [downUntil] is when it starts
+/// answering again.
+class SimHost {
+  SimHost(this.name, this.loadTime);
+  final String name;
+  final double loadTime;
+  double downUntil = 0;
+}
+
 /// A player as the sync controller sees it, plus the bits of PlayerController
 /// and the player page that drive syncing: the one-second tick, auto-play
 /// next, and announcing a newly loaded episode.
@@ -570,11 +580,22 @@ class SimViewer {
   int syncPauses = 0;
   int syncPlays = 0;
 
+  /// Streams from these hosts, first one used; empty means a local file.
+  List<SimHost> hosts = [];
+  int hostIndex = 0;
+  bool _eof = false;
+  double _streamDownUntil = 0;
+  late final PlaybackEndGuard endGuard = PlaybackEndGuard(clock: clock.now);
+  int reloads = 0;
+  int giveUps = 0;
+  final List<int> episodeChanges = [];
+
   static Duration _duration(double seconds) =>
       Duration(microseconds: (seconds * 1e6).round());
 
   double get position {
     if (loading) return 0;
+    if (_eof) return _anchorPosition;
     var position = _anchorPosition;
     if (playing) {
       final now = clock.seconds;
@@ -587,7 +608,7 @@ class SimViewer {
     return min(position, episodeLength);
   }
 
-  bool get completed => !loading && position >= episodeLength - 0.05;
+  bool get completed => !loading && (_eof || position >= episodeLength - 0.05);
 
   bool get buffering =>
       clock.seconds >= _stallFrom && clock.seconds < _stallUntil;
@@ -605,6 +626,22 @@ class SimViewer {
   void _note(String event) =>
       log.add('${clock.seconds.toStringAsFixed(1)} $name: $event');
 
+  /// The stream dies here like mpv's broken-stream EOF: completed at the
+  /// current position. Loads fail until [recoverAfter] seconds have passed.
+  void cutStream({double recoverAfter = double.infinity}) {
+    _anchor();
+    playing = false;
+    _eof = true;
+    _streamDownUntil = clock.seconds + recoverAfter;
+    _note('stream cut at ${position.toStringAsFixed(1)}');
+  }
+
+  bool get _sourceDown {
+    if (clock.seconds < _streamDownUntil) return true;
+    if (hosts.isEmpty) return false;
+    return clock.seconds < hosts[hostIndex % hosts.length].downUntil;
+  }
+
   /// Starts watching [episode] at [at], joins the room and keeps the
   /// player page's one-second tick running.
   Future<void> join(
@@ -617,6 +654,9 @@ class SimViewer {
     _anchorPosition = at;
     _anchorAt = clock.seconds;
     playing = startPlaying;
+    // As PlayerController.init does; without it the first reload would look
+    // like a new file and wipe the guard's outage count.
+    endGuard.onEpisodeStarted('1[$episode]');
     server.expect(network);
     await GStorage.putSetting(
       SettingsKeys.syncPlayEndPoint,
@@ -637,9 +677,38 @@ class SimViewer {
     sync.onPlayerTick();
     final p = position;
     if (!loading && p > (furthest[episode] ?? 0)) furthest[episode] = p;
-    if (completed && (autoPlayNext || sync.followEpisode == episode + 1)) {
-      unawaited(changeEpisode(episode + 1));
-      return;
+    final end = decideEndStep(
+      guard: endGuard,
+      completed: completed,
+      loading: loading,
+      position: _duration(p),
+      duration: _duration(episodeLength),
+      playing: playing,
+      resumedNearEnd: false,
+      hasNextEpisode: true,
+      autoPlayNext: autoPlayNext,
+      roomWantsNext: sync.followEpisode == episode + 1,
+    );
+    switch (end.step) {
+      case EndStep.advance:
+      case EndStep.followRoom:
+        unawaited(changeEpisode(episode + 1));
+        return;
+      case EndStep.reload:
+        reloads++;
+        if (end.decision!.switchHost && hosts.length > 1) hostIndex++;
+        _note('reload at ${end.decision!.resumeAt.inSeconds}');
+        unawaited(
+          changeEpisode(episode, offset: end.decision!.resumeAt.inSeconds),
+        );
+        return;
+      case EndStep.giveUp:
+        giveUps++;
+        _note('gave up');
+        return;
+      case EndStep.replay:
+      case EndStep.nothing:
+        break;
     }
     sync.setCurrentPosition();
   }
@@ -650,6 +719,7 @@ class SimViewer {
     int offset = 0,
   }) async {
     if (loading && this.episode == episode) return;
+    if (this.episode != episode) episodeChanges.add(episode);
     _note('loading episode $episode');
     this.episode = episode;
     loading = true;
@@ -657,11 +727,21 @@ class SimViewer {
     rateFactor = 1.0;
     _anchorPosition = 0;
     _anchorAt = clock.seconds;
-    await clock.wait(loadTime);
+    await clock.wait(
+      hosts.isEmpty ? loadTime : hosts[hostIndex % hosts.length].loadTime,
+    );
     if (this.episode != episode) return;
     loading = false;
-    _anchorPosition = 0;
+    _anchorPosition = offset.toDouble();
     _anchorAt = clock.seconds;
+    endGuard.onEpisodeStarted('1[$episode]');
+    if (_sourceDown) {
+      _eof = true;
+      playing = false;
+      _note('load failed at $offset');
+      return;
+    }
+    _eof = false;
     playing = true;
     _note('playing episode $episode');
     final client = sync.syncplayController;
@@ -818,6 +898,44 @@ class GapRecorder {
 
 /// Every pill any viewer showed. GlassNotice draws nothing in tests.
 final List<String> simNotices = [];
+
+/// Seeds a scenario runs with: `LAB_SEEDS` counts them up from [first], and
+/// `LAB_SEED` pins one to reproduce a failure.
+List<int> labSeeds({int first = 1}) {
+  final pinned = int.tryParse(Platform.environment['LAB_SEED'] ?? '');
+  if (pinned != null) return [pinned];
+  final count = int.tryParse(Platform.environment['LAB_SEEDS'] ?? '') ?? 1;
+  return [for (var i = 0; i < count; i++) first + i];
+}
+
+/// Runs [body] once per seed, cleaning up after each with [stop]; a failure
+/// names its seed and dumps the viewers' logs.
+Future<void> forSeeds(
+  List<int> seeds,
+  Future<void> Function(int seed) body, {
+  required Future<void> Function() stop,
+  required List<SimViewer> Function() viewers,
+  List<String> Function()? roomLog,
+}) async {
+  for (final seed in seeds) {
+    try {
+      await body(seed);
+    } catch (e, stack) {
+      for (final viewer in viewers()) {
+        printOnFailure(
+          '--- ${viewer.name} (seed $seed)\n${viewer.log.join('\n')}',
+        );
+      }
+      if (roomLog != null) {
+        printOnFailure('--- room (seed $seed)\n${roomLog().join('\n')}');
+      }
+      final message = e is TestFailure ? e.message : '$e';
+      Error.throwWithStackTrace(TestFailure('seed $seed: $message'), stack);
+    } finally {
+      await stop();
+    }
+  }
+}
 
 /// Hive and the path provider, which the sync controller reads its server
 /// address from.
