@@ -111,7 +111,7 @@ class _SkipSegmentPillState extends State<SkipSegmentPill> {
     // AniSkip times come from strangers and other encodes; only offer them.
     if (range.source != SkipSource.fingerprint) return false;
     // Everyone in the room would seek at once.
-    if (_player.syncplay.hasSession) return false;
+    if (_player.syncplay.inRoom) return false;
     if (!_player.playback.playerPlaying) return false;
     return GStorage.getSetting(
       kind == SkipKind.opening

@@ -119,6 +119,16 @@ abstract class _PlayerSyncPlayController with Store {
 
   bool get hasSession => syncplayController != null;
 
+  /// In a room from createRoom until exitRoom, including the gaps of a quiet
+  /// reconnect where [hasSession] is false.
+  bool get inRoom => _room != null;
+
+  /// Runs each time a connection joins the room, quiet reconnects included.
+  void Function({required bool quiet})? onJoinedRoom;
+
+  Timer? _ticker;
+  DateTime? _lastTickAt;
+
   final StreamController<SyncPlayChatMessage> _chatStreamController =
       StreamController<SyncPlayChatMessage>.broadcast();
 
@@ -151,6 +161,15 @@ abstract class _PlayerSyncPlayController with Store {
     _room = room;
     _username = username;
     _changeEpisode = changeEpisode;
+    // The player page's tick stops while an episode loads or fails to; the
+    // reconnect and leave handling mustn't stop with it.
+    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      final last = _lastTickAt;
+      if (last == null ||
+          clock().difference(last) >= const Duration(seconds: 2)) {
+        onPlayerTick();
+      }
+    });
     final session = _connectionSessions.begin();
     final previousClient = syncplayController;
     syncplayController = null;
@@ -183,6 +202,7 @@ abstract class _PlayerSyncPlayController with Store {
       GlassNotice.show('同步服务器地址不对',
           icon: Icons.error_outline_rounded, bottom: true);
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
+      if (!reconnecting) _leaveRoomState();
       return;
     }
     // The watch-together library's own server has a real certificate too.
@@ -470,6 +490,7 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       syncplayRoom = room;
+      onJoinedRoom?.call(quiet: quiet);
     } catch (e) {
       KazumiLogger().e('SyncPlay: error', error: e);
       if (!_isCurrentConnection(session, client)) {
@@ -483,6 +504,7 @@ abstract class _PlayerSyncPlayController with Store {
       if (reconnecting) {
         return;
       }
+      _leaveRoomState();
       GlassNotice.show(
         '连不上同步服务器',
         icon: Icons.link_off_rounded,
@@ -518,6 +540,7 @@ abstract class _PlayerSyncPlayController with Store {
   /// timers so they follow the injected clock.
   void onPlayerTick() {
     final now = clock();
+    _lastTickAt = now;
     for (final entry in _pendingLeft.entries.toList()) {
       final away = now.difference(entry.value);
       if (away >= const Duration(seconds: 5) &&
@@ -885,7 +908,7 @@ abstract class _PlayerSyncPlayController with Store {
   Future<void> exitRoom() async {
     _backoff.reset();
     _hollowReconnects = 0;
-    _room = null;
+    _leaveRoomState();
     _pendingLeft.clear();
     _leftFiles.clear();
     _ghosts.clear();
@@ -906,6 +929,12 @@ abstract class _PlayerSyncPlayController with Store {
       return;
     }
     await controller.disconnect();
+  }
+
+  void _leaveRoomState() {
+    _room = null;
+    _ticker?.cancel();
+    _ticker = null;
   }
 
   Future<void> dispose() async {

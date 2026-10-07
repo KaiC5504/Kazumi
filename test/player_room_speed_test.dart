@@ -32,4 +32,16 @@ void main() {
     await player.exitSyncPlayRoom();
     expect(player.playback.playerSpeed, 1.5);
   });
+
+  test('joining or rejoining a room forces 1.0×', () async {
+    final player = PlayerController(
+      ShaderAssetService(),
+      _NoDownloads(),
+      AudioController(),
+    )..bangumiId = 42;
+    // A hold-to-speed-up that began during a reconnect.
+    player.playback.playerSpeed = 2.0;
+    player.syncplay.onJoinedRoom!(quiet: true);
+    expect(player.playback.playerSpeed, 1.0);
+  });
 }

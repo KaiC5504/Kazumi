@@ -42,6 +42,7 @@ class PlayerController implements Disposable {
       isLocalPlayback: () => isLocalPlayback,
       downloadController: downloadController,
     );
+    syncplay.onJoinedRoom = _lockRoomSpeed;
   }
 
   final ShaderAssetService shaderAssetService;
@@ -198,7 +199,7 @@ class PlayerController implements Disposable {
     playback.resetForInit();
     debug.playerLogLevel = GStorage.getSetting(SettingsKeys.playerLogLevel);
     playback.playerSpeed =
-        AnimeSpeedStore.speedFor(bangumiId, inRoom: syncplay.hasSession);
+        AnimeSpeedStore.speedFor(bangumiId, inRoom: syncplay.inRoom);
     panel.aspectRatioMode = PlayerAspectRatio.fromStorageValue(
       GStorage.getSetting(SettingsKeys.defaultAspectRatioType),
     );
@@ -498,8 +499,14 @@ class PlayerController implements Disposable {
       username,
       changeEpisode,
     );
-    if (syncplay.hasSession && playback.playerSpeed != 1.0) {
-      await setPlaybackSpeed(1.0);
+  }
+
+  // Also after quiet reconnects and 重新连接, which don't come through
+  // createSyncPlayRoom: a hold-to-speed-up may have started in between.
+  void _lockRoomSpeed({required bool quiet}) {
+    if (playback.playerSpeed == 1.0) return;
+    unawaited(setPlaybackSpeed(1.0));
+    if (!quiet) {
       GlassNotice.show('一起看时固定 1.0×', icon: Icons.speed_rounded);
     }
   }
