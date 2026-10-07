@@ -1,0 +1,37 @@
+# Fork-only iOS compile check, run when scripts/precheck.py reports a native change.
+# Tests and analyze run locally in precheck, so this only proves `flutter build ios`.
+name: iOS compile check
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios:
+    name: Build iOS (no codesign)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'pubspec.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - run: flutter pub get
+
+      - run: brew install cmake ninja
+
+      - name: Build
+        run: flutter build ios --release --no-codesign

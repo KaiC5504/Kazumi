@@ -1,8 +1,9 @@
 # Kazumi (KaiC fork)
 
 Fork of `Predidit/Kazumi` (GPL-3.0). `origin` = `KaiC5504/Kazumi`, `upstream` =
-`Predidit/Kazumi`. Keep the diff against upstream small so `git merge upstream/main`
-stays easy:
+`Predidit/Kazumi`. This fork never sends PRs upstream: optimise for our own build
+speed, not upstream's conventions. We do keep merging upstream into every build, so
+keep the diff against upstream small enough that `git merge upstream/main` stays easy:
 
 - Never run `dart format` on upstream files. The repo uses the old (short) style and
   the current formatter rewrites whole files. Format only files this fork added.
@@ -43,18 +44,22 @@ Identity: Xcode target/scheme `Runner`, bundle id `com.kaichuan.kazumi` (patched
 build time from upstream's `com.example.kazumi`; extensions: none). Repo
 `KaiC5504/Kazumi` (public). Codemagic app `Kazumi`.
 
-1. Work on a feature branch or `dev`. Before the compile check, always bring the
+1. Work on a feature branch or `dev`. Before the precheck, always bring the
    branch up to latest upstream: `git fetch upstream`, `git merge upstream/main`
    (resolve conflicts in favour of keeping both sides). The owner wants every
    TestFlight build to carry the newest upstream Kazumi, not only fork changes.
-2. Push. Upstream's `pr.yaml` is the compile check. It only triggers on pull requests,
-   so dispatch it on the fork, iOS only (with no `run_*` input it builds every
-   platform): `gh workflow run pr.yaml -R KaiC5504/Kazumi --ref <branch> -f
-   run_ios=true`, then `gh run list -R KaiC5504/Kazumi --branch <branch> --limit 1` and
-   `gh run watch <id> -R KaiC5504/Kazumi --exit-status`. Without `-R`, `gh` lists
-   upstream's runs.
+2. `python scripts/precheck.py` (about 30 s). It diffs against the last Codemagic
+   build that passed, then runs analyze (CI flags), the tests that import changed
+   files, and an asset scan (App Store Connect rejects bundled files starting with
+   `#!`, which no compile check catches). Exit 0: skip Actions. Exit 2: the native
+   side changed (`pubspec.lock`, dependencies, `ios/`, `codemagic.yaml`), so push and
+   run the fork's iOS-only, cached compile check: `gh workflow run ios-check.yaml -R
+   KaiC5504/Kazumi --ref <branch>`, then `gh run list -R KaiC5504/Kazumi --workflow
+   ios-check.yaml --limit 1` and watch it in the background with `gh run watch <id> -R
+   KaiC5504/Kazumi --exit-status`. Without `-R`, `gh` lists upstream's runs.
+   Upstream's `pr.yaml` (tests, then a sequential build, ~13 min) is no longer used.
 3. Merge to `main` and push. Re-check `git rev-list --count main..upstream/main` is 0;
-   if upstream moved during the check, merge again and re-run Actions.
+   if upstream moved during the check, merge again and re-run the precheck.
 4. `python scripts/codemagic.py status`, then `start main`, then `watch`.
 5. Once it passes: `python scripts/codemagic.py publish-latest --notes "<短中文说明>"`.
    This writes `https://hk.kaic5504.com/app/latest.json`, and installed apps prompt
@@ -72,4 +77,5 @@ group, never committed). Without them danmaku search returns nothing.
 
 The owner has authorised commit, push, Actions and Codemagic runs without asking.
 Codemagic minutes are limited (500 a month across all apps; a Flutter iOS build is
-~10 min), so never start a build before Actions is green.
+~10 min), so never start a build before the precheck passes (and `ios-check.yaml`,
+when the precheck asks for it).
