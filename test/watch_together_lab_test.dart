@@ -47,9 +47,6 @@ void main() {
     viewers.addAll([kai, her]);
     await kai.join(server, episode: episode, at: at);
     await her.join(server, episode: episode, at: at);
-    // She joined about 1.6 s after him, inside the 3 s the drift corrector
-    // leaves alone; line them up so "within 1 s" means something.
-    her.place(kai.position);
     gaps = GapRecorder(clock, kai, her);
     simNotices.clear();
   }

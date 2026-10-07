@@ -63,9 +63,6 @@ void main() {
   test('zombie socket after Wi-Fi to 4G: back in sync within 15 s, no tap', () {
     return eachSeed(1, (seed) async {
       await start(seed: seed);
-      // She joined about 1.6 s after him, inside the 3 s the drift corrector
-      // leaves alone; line them up so the drift check below means something.
-      her.place(me.position);
       await clock.wait(30);
       final t0 = clock.seconds;
       server.zombie('her');

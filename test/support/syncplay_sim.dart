@@ -177,9 +177,11 @@ class _Watcher {
 /// flag differs from the room's pauses or resumes it, and a seek moves
 /// everyone.
 class SimSyncplayServer {
-  SimSyncplayServer._(this.clock, this._server, this._random);
+  SimSyncplayServer._(this.clock, this._server, this._random)
+    : openedAt = clock.seconds;
 
   final VirtualClock clock;
+  final double openedAt;
   final ServerSocket _server;
   final Random _random;
   final List<_Watcher> _watchers = [];
@@ -205,7 +207,9 @@ class SimSyncplayServer {
       await ServerSocket.bind('127.0.0.1', 0),
       Random(seed),
     );
-    server._server.listen(server._accept);
+    // A reconnect still dialling when a scenario tears down gets aborted,
+    // which Windows reports here as error 10053; it isn't the scenario's.
+    server._server.listen(server._accept, onError: (_) {});
     server._ticker = Timer.periodic(clock.real(1), (_) => server._tick());
     return server;
   }
@@ -642,8 +646,9 @@ class SimViewer {
     return clock.seconds < hosts[hostIndex % hosts.length].downUntil;
   }
 
-  /// Starts watching [episode] at [at], joins the room and keeps the
-  /// player page's one-second tick running.
+  /// Starts watching [episode], joins the room and keeps the player page's
+  /// one-second tick running. [at] is where the playhead was when the room
+  /// opened, so viewers who join back to back start level.
   Future<void> join(
     SimSyncplayServer server, {
     int episode = 1,
@@ -652,7 +657,11 @@ class SimViewer {
   }) async {
     this.episode = episode;
     _anchorPosition = at;
-    _anchorAt = clock.seconds;
+    // Joining takes a few ms of wall time, which the 20x clock stretches
+    // into seconds, more so on Windows' 15.6 ms timer ticks. Counting from
+    // the moment of joining put the second viewer up to 3 s behind, past
+    // the drift corrector's line, and she jumped on arrival.
+    _anchorAt = server.openedAt;
     playing = startPlaying;
     // As PlayerController.init does; without it the first reload would look
     // like a new file and wipe the guard's outage count.
