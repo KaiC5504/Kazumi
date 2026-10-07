@@ -55,3 +55,6 @@ android/build/reports/problems/
 **/macos/Pods/
 **/ios/Podfile.lock
 **/macos/Podfile.lock
+
+# Fork-only local notes (handbook, specs, plans); never committed
+docs/local/

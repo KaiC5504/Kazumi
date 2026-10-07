@@ -1,5 +1,10 @@
 # Kazumi (KaiC fork)
 
+Read `D:/Repos/Apps/Kazumi/docs/local/fork-handbook.md` first: devices, viewing flows,
+which server (HK relay, Hetzner) runs what, and the change timeline. Keep it current when
+infrastructure moves. `docs/local/` is gitignored and holds the fork's specs and plans too;
+never commit it (the path is absolute so other worktrees find it).
+
 Fork of `Predidit/Kazumi` (GPL-3.0). `origin` = `KaiC5504/Kazumi`, `upstream` =
 `Predidit/Kazumi`. This fork never sends PRs upstream: optimise for our own build
 speed, not upstream's conventions. We do keep merging upstream into every build, so
