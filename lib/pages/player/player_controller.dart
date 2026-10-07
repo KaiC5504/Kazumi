@@ -21,6 +21,9 @@ import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:flutter/material.dart' show Icons;
+import 'package:kazumi/bean/dialog/glass_notice.dart';
+import 'package:kazumi/services/player/anime_speed_store.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
 import 'package:kazumi/services/player/playback_end_guard.dart';
 import 'package:kazumi/services/player/syncplay_watchdog.dart';
@@ -194,7 +197,8 @@ class PlayerController implements Disposable {
 
     playback.resetForInit();
     debug.playerLogLevel = GStorage.getSetting(SettingsKeys.playerLogLevel);
-    playback.playerSpeed = GStorage.getSetting(SettingsKeys.defaultPlaySpeed);
+    playback.playerSpeed =
+        AnimeSpeedStore.speedFor(bangumiId, inRoom: syncplay.hasSession);
     panel.aspectRatioMode = PlayerAspectRatio.fromStorageValue(
       GStorage.getSetting(SettingsKeys.defaultAspectRatioType),
     );
@@ -494,6 +498,10 @@ class PlayerController implements Disposable {
       username,
       changeEpisode,
     );
+    if (syncplay.hasSession && playback.playerSpeed != 1.0) {
+      await setPlaybackSpeed(1.0);
+      GlassNotice.show('一起看时固定 1.0×', icon: Icons.speed_rounded);
+    }
   }
 
   void setSyncPlayCurrentPosition(

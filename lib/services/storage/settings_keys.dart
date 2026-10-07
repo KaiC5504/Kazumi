@@ -72,6 +72,11 @@ class SettingsKeys {
     false,
     group: SettingGroup.misc,
   );
+  static const animeSpeeds = SettingKey<String>(
+    'animeSpeeds',
+    '{}',
+    group: SettingGroup.player,
+  );
   static const defaultPlaySpeed = SettingKey<double>(
     _SettingBoxKey.defaultPlaySpeed,
     1.0,
@@ -690,6 +695,7 @@ class SettingsKeys {
     autoUpdate,
     checkPluginUpdateOnStartup,
     alwaysOntop,
+    animeSpeeds,
     defaultPlaySpeed,
     defaultShortcutForwardPlaySpeed,
     defaultAspectRatioType,
