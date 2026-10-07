@@ -174,8 +174,12 @@ abstract class _PlayerSyncPlayController with Store {
     _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
       final last = _lastTickAt;
       // In the background the resume path takes over; running the watchdog
-      // here would redial in the seconds before iOS suspends us.
-      if (_backgrounded) {
+      // here would redial in the seconds before iOS suspends us. Read from
+      // the binding, not the player page, which may not be mounted.
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (_backgrounded ||
+          state == AppLifecycleState.paused ||
+          state == AppLifecycleState.hidden) {
         return;
       }
       if (last == null ||
@@ -662,6 +666,9 @@ abstract class _PlayerSyncPlayController with Store {
     }
   }
 
+  /// The sim's stand-in for iOS suspending the app; the app itself reads
+  /// the lifecycle state.
+  @visibleForTesting
   void onPaused() {
     _backgrounded = true;
   }
