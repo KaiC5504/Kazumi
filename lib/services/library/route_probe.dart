@@ -67,10 +67,11 @@ Future<RouteCheckResult> runRouteCheck({
         sampleFor(h),
       ).timeout(const Duration(seconds: 6), onTimeout: () => _failed),
   ]);
-  // Offline or every host down: not an answer worth keeping. The store saves
-  // nothing and the next launch measures again.
-  if (!results.any((m) => m.ok)) {
-    throw StateError('route check: no host reachable');
+  // Offline, or HK down for the moment: not an answer worth keeping. Stored,
+  // a brief HK outage would pin her to Singapore for good, since she never
+  // opens 重新测速. The store saves nothing and the next launch measures again.
+  if (!results.take(relays.length).any((m) => m.ok)) {
+    throw StateError('route check: no relay reachable');
   }
   return HostRouter.decide(server, relays, {
     for (var i = 0; i < hosts.length; i++) hosts[i]: results[i],

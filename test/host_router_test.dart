@@ -153,4 +153,17 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('HK down during the check: nothing stored, next launch retries', () {
+    expect(
+      runRouteCheck(
+        server: sg,
+        relays: [hk],
+        sampleFor: (h) => h,
+        probe: (h, s) async => h == hk ? failed : m(60, 5),
+        clock: () => at,
+      ),
+      throwsStateError,
+    );
+  });
 }
