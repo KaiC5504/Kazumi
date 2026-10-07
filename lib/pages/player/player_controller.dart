@@ -533,5 +533,10 @@ class PlayerController implements Disposable {
     unawaited(_netWatch?.cancel());
     _netWatch = null;
     await syncplay.exitRoom();
+    // Rooms pin 1.0×; outside one the anime's own speed applies again.
+    final speed = AnimeSpeedStore.speedFor(bangumiId, inRoom: false);
+    if (playback.playerSpeed != speed) {
+      await setPlaybackSpeed(speed);
+    }
   }
 }
