@@ -242,6 +242,9 @@ class SyncplayClient {
   /// Without it the reply echoes the room position the server just sent.
   double Function()? livePosition;
 
+  DateTime? lastInboundAt;
+  void Function()? onInbound;
+
   // IgnoringOnTheFly
   int _clientIgnoringOnTheFly = 0;
   int _serverIgnoringOnTheFly = 0;
@@ -602,6 +605,8 @@ class SyncplayClient {
   }
 
   void _handleMessage(dynamic data, RawSocket sourceSocket) {
+    lastInboundAt = DateTime.now();
+    onInbound?.call();
     final json = data as Map<String, dynamic>;
     if (json.containsKey('TLS')) {
       final tlsData = json['TLS'];

@@ -10,7 +10,9 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
+import 'package:kazumi/services/player/syncplay_watchdog.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -97,10 +99,12 @@ class _Link {
   _Link(this.clock, this.profile, this.random);
 
   final VirtualClock clock;
-  final NetworkProfile profile;
+  NetworkProfile profile;
   final Random random;
   final _InOrder _down = _InOrder();
   final _InOrder _up = _InOrder();
+  double blackholeUntil = 0;
+  bool dead = false;
 
   double _delay() {
     var delay =
@@ -114,11 +118,17 @@ class _Link {
   }
 
   /// Runs [deliver] once the message arrives, passing how long it took.
-  void down(void Function(double took) deliver) =>
-      _down.add(clock, clock.seconds + _delay(), deliver);
+  void down(void Function(double took) deliver) => _send(_down, deliver);
 
-  void up(void Function(double took) deliver) =>
-      _up.add(clock, clock.seconds + _delay(), deliver);
+  void up(void Function(double took) deliver) => _send(_up, deliver);
+
+  void _send(_InOrder queue, void Function(double took) deliver) {
+    if (dead) return;
+    final delay = _delay();
+    var at = clock.seconds + delay;
+    if (clock.seconds < blackholeUntil) at = max(at, blackholeUntil + delay);
+    queue.add(clock, at, deliver);
+  }
 }
 
 /// One direction of a TCP stream: nothing overtakes an earlier message, so
@@ -152,6 +162,7 @@ class _Watcher {
 
   final Socket socket;
   final _Link link;
+  bool profileGuessed = false;
   String? name;
   String? file;
   double position = 0;
@@ -203,8 +214,14 @@ class SimSyncplayServer {
   void _accept(Socket socket) {
     // Writes racing a client that already hung up are expected at teardown.
     socket.done.catchError((_) {});
-    final profile = _nextProfiles.removeAt(0);
-    final watcher = _Watcher(socket, _Link(clock, profile, _random));
+    // A controller reconnecting on its own gives no notice; it gets its
+    // name's profile once its Hello arrives.
+    final guessed = _nextProfiles.isEmpty;
+    final profile = guessed
+        ? NetworkProfile.sameWifi
+        : _nextProfiles.removeAt(0);
+    final watcher = _Watcher(socket, _Link(clock, profile, _random))
+      ..profileGuessed = guessed;
     _watchers.add(watcher);
     socket
         .cast<List<int>>()
@@ -243,6 +260,9 @@ class SimSyncplayServer {
     final message = json.decode(line) as Map<String, dynamic>;
     if (message['Hello'] case final Map hello) {
       watcher.name = hello['username'];
+      if (watcher.profileGuessed) {
+        watcher.link.profile = _profiles[watcher.name!] ?? watcher.link.profile;
+      }
       _profiles[watcher.name!] = watcher.link.profile;
       final others = _watchers.where((w) => w != watcher && w.name != null);
       _send(watcher, {
@@ -385,6 +405,35 @@ class SimSyncplayServer {
       });
     });
   }
+
+  /// The watcher named [name]'s connection stops delivering in both
+  /// directions without closing, like a phone that changed networks.
+  void zombie(String name) {
+    for (final w in _watchers) {
+      if (w.name == name) w.link.dead = true;
+    }
+  }
+
+  /// Nothing gets through for [seconds]; queued data arrives afterwards.
+  void blackhole(String name, double seconds) {
+    for (final w in _watchers) {
+      if (w.name == name) w.link.blackholeUntil = clock.seconds + seconds;
+    }
+  }
+
+  /// Closes [name]'s socket from the server side (a TLS reset).
+  Future<void> reset(String name) async {
+    for (final w in List.of(_watchers)) {
+      if (w.name == name) {
+        _drop(w);
+        await w.socket.close();
+      }
+    }
+  }
+
+  /// Watchers the server still holds for [name], ghosts included.
+  int watchersNamed(String name) =>
+      _watchers.where((w) => w.name == name).length;
 
   Map<String, dynamic> _userEvent(String name, String event) => {
     'Set': {
@@ -557,6 +606,8 @@ class SimViewer {
       '127.0.0.1:${server.port}',
     );
     await sync.createRoom('room', name, changeEpisode);
+    // PlayerController reports the current network as the room opens.
+    sync.onNetwork(NetKind.wifi);
     await clock.until(
       () => sync.syncplayController?.username == name,
       what: '$name to join',
@@ -566,6 +617,7 @@ class SimViewer {
   }
 
   void _onTick() {
+    sync.onPlayerTick();
     final p = position;
     if (!loading && p > (furthest[episode] ?? 0)) furthest[episode] = p;
     if (completed && (autoPlayNext || sync.followEpisode == episode + 1)) {
@@ -604,6 +656,11 @@ class SimViewer {
       );
     }
   }
+
+  void switchNetwork(NetKind kind) => sync.onNetwork(kind);
+
+  void resumeAfter(double seconds) =>
+      sync.onResumed(Duration(milliseconds: (seconds * 1000).round()));
 
   /// Puts the playhead at [at] without a seek, e.g. to set up a gap.
   void place(double at) {
@@ -742,6 +799,9 @@ class GapRecorder {
       '>3s for ${secondsOver3.toStringAsFixed(1)}s';
 }
 
+/// Every pill any viewer showed. GlassNotice draws nothing in tests.
+final List<String> simNotices = [];
+
 /// Hive and the path provider, which the sync controller reads its server
 /// address from.
 void setUpSyncplayStorage() {
@@ -751,6 +811,7 @@ void setUpSyncplayStorage() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     Logger.level = Level.off;
+    GlassNotice.debugOnShow = simNotices.add;
     directory = await Directory.systemTemp.createTemp('kazumi_syncplay_');
     originalPaths = PathProviderPlatform.instance;
     PathProviderPlatform.instance = _TestPaths(directory.path);
@@ -759,6 +820,7 @@ void setUpSyncplayStorage() {
   });
 
   tearDownAll(() async {
+    GlassNotice.debugOnShow = null;
     await Hive.close();
     PathProviderPlatform.instance = originalPaths;
     await directory.delete(recursive: true);

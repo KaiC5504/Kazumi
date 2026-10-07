@@ -126,6 +126,7 @@ class _PlayerItemState extends State<PlayerItem>
   Timer? playerTimer;
   Timer? mouseScrollerTimer;
   Timer? _adjustmentHudHideTimer;
+  DateTime? _pausedAt;
   final Set<PlayerPanelHold> _playerPanelHolds = <PlayerPanelHold>{};
   int _openPlayerMenuCount = 0;
   PlayerPanelHold? _progressBarDragHold;
@@ -159,6 +160,9 @@ class _PlayerItemState extends State<PlayerItem>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused) {
+      _pausedAt = DateTime.now();
+    }
     if (state == AppLifecycleState.paused && !backgroundPlayback) {
       // Suspend before awaiting pause so a later resume wins; pause alone keeps prefetching.
       final suspend = playerController.playback.setPrefetchSuspended(true);
@@ -172,6 +176,11 @@ class _PlayerItemState extends State<PlayerItem>
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      final away = _pausedAt == null
+          ? Duration.zero
+          : DateTime.now().difference(_pausedAt!);
+      _pausedAt = null;
+      playerController.syncplay.onResumed(away);
       await playerController.playback.setPrefetchSuspended(false);
     }
     try {

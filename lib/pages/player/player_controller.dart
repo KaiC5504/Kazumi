@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -22,6 +23,7 @@ import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
 import 'package:kazumi/services/player/playback_end_guard.dart';
+import 'package:kazumi/services/player/syncplay_watchdog.dart';
 import 'package:kazumi/utils/async_session.dart';
 import 'package:kazumi/utils/device.dart';
 
@@ -412,6 +414,8 @@ class PlayerController implements Disposable {
   }
 
   Future<void> _shutdownResources() async {
+    unawaited(_netWatch?.cancel());
+    _netWatch = null;
     await Future.wait([
       _releasePlaybackResources(),
       syncplay.dispose(),
@@ -462,11 +466,33 @@ class PlayerController implements Disposable {
     await externalPlayback.launch();
   }
 
+  StreamSubscription<List<ConnectivityResult>>? _netWatch;
+
+  static NetKind netKindOf(List<ConnectivityResult> r) {
+    if (r.contains(ConnectivityResult.wifi)) return NetKind.wifi;
+    if (r.contains(ConnectivityResult.ethernet)) return NetKind.ethernet;
+    if (r.contains(ConnectivityResult.mobile)) return NetKind.cellular;
+    if (r.isEmpty || r.every((e) => e == ConnectivityResult.none)) {
+      return NetKind.none;
+    }
+    return NetKind.other;
+  }
+
   Future<void> createSyncPlayRoom(
       String room,
       String username,
       Future<void> Function(int episode, {int currentRoad, int offset})
           changeEpisode) async {
+    _netWatch ??= Connectivity().onConnectivityChanged.listen(
+          (r) => syncplay.onNetwork(netKindOf(r)),
+          onError: (Object e) =>
+              KazumiLogger().w('SyncPlay: network watch failed $e'),
+        );
+    unawaited(Connectivity()
+        .checkConnectivity()
+        .then((r) => syncplay.onNetwork(netKindOf(r)))
+        .catchError((Object e) =>
+            KazumiLogger().w('SyncPlay: network check failed $e')));
     await syncplay.createRoom(
       room,
       username,
@@ -476,6 +502,7 @@ class PlayerController implements Disposable {
 
   void setSyncPlayCurrentPosition(
       {bool? forceSyncPlaying, double? forceSyncPosition}) {
+    syncplay.onPlayerTick();
     syncplay.setCurrentPosition(
       forceSyncPlaying: forceSyncPlaying,
       forceSyncPosition: forceSyncPosition,
@@ -499,6 +526,8 @@ class PlayerController implements Disposable {
   }
 
   Future<void> exitSyncPlayRoom() async {
+    unawaited(_netWatch?.cancel());
+    _netWatch = null;
     await syncplay.exitRoom();
   }
 }

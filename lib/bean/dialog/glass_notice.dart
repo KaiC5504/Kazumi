@@ -12,6 +12,9 @@ class GlassNotice {
 
   static OverlayEntry? _entry;
 
+  @visibleForTesting
+  static void Function(String message)? debugOnShow;
+
   static void show(
     String message, {
     IconData? icon,
@@ -20,6 +23,7 @@ class GlassNotice {
     VoidCallback? onAction,
     Duration? duration,
   }) {
+    debugOnShow?.call(message);
     final overlay = rootNavigatorKey.currentState?.overlay;
     if (overlay == null) return;
     _remove();

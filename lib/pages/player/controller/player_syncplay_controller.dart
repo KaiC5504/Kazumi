@@ -10,6 +10,7 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/player/syncplay_client.dart';
 import 'package:kazumi/services/player/syncplay_drift.dart';
 import 'package:kazumi/services/player/syncplay_endpoint.dart';
+import 'package:kazumi/services/player/syncplay_watchdog.dart';
 import 'package:kazumi/utils/async_session.dart';
 import 'package:mobx/mobx.dart';
 
@@ -59,6 +60,23 @@ abstract class _PlayerSyncPlayController with Store {
   // Joined a room already playing. Until this player has caught up its
   // position would drag the room back, so it holds off counting itself in.
   bool _announceWhenCaughtUp = false;
+  late final SyncPlayWatchdog _watchdog = SyncPlayWatchdog(clock: clock);
+  late final ReconnectBackoff _backoff = ReconnectBackoff(clock: clock);
+  String? _room;
+  String? _username;
+  Future<void> Function(int episode, {int currentRoad, int offset})?
+      _changeEpisode;
+  DateTime? _reconnectNoticeAt;
+  bool _reconnectNoticeShown = false;
+  // A peer's 'left' waits here so a quick rejoin shows no pills at all.
+  final Map<String, DateTime> _pendingLeft = {};
+  int _reconnectAttempts = 0;
+
+  // The backoff stops counting as running once its last attempt is spent,
+  // but that attempt still needs time to land before giving up.
+  bool get reconnecting => _backoff.running || _backoff.exhausted;
+  @visibleForTesting
+  int get reconnectAttempts => _reconnectAttempts;
 
   @visibleForTesting
   bool get waitingForPeers => _waitingForPeers;
@@ -104,16 +122,24 @@ abstract class _PlayerSyncPlayController with Store {
       String room,
       String username,
       Future<void> Function(int episode, {int currentRoad, int offset})
-          changeEpisode) async {
+          changeEpisode,
+      {bool quiet = false}) async {
     if (_connectionSessions.isClosed) {
       return;
     }
+    _room = room;
+    _username = username;
+    _changeEpisode = changeEpisode;
     final session = _connectionSessions.begin();
     final previousClient = syncplayController;
     syncplayController = null;
     syncplayRoom = '';
     syncplayClientRtt = 0;
+    final keepFollow = followEpisode;
     await _resetRoomState();
+    if (quiet) {
+      followEpisode = keepFollow;
+    }
     await previousClient?.disconnect();
     if (session.isStale) {
       return;
@@ -141,6 +167,8 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       KazumiLogger().i('SyncPlay: connected to ${parsed.host}:${parsed.port}');
+      client.onInbound = _watchdog.onInbound;
+      _watchdog.onConnected();
       client.livePosition = _reportedPosition;
       client.onGeneralMessage.listen(
         null,
@@ -152,14 +180,7 @@ abstract class _PlayerSyncPlayController with Store {
               error is SyncplayException ? error.message : error.toString();
           KazumiLogger().e('SyncPlay: error $message', error: error);
           if (error is SyncplayConnectionException) {
-            exitRoom();
-            GlassNotice.show(
-              '同步中断',
-              icon: Icons.link_off_rounded,
-              bottom: true,
-              actionLabel: '重新连接',
-              onAction: () => createRoom(room, username, changeEpisode),
-            );
+            _beginReconnect();
           }
         },
       );
@@ -168,32 +189,43 @@ abstract class _PlayerSyncPlayController with Store {
           if (!_isCurrentConnection(session, client)) {
             return;
           }
+          // The init reply lands after createRoom has returned, so this
+          // checks the connection's own flag rather than shared state.
           if (message['type'] == 'init') {
             if (message['username'] == '') {
-              GlassNotice.show('房间里只有你，等对方加入',
-                  icon: Icons.hourglass_empty_rounded);
+              if (!quiet) {
+                GlassNotice.show('房间里只有你，等对方加入',
+                    icon: Icons.hourglass_empty_rounded);
+              }
               setPlayingBangumi();
             } else {
               _peerFiles.putIfAbsent(message['username'], () => null);
-              GlassNotice.show('已跟上 ${message['username']} 的进度',
-                  icon: Icons.sync_rounded);
+              if (!quiet) {
+                GlassNotice.show('已跟上 ${message['username']} 的进度',
+                    icon: Icons.sync_rounded);
+              }
               _announceWhenCaughtUp = true;
             }
           }
           if (message['type'] == 'left') {
             _peerFiles.remove(message['username']);
-            GlassNotice.show('${message['username']} 离开了',
-                icon: Icons.person_remove_rounded);
+            _pendingLeft[message['username']] = clock();
             if (_waitingForPeers && _peersBehind().isEmpty) {
               _stopWaiting();
             }
           }
           if (message['type'] == 'joined') {
+            // A peer back from a dead socket can rejoin while the server
+            // still holds the old connection, so no 'left' came first.
+            final known = _peerFiles.containsKey(message['username']);
             if (message['username'] != client.username) {
               _peerFiles[message['username']] = null;
             }
-            GlassNotice.show('${message['username']} 加入了',
-                icon: Icons.person_add_alt_1_rounded);
+            final wasAway = _pendingLeft.remove(message['username']) != null;
+            if (!wasAway && !known && message['username'] != client.username) {
+              GlassNotice.show('${message['username']} 加入了',
+                  icon: Icons.person_add_alt_1_rounded);
+            }
           }
         },
       );
@@ -362,6 +394,14 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       syncplayRoom = room;
+      if (reconnecting) {
+        _backoff.reset();
+        if (_reconnectNoticeShown) {
+          GlassNotice.show('已重新同步', icon: Icons.sync_rounded);
+        }
+        _reconnectNoticeAt = null;
+        _reconnectNoticeShown = false;
+      }
     } catch (e) {
       KazumiLogger().e('SyncPlay: error', error: e);
       if (!_isCurrentConnection(session, client)) {
@@ -372,6 +412,9 @@ abstract class _PlayerSyncPlayController with Store {
       syncplayRoom = '';
       syncplayClientRtt = 0;
       await client.disconnect();
+      if (reconnecting) {
+        return;
+      }
       GlassNotice.show(
         '连不上同步服务器',
         icon: Icons.link_off_rounded,
@@ -379,6 +422,98 @@ abstract class _PlayerSyncPlayController with Store {
         actionLabel: '重试',
         onAction: () => createRoom(room, username, changeEpisode),
       );
+    }
+  }
+
+  void _beginReconnect() {
+    if (_room == null || _changeEpisode == null) return;
+    if (reconnecting) return;
+    _backoff.start();
+    _reconnectNoticeAt = clock().add(const Duration(seconds: 3));
+  }
+
+  /// Runs once per player tick: reconnects are driven from here rather than
+  /// timers so they follow the injected clock.
+  void onPlayerTick() {
+    final now = clock();
+    for (final entry in _pendingLeft.entries.toList()) {
+      if (now.difference(entry.value) >= const Duration(seconds: 15)) {
+        _pendingLeft.remove(entry.key);
+        GlassNotice.show('${entry.key} 离开了',
+            icon: Icons.person_remove_rounded);
+      }
+    }
+    if (reconnecting) {
+      _driveReconnect(now);
+      return;
+    }
+    if (syncplayController == null) return;
+    switch (_watchdog.onTick()) {
+      case WatchAction.none:
+        break;
+      case WatchAction.probe:
+        unawaited(requestSync());
+      case WatchAction.reconnect:
+        _beginReconnect();
+        _driveReconnect(now);
+    }
+  }
+
+  void _driveReconnect(DateTime now) {
+    if (_watchdog.offline) return;
+    if (!_reconnectNoticeShown &&
+        _reconnectNoticeAt != null &&
+        now.isAfter(_reconnectNoticeAt!)) {
+      _reconnectNoticeShown = true;
+      GlassNotice.show('同步重连中…',
+          icon: Icons.sync_rounded, duration: const Duration(minutes: 2));
+    }
+    if (_backoff.exhausted) {
+      // The last attempt goes out about 60 s in; give it time to land.
+      if (_backoff.elapsed < const Duration(seconds: 75)) return;
+      _backoff.reset();
+      _reconnectNoticeShown = false;
+      final room = _room!, user = _username!, change = _changeEpisode!;
+      unawaited(exitRoom());
+      GlassNotice.show(
+        '同步中断',
+        icon: Icons.link_off_rounded,
+        bottom: true,
+        actionLabel: '重新连接',
+        onAction: () => createRoom(room, user, change),
+      );
+      return;
+    }
+    if (_backoff.due()) {
+      _backoff.attempted();
+      _reconnectAttempts++;
+      unawaited(createRoom(_room!, _username!, _changeEpisode!, quiet: true));
+    }
+  }
+
+  void onNetwork(NetKind kind) {
+    if (_watchdog.onNetwork(kind) == WatchAction.reconnect &&
+        (syncplayController != null || reconnecting)) {
+      if (reconnecting) {
+        // A fresh minute of attempts on the new network.
+        _backoff.start();
+      } else {
+        _beginReconnect();
+      }
+      _driveReconnect(clock());
+    }
+  }
+
+  void onResumed(Duration background) {
+    if (syncplayController == null && !reconnecting) return;
+    switch (_watchdog.onResumed(background)) {
+      case WatchAction.none:
+        break;
+      case WatchAction.probe:
+        unawaited(requestSync());
+      case WatchAction.reconnect:
+        _beginReconnect();
+        _driveReconnect(clock());
     }
   }
 
@@ -608,6 +743,14 @@ abstract class _PlayerSyncPlayController with Store {
 
   @action
   Future<void> exitRoom() async {
+    _backoff.reset();
+    _room = null;
+    _pendingLeft.clear();
+    _reconnectNoticeAt = null;
+    if (_reconnectNoticeShown) {
+      _reconnectNoticeShown = false;
+      GlassNotice.hide();
+    }
     _connectionSessions.cancel();
     final controller = syncplayController;
     syncplayController = null;
