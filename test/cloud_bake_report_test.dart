@@ -67,4 +67,26 @@ void main() {
     expect(report.cost, closeTo(47 / 60 * 1.09, 1e-9));
     expect(report.laptopSec, (7028 / 2.7).ceil());
   });
+
+  test('laptop time covers what the laptop baked during the run too', () {
+    final mixed = CloudBakeReport(
+      startedAt: start,
+      endedAt: start.add(const Duration(minutes: 41)),
+      pricePerHour: 1.09,
+      stopped: false,
+      episodes: [
+        for (var n = 1; n <= 9; n++)
+          CloudEpisodeReport(
+            job: job(n, 1440),
+            outcome: CloudEpisodeOutcome.cloud,
+          ),
+        for (var n = 10; n <= 13; n++)
+          CloudEpisodeReport(
+            job: job(n, 1440),
+            outcome: CloudEpisodeOutcome.local,
+          ),
+      ],
+    );
+    expect(mixed.laptopSec, (13 * 1440 / 2.7).ceil());
+  });
 }

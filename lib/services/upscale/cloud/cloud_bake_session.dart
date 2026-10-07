@@ -93,8 +93,15 @@ class CloudBakeReport {
   int get cloudMediaSec =>
       where(CloudEpisodeOutcome.cloud).fold(0, (a, e) => a + e.job.durationSec);
 
-  /// How long the laptop alone would have needed for what the pod did.
-  int get laptopSec => (cloudMediaSec / CloudBakeRates.localRealtime).ceil();
+  /// How long the laptop alone would have needed for the whole run. The
+  /// laptop's own share counts too: it spent the run's wall time on it.
+  int get laptopSec {
+    final media = [
+      ...where(CloudEpisodeOutcome.cloud),
+      ...where(CloudEpisodeOutcome.local),
+    ].fold(0, (a, e) => a + e.job.durationSec);
+    return (media / CloudBakeRates.localRealtime).ceil();
+  }
 }
 
 class CloudBakeException implements Exception {
