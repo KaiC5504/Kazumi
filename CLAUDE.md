@@ -19,6 +19,11 @@ Fork-only code (dart format is fine here): `lib/services/upscale/`, `lib/service
 For any other file, `git log --oneline upstream/main -- <file>` printing nothing means
 the fork added it.
 
+The Runpod cloud bake worker lives in `server/cloud/kazumi_bake_worker.py` and ships in
+the app as a generated constant: after editing it, run `python
+scripts/pack_cloud_worker.py`. Never declare a `.py`/`.sh` file as a Flutter asset:
+App Store Connect rejects it as unsigned code at upload (builds 17 and 18).
+
 Pre-upscaled episodes: the PC bakes the 质量档 Anime4K chain into
 HEVC with ffmpeg + libplacebo (`lib/services/upscale/`), exports to a synced folder or
 serves on the LAN, and weak devices (iPad Pro 3) import and play it with shaders off

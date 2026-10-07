@@ -162,7 +162,6 @@ flutter:
     - assets/shaders/
     - assets/images/logo/
     - assets/statements/
-    - assets/cloud/kazumi_bake_worker.py
     - licenses/ech_http/
   fonts:
     - family: MI_Sans_Regular

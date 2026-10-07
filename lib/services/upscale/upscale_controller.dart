@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
@@ -317,9 +316,7 @@ class UpscaleController {
     if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
     final ffmpeg = _ffmpeg;
     if (ffmpeg == null) throw const CloudBakeException('未找到可用的 ffmpeg');
-    final script = packWorkerScript(
-      await rootBundle.loadString(cloudWorkerAsset),
-    );
+    const script = packedCloudWorker;
     final shader = await File(
       await UpscaleBaker.buildCombinedShader(
         _shaderAssetService.shadersDirectory.path,

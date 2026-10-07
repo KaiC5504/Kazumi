@@ -34,6 +34,10 @@ NATIVE_PATTERNS = [
     r"^\.gitmodules$",
 ]
 
+# App Store Connect rejected a plain .py with no shebang or exec bit (build 18), so
+# script types are refused by extension, not by content.
+SCRIPT_SUFFIXES = {".py", ".pyc", ".sh", ".bash", ".zsh", ".command", ".pl", ".rb"}
+
 MACH_O_MAGIC = {
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
     b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
@@ -108,7 +112,9 @@ def check_assets() -> list[str]:
         with path.open("rb") as f:
             head = f.read(4)
         rel = path.relative_to(ROOT).as_posix()
-        if head.startswith(b"#!"):
+        if path.suffix.lower() in SCRIPT_SUFFIXES:
+            problems.append(f"{rel}: script files are rejected by App Store Connect as unsigned code")
+        elif head.startswith(b"#!"):
             problems.append(f"{rel}: starts with #!, App Store Connect rejects it as unsigned code")
         elif head in MACH_O_MAGIC:
             problems.append(f"{rel}: Mach-O binary, App Store Connect rejects it unsigned")
@@ -152,6 +158,9 @@ def main() -> int:
     if asset_problems:
         failed.append("assets")
 
+    if subprocess.run([sys.executable, str(ROOT / "scripts" / "pack_cloud_worker.py"), "--check"]).returncode:
+        failed.append("packed cloud worker")
+
     if not flutter("analyze", "--no-fatal-infos", "--fatal-warnings"):
         failed.append("analyze")
 
@@ -162,6 +171,15 @@ def main() -> int:
             failed.append("tests")
     else:
         print("\n  no tests import the changed files")
+
+    if any(f.startswith(("server/cloud/", "test/cloud_worker/")) for f in changed):
+        print("\n$ python -m unittest (cloud worker)", flush=True)
+        worker_tests = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "test/cloud_worker", "-p", "test_*.py"],
+            cwd=ROOT,
+        )
+        if worker_tests.returncode:
+            failed.append("cloud worker tests")
 
     native = sorted({f for f in changed if any(re.search(p, f) for p in NATIVE_PATTERNS)})
     if "pubspec.yaml" in native and only_version_or_assets_changed(base):

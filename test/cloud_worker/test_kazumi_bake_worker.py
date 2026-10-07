@@ -13,7 +13,7 @@ from http.server import ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location(
     'kazumi_bake_worker',
-    os.path.join(HERE, '..', '..', 'assets', 'cloud', 'kazumi_bake_worker.py'))
+    os.path.join(HERE, '..', '..', 'server', 'cloud', 'kazumi_bake_worker.py'))
 kbw = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(kbw)
 
