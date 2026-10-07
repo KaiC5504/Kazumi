@@ -246,4 +246,34 @@ void main() {
       expect(simNotices, contains('已跟上 kai 的进度'));
     });
   });
+
+  test('server restart: both reconnect, and her later leave still counts', () {
+    return eachSeed(9, (seed) async {
+      await start(seed: seed);
+      await clock.wait(10);
+      await server.reset('kai');
+      await server.reset('her');
+      await clock.until(
+        () =>
+            me.sync.syncplayController?.isConnected == true &&
+            !me.sync.reconnecting &&
+            her.sync.syncplayController?.isConnected == true &&
+            !her.sync.reconnecting,
+        timeout: 30,
+        what: 'both back',
+      );
+      await clock.wait(5);
+      expect(me.sync.peers, contains('her'));
+      expect(her.sync.peers, contains('kai'));
+      expect(
+        simNotices.where((n) => n.contains('离开') || n.contains('加入')),
+        isEmpty,
+      );
+      await her.leave();
+      viewers.remove(her);
+      await clock.wait(25);
+      expect(me.sync.peers, isNot(contains('her')));
+      expect(simNotices, contains('her 离开了'));
+    });
+  });
 }

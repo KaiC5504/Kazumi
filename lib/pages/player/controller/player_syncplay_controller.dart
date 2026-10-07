@@ -224,6 +224,24 @@ abstract class _PlayerSyncPlayController with Store {
           // The init reply lands after createRoom has returned, so this
           // checks the connection's own flag rather than shared state.
           if (message['type'] == 'init') {
+            final String named = message['username'];
+            if (quiet && named != client.username) {
+              // Peers carried over from the old connection that the new
+              // room doesn't confirm count as just left: back within the
+              // debounce they keep their file, otherwise 离开了 as usual.
+              // Kept, they'd look like ghosts on rejoining and their real
+              // 'left' would be swallowed.
+              for (final peer in _peerFiles.keys.toList()) {
+                if (peer == named) {
+                  continue;
+                }
+                _leftFiles[peer] = _peerFiles.remove(peer);
+                _pendingLeft.putIfAbsent(peer, clock);
+              }
+              if (named == '') {
+                _ghosts.clear();
+              }
+            }
             if (message['username'] == '') {
               if (!quiet) {
                 GlassNotice.show('房间里只有你，等对方加入',
