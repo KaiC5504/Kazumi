@@ -147,13 +147,31 @@ void main() {
     (seed, local) async {
       await start(seed, at: 480, herLocal: local);
       await clock.wait(10);
-      her.cutStream(recoverAfter: 0);
-      server.zombie('her');
-      await clock.wait(90);
-      her.resumeAfter(90);
+      // iOS drops the stream's connection too; a download just sits paused.
+      if (!local) her.cutStream(recoverAfter: 0);
+      final attempts = her.sync.reconnectAttempts;
+      final away = her.suspend(server, 90);
+      await clock.wait(85);
+      expect(
+        her.sync.reconnectAttempts,
+        attempts,
+        reason: 'nothing runs while suspended',
+      );
+      expect(her.reloads, 0);
+      await away;
+      // The resume path reconnects at once; the watchdog alone would wait
+      // for 6 s of silence plus a 3 s probe.
+      await clock.until(
+        () => her.sync.reconnectAttempts > attempts,
+        timeout: 2,
+        what: 'her to reconnect on resume',
+      );
       await settled(within: 20);
       expect(her.episode, 1);
+      expect(her.episodeChanges, isEmpty);
+      expect(kai.episodeChanges, isEmpty);
       expect(her.position, greaterThan(570));
+      if (local) expect(her.reloads, 0);
     },
   );
 
@@ -173,8 +191,31 @@ void main() {
         expect(her.giveUps, 0);
         expect(her.endGuard.incidents, 3);
         expect(her.reloads, inInclusiveRange(3, 6));
+        final reloads = her.reloads;
         her.cutStream(recoverAfter: 5);
         await clock.until(() => her.giveUps > 0, timeout: 20);
+        expect(her.reloads, reloads, reason: 'the 4th drop gives up at once');
+        // She sits at the error reporting where she stopped, and the room
+        // keeps playing from there. Kai waits for her: either still from
+        // the third drop, or, if that wait had let him go within a second of
+        // her stop, again once he is 10 s ahead.
+        await clock.until(
+          () =>
+              simNotices.contains('等 her 跟上…') &&
+              !kai.playing &&
+              !server.paused &&
+              kai.position - her.position > 3,
+          timeout: 30,
+          what: 'kai to wait with 等 TA',
+        );
+        final waitingAt = kai.position;
+        final seeks = kai.seeks.length;
+        await clock.wait(20);
+        expect(her.giveUps, 1);
+        expect(her.reloads, reloads, reason: 'no reload loop after giving up');
+        expect(kai.playing, isFalse);
+        expect(kai.position, closeTo(waitingAt, 0.01));
+        expect(kai.seeks.length, seeks);
         expect(kai.episodeChanges, isEmpty);
         expect(kai.episode, 1);
         // The refresh button: reload at the last good position.
@@ -184,9 +225,9 @@ void main() {
           offset: her.endGuard.lastGoodPosition.inSeconds,
         );
         await clock.until(() => her.playing, timeout: 20, what: 'her back');
-        // She is the slowest, so the room resumes from her spot and kai,
-        // 6-10 s ahead, closes the gap at 0.95x: up to 3 minutes.
-        await settled(within: 180);
+        // Kai is still waiting ahead of her and plays on once she reaches
+        // him.
+        await settled(within: 30);
       });
     },
   );
@@ -205,17 +246,28 @@ void main() {
 
   bothWays(
     '6 drop inside the last 30 s counts as the end; one change each',
-    'L6 both local: drop inside the last 30 s counts as the end',
+    'L6 both local: her room socket dies silently in the last 30 s',
     (seed, local) async {
       await start(seed, at: 1400, herLocal: local);
       await clock.wait(25);
-      her.cutStream(recoverAfter: 0);
+      // A download has no stream to lose: only the room socket goes, and
+      // the watchdog's reconnect lands around the end of the episode.
+      if (local) {
+        server.zombie('her');
+      } else {
+        her.cutStream(recoverAfter: 0);
+      }
       await clock.until(
         () => kai.episode == 2 && her.episode == 2,
         timeout: 60,
       );
       expect(her.episodeChanges, [2]);
       expect(kai.episodeChanges, [2]);
+      if (local) {
+        expect(her.reloads + kai.reloads, 0);
+        expect(her.sync.reconnectAttempts, greaterThan(0));
+        await settled(within: 30);
+      }
     },
   );
 

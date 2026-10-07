@@ -156,6 +156,23 @@ class _InOrder {
       _arm(clock);
     });
   }
+
+  /// Nothing already on the way arrives before [until].
+  void holdUntil(VirtualClock clock, double until) {
+    for (var i = 0; i < _queue.length; i++) {
+      final (at, sent, deliver) = _queue[i];
+      _queue[i] = (max(at, until), sent, deliver);
+    }
+    _timer?.cancel();
+    _timer = null;
+    _arm(clock);
+  }
+
+  void drop() {
+    _queue.clear();
+    _timer?.cancel();
+    _timer = null;
+  }
 }
 
 class _Watcher {
@@ -436,6 +453,25 @@ class SimSyncplayServer {
   void blackhole(String name, double seconds) {
     for (final w in _watchers) {
       if (w.name == name) w.link.blackholeUntil = clock.seconds + seconds;
+    }
+  }
+
+  /// [name]'s app is suspended for [seconds]: unlike [blackhole], data
+  /// already on the way waits too, since the process can't read it. A
+  /// [lost] socket never delivers again, in flight or not.
+  void suspend(String name, double seconds, {required bool lost}) {
+    for (final w in _watchers) {
+      if (w.name != name) continue;
+      final link = w.link;
+      if (lost) {
+        link.dead = true;
+        link._down.drop();
+        link._up.drop();
+      } else {
+        link.blackholeUntil = clock.seconds + seconds;
+        link._down.holdUntil(clock, link.blackholeUntil);
+        link._up.holdUntil(clock, link.blackholeUntil);
+      }
     }
   }
 
@@ -789,6 +825,32 @@ class SimViewer {
 
   void resumeAfter(double seconds) =>
       sync.onResumed(Duration(milliseconds: (seconds * 1000).round()));
+
+  /// iOS suspends the app for [seconds] (she switched to WeChat). The player
+  /// pauses locally as player_item does on AppLifecycleState.paused, the
+  /// one-second tick stops and with it the watchdog, and nothing crosses the
+  /// room socket. A socket that outlives a long suspension is one iOS has
+  /// reclaimed, so it never delivers again unless [socketSurvives]. Coming
+  /// back runs the lifecycle-resumed path.
+  Future<void> suspend(
+    SimSyncplayServer server,
+    double seconds, {
+    bool socketSurvives = false,
+  }) async {
+    if (playing) {
+      _anchor();
+      playing = false;
+      sync.setCurrentPosition();
+    }
+    _tick?.cancel();
+    _tick = null;
+    server.suspend(name, seconds, lost: !socketSurvives);
+    _note('suspended for ${seconds}s at ${position.toStringAsFixed(1)}');
+    await clock.wait(seconds);
+    _note('back in the foreground');
+    _tick = Timer.periodic(clock.real(1), (_) => _onTick());
+    resumeAfter(seconds);
+  }
 
   /// Puts the playhead at [at] without a seek, e.g. to set up a gap.
   void place(double at) {
