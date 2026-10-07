@@ -8,27 +8,23 @@ import 'support/syncplay_sim.dart';
 
 const _speed = 20.0;
 
-// Product bugs these scenarios found; unskip once fixed.
-const _reannounceBug =
-    'After a SyncPlay reconnect the new client has no own file name, so '
-    'PlayerController.init treats a same-episode reload as a new episode: '
-    'it announces position 0 and playing, and setPlayingBangumi clears '
-    'followEpisode.';
-const _reloadReportsZeroBug =
-    'While a same-episode reload loads, the player reports position 0 to '
-    'the room; a paused room then moves everyone to 0.';
-
 void main() {
   setUpSyncplayStorage();
 
   late VirtualClock clock;
   late SimSyncplayServer server;
   late SimViewer kai; // iPad, Australia, local baked file
-  late SimViewer her; // iPhone, Nanning, streams through HK
+  // iPhone, Nanning: streams through HK until the episode is downloaded.
+  late SimViewer her;
   GapRecorder? gaps;
   final viewers = <SimViewer>[];
 
-  Future<void> start(int seed, {double at = 60, int episode = 1}) async {
+  Future<void> start(
+    int seed, {
+    double at = 60,
+    int episode = 1,
+    bool herLocal = false,
+  }) async {
     clock = VirtualClock(_speed);
     server = await SimSyncplayServer.start(clock, seed: seed);
     kai = SimViewer(
@@ -43,7 +39,9 @@ void main() {
       clock,
       network: NetworkProfile.nanningToHk,
       episodeLength: 1440,
-    )..hosts = [SimHost('hk', 0.4), SimHost('sg', 6)];
+      loadTime: 0.3,
+    );
+    if (!herLocal) her.hosts = [SimHost('hk', 0.4), SimHost('sg', 6)];
     viewers.addAll([kai, her]);
     await kai.join(server, episode: episode, at: at);
     await her.join(server, episode: episode, at: at);
@@ -69,6 +67,29 @@ void main() {
     roomLog: () => [...server.roomPauseChanges, ...simNotices],
   );
 
+  /// Registers [name] with her streaming through HK and [localName] with
+  /// both playing downloads, which is most evenings.
+  void bothWays(
+    String name,
+    String localName,
+    Future<void> Function(int seed, bool local) body,
+  ) {
+    test(name, () => eachSeed((seed) => body(seed, false)));
+    test(localName, () => eachSeed((seed) => body(seed, true)));
+  }
+
+  Future<void> reconnected() => clock.until(
+    () =>
+        her.sync.syncplayController?.isConnected == true &&
+        !her.sync.reconnecting,
+    timeout: 20,
+    what: 'her to reconnect',
+  );
+
+  Iterable<String> unwantedPills() => simNotices.where(
+    (n) => n.contains('同步中断') || n.contains('离开') || n.contains('加入'),
+  );
+
   Future<void> settled({double within = 15}) => clock.until(
     () =>
         kai.episode == her.episode &&
@@ -79,9 +100,11 @@ void main() {
     what: 'both playing within 1 s',
   );
 
-  test('1 baseline: both finish ep 1 and move to ep 2 together once', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 1380);
+  bothWays(
+    '1 baseline: both finish ep 1 and move to ep 2 together once',
+    'L1 both local: baseline, both move to ep 2 together once',
+    (seed, local) async {
+      await start(seed, at: 1380, herLocal: local);
       await clock.until(
         () => kai.episode == 2 && her.episode == 2,
         timeout: 90,
@@ -90,26 +113,39 @@ void main() {
       expect(kai.episodeChanges, [2]);
       expect(her.episodeChanges, [2]);
       expect(her.reloads + kai.reloads, 0);
-    });
-  });
+    },
+  );
 
-  test('2 her Wi-Fi to 4G at 12:00: reload same episode, resync, no skip', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 700);
+  bothWays(
+    '2 her Wi-Fi to 4G at 12:00: reload same episode, resync, no skip',
+    'L2 both local: her Wi-Fi to 4G at 12:00: only the room socket drops',
+    (seed, local) async {
+      await start(seed, at: 700, herLocal: local);
       await clock.wait(20);
-      her.cutStream(recoverAfter: 6);
+      // A download keeps playing through the handover; a stream EOFs.
+      if (!local) her.cutStream(recoverAfter: 6);
       server.zombie('her');
       her.switchNetwork(NetKind.cellular);
+      await reconnected();
       await settled(within: 20);
       expect(her.episodeChanges, isEmpty);
       expect(kai.episodeChanges, isEmpty);
-      expect(her.reloads, inInclusiveRange(1, 2));
-    });
-  }, skip: _reannounceBug);
+      if (local) {
+        expect(her.reloads + kai.reloads, 0);
+      } else {
+        expect(her.reloads, inInclusiveRange(1, 2));
+      }
+      // Past the 15 s leave/join debounce.
+      await clock.wait(16);
+      expect(unwantedPills(), isEmpty);
+    },
+  );
 
-  test('3 WeChat for 90 s: back to the room position, same episode', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 480);
+  bothWays(
+    '3 WeChat for 90 s: back to the room position, same episode',
+    'L3 both local: WeChat for 90 s: back to the room position',
+    (seed, local) async {
+      await start(seed, at: 480, herLocal: local);
       await clock.wait(10);
       her.cutStream(recoverAfter: 0);
       server.zombie('her');
@@ -118,8 +154,8 @@ void main() {
       await settled(within: 20);
       expect(her.episode, 1);
       expect(her.position, greaterThan(570));
-    });
-  });
+    },
+  );
 
   test(
     '4 flapping: 3 drops ok, a 4th inside 2 min gives up, retry recovers',
@@ -167,9 +203,11 @@ void main() {
     });
   });
 
-  test('6 drop inside the last 30 s counts as the end; one change each', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 1400);
+  bothWays(
+    '6 drop inside the last 30 s counts as the end; one change each',
+    'L6 both local: drop inside the last 30 s counts as the end',
+    (seed, local) async {
+      await start(seed, at: 1400, herLocal: local);
       await clock.wait(25);
       her.cutStream(recoverAfter: 0);
       await clock.until(
@@ -178,12 +216,14 @@ void main() {
       );
       expect(her.episodeChanges, [2]);
       expect(kai.episodeChanges, [2]);
-    });
-  });
+    },
+  );
 
-  test('7 kai finished first; her drop at -60 s keeps followEpisode', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 1400);
+  bothWays(
+    '7 kai finished first; her drop at -60 s keeps followEpisode',
+    'L7 both local: kai finished first; her socket reset keeps followEpisode',
+    (seed, local) async {
+      await start(seed, at: 1400, herLocal: local);
       her.autoPlayNext = false;
       // Kai waits (等 TA) for anyone more than 10 s behind, so she can only
       // be a minute back at his end if he tapped 不等了. Dropping her back in
@@ -192,42 +232,52 @@ void main() {
       her.place(kai.position - 60);
       await clock.until(() => kai.episode == 2, timeout: 5);
       await clock.until(() => her.sync.followEpisode == 2, timeout: 10);
-      her.cutStream(recoverAfter: 3);
+      if (local) {
+        await server.reset('her');
+        await clock.until(() => her.sync.reconnectAttempts > 0, timeout: 5);
+        await reconnected();
+      } else {
+        her.cutStream(recoverAfter: 3);
+      }
       await clock.until(() => her.playing && her.episode == 1, timeout: 20);
       expect(her.sync.followEpisode, 2);
       await clock.until(() => her.episode == 2, timeout: 120);
       await settled(within: 30);
-    });
-  });
+    },
+  );
 
-  test('7b followEpisode also survives a reload after a reconnect', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 1400);
+  bothWays(
+    '7b followEpisode also survives a reload after a reconnect',
+    'L7b both local: followEpisode survives a reconnect',
+    (seed, local) async {
+      await start(seed, at: 1400, herLocal: local);
       her.autoPlayNext = false;
       await clock.until(() => kai.position >= 1438.8, timeout: 60);
       her.place(kai.position - 60);
       await clock.until(() => kai.episode == 2, timeout: 5);
       await clock.until(() => her.sync.followEpisode == 2, timeout: 10);
-      her.cutStream(recoverAfter: 3);
+      if (!local) her.cutStream(recoverAfter: 3);
       server.zombie('her');
       her.switchNetwork(NetKind.cellular);
-      await clock.until(
-        () => her.playing && her.episode == 1 && !her.sync.reconnecting,
-        timeout: 20,
-      );
+      await reconnected();
+      await clock.until(() => her.playing && her.episode == 1, timeout: 20);
       expect(her.sync.followEpisode, 2);
-    });
-  }, skip: _reannounceBug);
+    },
+  );
 
-  test('8 SyncPlay socket reset only: no stream reload, back in sync', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 300);
+  bothWays(
+    '8 SyncPlay socket reset only: no stream reload, back in sync',
+    'L8 both local: SyncPlay socket reset only',
+    (seed, local) async {
+      await start(seed, at: 300, herLocal: local);
       await clock.wait(10);
       await server.reset('her');
+      await clock.until(() => her.sync.reconnectAttempts > 0, timeout: 5);
+      await reconnected();
       await settled(within: 20);
       expect(her.reloads, 0);
-    });
-  });
+    },
+  );
 
   test(
     '10 truncated local file on kai: 3 reloads then error, nobody advances',
@@ -271,26 +321,31 @@ void main() {
         expect((kai.position - her.position).abs(), lessThan(1.5));
       });
     },
-    skip: _reloadReportsZeroBug,
   );
 
-  test('12b a paused room stays paused through her reconnect and reload', () {
-    return eachSeed((seed) async {
-      await start(seed, at: 400);
+  bothWays(
+    '12b a paused room stays paused through her reconnect and reload',
+    'L12b both local: a paused room stays paused through her reconnect',
+    (seed, local) async {
+      await start(seed, at: 400, herLocal: local);
       await clock.wait(5);
-      her.cutStream(recoverAfter: 3);
+      if (!local) her.cutStream(recoverAfter: 3);
       server.zombie('her');
       her.switchNetwork(NetKind.cellular);
       await clock.wait(1);
       await kai.userPause();
-      await clock.until(
-        () => !her.loading && !her.completed && her.reloads > 0,
-        timeout: 20,
-      );
+      if (local) {
+        await reconnected();
+      } else {
+        await clock.until(
+          () => !her.loading && !her.completed && her.reloads > 0,
+          timeout: 20,
+        );
+      }
       await clock.wait(5);
       expect(kai.playing, isFalse, reason: 'her reload resumed the room');
       expect(her.playing, isFalse);
       expect((kai.position - her.position).abs(), lessThan(1.5));
-    });
-  }, skip: _reannounceBug);
+    },
+  );
 }

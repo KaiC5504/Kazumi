@@ -178,6 +178,8 @@ class PlayerController implements Disposable {
     }
     final initialization = _initializations.begin();
 
+    syncplay.onEpisodeLoading('${params.bangumiId}[${params.episode}]',
+        Duration(seconds: params.offset));
     videoUrl = params.videoUrl;
     isLocalPlayback = params.isLocalPlayback;
     bangumiId = params.bangumiId;
@@ -287,13 +289,7 @@ class PlayerController implements Disposable {
 
     coverUrl = params.coverUrl;
 
-    if (syncplay.syncplayController?.isConnected ?? false) {
-      if (syncplay.syncplayController!.ownFileName !=
-          "$bangumiId[$currentEpisode]") {
-        setSyncPlayPlayingBangumi(
-            forceSyncPlaying: true, forceSyncPosition: 0.0);
-      }
-    }
+    unawaited(syncplay.onEpisodeLoaded());
     return true;
   }
 

@@ -143,7 +143,7 @@ void main() {
   test(
     'you press play while waiting: you go ahead, she catches up later',
     () async {
-      await startWatching(mine: 345, hers: 335);
+      await startWatching(mine: 345, hers: 337);
       await clock.until(
         () => me.episode == 2 && !me.loading && !me.playing,
         timeout: 40,

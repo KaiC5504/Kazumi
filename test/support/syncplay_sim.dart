@@ -207,9 +207,17 @@ class SimSyncplayServer {
       await ServerSocket.bind('127.0.0.1', 0),
       Random(seed),
     );
-    // A reconnect still dialling when a scenario tears down gets aborted,
-    // which Windows reports here as error 10053; it isn't the scenario's.
-    server._server.listen(server._accept, onError: (_) {});
+    // A client that hangs up at teardown, mid-dial or mid-write, surfaces
+    // as a SocketException (10053 on Windows) in the zone that accepted
+    // it, after the socket's own listeners are gone. It isn't the
+    // scenario's; anything else still fails the test.
+    runZonedGuarded(
+      () => server._server.listen(server._accept, onError: (_) {}),
+      (error, stack) {
+        if (error is SocketException) return;
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
     server._ticker = Timer.periodic(clock.real(1), (_) => server._tick());
     return server;
   }
@@ -436,7 +444,7 @@ class SimSyncplayServer {
     for (final w in List.of(_watchers)) {
       if (w.name == name) {
         _drop(w);
-        await w.socket.close();
+        w.socket.destroy();
       }
     }
   }
@@ -456,6 +464,23 @@ class SimSyncplayServer {
   /// Watchers the server still holds for [name], ghosts included.
   int watchersNamed(String name) =>
       _watchers.where((w) => w.name == name).length;
+
+  _Watcher? _newest(String name) {
+    _Watcher? newest;
+    for (final w in _watchers) {
+      if (w.name == name) newest = w;
+    }
+    return newest;
+  }
+
+  /// Where the server has [name]'s newest connection, as the room counts it.
+  double? positionOf(String name) {
+    final w = _newest(name);
+    return w == null ? null : _positionOf(w);
+  }
+
+  /// The file [name]'s newest connection has announced, if any.
+  String? fileOf(String name) => _newest(name)?.file;
 
   Map<String, dynamic> _userEvent(String name, String event) => {
     'Set': {
@@ -489,8 +514,11 @@ class SimSyncplayServer {
 
   Future<void> close() async {
     _ticker?.cancel();
+    // Accepted sockets live in start()'s guarded zone: an error on a future
+    // of theirs never reaches a caller in another zone, so awaiting their
+    // close() could hang. destroy() returns nothing to wait on.
     for (final watcher in List.of(_watchers)) {
-      await watcher.socket.close();
+      watcher.socket.destroy();
     }
     await _server.close();
   }
@@ -730,6 +758,7 @@ class SimViewer {
     if (loading && this.episode == episode) return;
     if (this.episode != episode) episodeChanges.add(episode);
     _note('loading episode $episode');
+    sync.onEpisodeLoading('1[$episode]', _duration(offset.toDouble()));
     this.episode = episode;
     loading = true;
     playing = false;
@@ -753,14 +782,7 @@ class SimViewer {
     _eof = false;
     playing = true;
     _note('playing episode $episode');
-    final client = sync.syncplayController;
-    if ((client?.isConnected ?? false) &&
-        client!.ownFileName != '1[$episode]') {
-      await sync.setPlayingBangumi(
-        forceSyncPlaying: true,
-        forceSyncPosition: 0,
-      );
-    }
+    await sync.onEpisodeLoaded();
   }
 
   void switchNetwork(NetKind kind) => sync.onNetwork(kind);

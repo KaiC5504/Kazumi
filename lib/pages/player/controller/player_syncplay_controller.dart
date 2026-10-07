@@ -70,10 +70,19 @@ abstract class _PlayerSyncPlayController with Store {
   bool _reconnectNoticeShown = false;
   // A peer's 'left' waits here so a quick rejoin shows no pills at all.
   final Map<String, DateTime> _pendingLeft = {};
+  // The file a peer had when it left, for when it comes straight back.
+  final Map<String, String?> _leftFiles = {};
   // Peers who rejoined while the server still held their old connection;
   // that connection's 'left' arrives later and must not remove them.
   final Map<String, int> _ghosts = {};
   int _reconnectAttempts = 0;
+  // The file this player last announced to the room. Unlike the client's
+  // own file name it survives a quiet reconnect, so a reload of the same
+  // episode can tell it isn't an episode change.
+  String? _announcedFile;
+  // Where a same-file reload resumes; reported until the player has loaded,
+  // since an empty player reads 0 and the room follows the slowest watcher.
+  Duration? _reloadingAt;
 
   // The backoff stops counting as running once its last attempt is spent,
   // but that attempt still needs time to land before giving up.
@@ -141,9 +150,19 @@ abstract class _PlayerSyncPlayController with Store {
     syncplayRoom = '';
     syncplayClientRtt = 0;
     final keepFollow = followEpisode;
+    final keepAnnounced = _announcedFile;
+    final keepReloadingAt = _reloadingAt;
+    final keepPeerFiles = Map.of(_peerFiles);
     await _resetRoomState();
     if (quiet) {
       followEpisode = keepFollow;
+      _announcedFile = keepAnnounced;
+      _reloadingAt = keepReloadingAt;
+      // Peers only announce a file when it changes, so the new connection
+      // won't hear which episode they are on. Without this a peer waiting
+      // at the next episode looks like it's in ours, and the catch-up jump
+      // lands at its position.
+      _peerFiles.addAll(keepPeerFiles);
     }
     await previousClient?.disconnect();
     if (session.isStale) {
@@ -212,8 +231,9 @@ abstract class _PlayerSyncPlayController with Store {
               }
               setPlayingBangumi();
             } else {
-              _peerFiles.putIfAbsent(message['username'], () => null);
               _pendingLeft.remove(message['username']);
+              _peerFiles.putIfAbsent(message['username'],
+                  () => _leftFiles.remove(message['username']));
               if (!quiet) {
                 GlassNotice.show('已跟上 ${message['username']} 的进度',
                     icon: Icons.sync_rounded);
@@ -233,11 +253,10 @@ abstract class _PlayerSyncPlayController with Store {
               _ghosts[name] = ghosts - 1;
               return;
             }
-            _peerFiles.remove(name);
+            // Waiting for them stops after a short grace, in onPlayerTick:
+            // a socket reset reads as a leave and a rejoin a moment later.
+            _leftFiles[name] = _peerFiles.remove(name);
             _pendingLeft[name] = clock();
-            if (_waitingForPeers && _peersBehind().isEmpty) {
-              _stopWaiting();
-            }
           }
           if (message['type'] == 'joined') {
             // A peer back from a dead socket can rejoin while the server
@@ -247,10 +266,12 @@ abstract class _PlayerSyncPlayController with Store {
               _ghosts.update(message['username'], (n) => n + 1,
                   ifAbsent: () => 1);
             }
-            if (message['username'] != client.username) {
-              _peerFiles[message['username']] = null;
-            }
             final wasAway = _pendingLeft.remove(message['username']) != null;
+            final lastFile = _leftFiles.remove(message['username']);
+            if (message['username'] != client.username && !known) {
+              // Back within the leave debounce: still on the same file.
+              _peerFiles[message['username']] = wasAway ? lastFile : null;
+            }
             if (!wasAway && !known && message['username'] != client.username) {
               GlassNotice.show('${message['username']} 加入了',
                   icon: Icons.person_add_alt_1_rounded);
@@ -467,8 +488,15 @@ abstract class _PlayerSyncPlayController with Store {
   void onPlayerTick() {
     final now = clock();
     for (final entry in _pendingLeft.entries.toList()) {
-      if (now.difference(entry.value) >= const Duration(seconds: 15)) {
+      final away = now.difference(entry.value);
+      if (away >= const Duration(seconds: 5) &&
+          _waitingForPeers &&
+          _peersBehind().isEmpty) {
+        _stopWaiting();
+      }
+      if (away >= const Duration(seconds: 15)) {
         _pendingLeft.remove(entry.key);
+        _leftFiles.remove(entry.key);
         GlassNotice.show('${entry.key} 离开了',
             icon: Icons.person_remove_rounded);
       }
@@ -588,6 +616,10 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   double _reportedPosition() {
+    final reloadingAt = _reloadingAt;
+    if (reloadingAt != null) {
+      return reloadingAt.inMilliseconds / 1000;
+    }
     return ((currentPosition().inMilliseconds -
                         playerPosition().inMilliseconds)
                     .abs() >
@@ -690,6 +722,7 @@ abstract class _PlayerSyncPlayController with Store {
   /// Lets the server count this player when working out where the room is;
   /// the room position is the slowest player that has a file.
   Future<void> _announceFile(SyncplayClient client) async {
+    _announcedFile = _currentFile();
     await _runBestEffortSync(
         () => client.setSyncPlayPlaying(_currentFile(), 10800, 220514438));
   }
@@ -703,6 +736,8 @@ abstract class _PlayerSyncPlayController with Store {
     _announceWhenCaughtUp = false;
     _peerFiles.clear();
     followEpisode = null;
+    _announcedFile = null;
+    _reloadingAt = null;
     await _stopNudge();
   }
 
@@ -722,8 +757,10 @@ abstract class _PlayerSyncPlayController with Store {
     if (client == null) {
       return;
     }
-    final previousFile = client.ownFileName;
+    // After a quiet reconnect the new client has announced nothing yet.
+    final previousFile = client.ownFileName ?? _announcedFile;
     final file = _currentFile();
+    _announcedFile = file;
     if (previousFile != file) {
       followEpisode = null;
       _drift.holdOff();
@@ -744,6 +781,30 @@ abstract class _PlayerSyncPlayController with Store {
         identical(syncplayController, client)) {
       await _waitForPeers(client, previousFile);
     }
+  }
+
+  /// Called as the player starts loading [file] at [offset].
+  void onEpisodeLoading(String file, Duration offset) {
+    _reloadingAt = file == _announcedFile ? offset : null;
+  }
+
+  /// Called once the player has loaded the current episode. A new episode is
+  /// announced from its start; a reload of the announced one changes
+  /// nothing, and after a reconnect the catch-up path announces it.
+  Future<void> onEpisodeLoaded() async {
+    _reloadingAt = null;
+    final file = _currentFile();
+    if (file != _announcedFile) {
+      _announcedFile = null;
+    }
+    final client = syncplayController;
+    if (client == null || !client.isConnected) {
+      return;
+    }
+    if (file == _announcedFile || client.ownFileName == file) {
+      return;
+    }
+    await setPlayingBangumi(forceSyncPlaying: true, forceSyncPosition: 0.0);
   }
 
   Future<void> requestSync({bool? doSeek}) async {
@@ -776,6 +837,7 @@ abstract class _PlayerSyncPlayController with Store {
     _backoff.reset();
     _room = null;
     _pendingLeft.clear();
+    _leftFiles.clear();
     _ghosts.clear();
     // The next room starts from whatever network it opens on.
     _watchdog.forgetNetwork();
