@@ -454,6 +454,9 @@ abstract class _VideoPageController with Store implements Disposable {
       episode: episode,
       road: currentRoad,
     );
+    // A host rotation is for retrying this episode; the router only rests
+    // the failed host for minutes, so the next episode starts from the top.
+    if (selection != playbackEpisode) _remoteHostOffset = 0;
     _beginEpisodeSwitch(selection);
     _danmakuSessions.cancel();
     playerController.danmaku.finishDanmakuLoad();

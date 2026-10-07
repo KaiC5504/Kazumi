@@ -29,6 +29,11 @@ class PlaybackEndGuard {
   ];
   static const recovered = Duration(seconds: 5);
   static const cleanPlayToReset = Duration(minutes: 2);
+  // Ticks right after a seek can still carry the old position.
+  static const seekSettle = Duration(seconds: 3);
+  static const seekLanded = Duration(seconds: 3);
+
+  static String keyFor(int bangumiId, int episode) => '$bangumiId[$episode]';
 
   final DateTime Function() _clock;
   String? _fileKey;
@@ -40,10 +45,17 @@ class PlaybackEndGuard {
   DateTime? _failedAt;
   Duration _lastGood = Duration.zero;
   DateTime? _cleanSince;
+  Duration? _seekTarget;
+  DateTime? _seekAt;
 
   int get incidents => _incidents;
   int get attempts => _attempts;
   Duration get lastGoodPosition => _lastGood;
+
+  /// Where a retry of [fileKey] should resume; zero when the guard last
+  /// played a different episode.
+  Duration resumeFor(String fileKey) =>
+      fileKey == _fileKey ? _lastGood : Duration.zero;
 
   void onEpisodeStarted(String fileKey) {
     if (fileKey != _fileKey) {
@@ -62,6 +74,15 @@ class PlaybackEndGuard {
     _gaveUp = false;
     _failedAt = null;
     _cleanSince = null;
+    _seekTarget = null;
+  }
+
+  /// A user, skip or room seek: the EOF it may cause is the real end when
+  /// [target] is near it, not a dropped stream.
+  void onSeek(Duration target) {
+    _lastGood = target;
+    _seekTarget = target;
+    _seekAt = _clock();
   }
 
   void onTick({
@@ -73,8 +94,14 @@ class PlaybackEndGuard {
       _cleanSince = null;
       return;
     }
-    if (position > Duration.zero) _lastGood = position;
     final now = _clock();
+    final target = _seekTarget;
+    if (target != null &&
+        ((position - target).abs() <= seekLanded ||
+            now.difference(_seekAt!) >= seekSettle)) {
+      _seekTarget = null;
+    }
+    if (_seekTarget == null && position > Duration.zero) _lastGood = position;
     _cleanSince ??= now;
     final clean = now.difference(_cleanSince!);
     if (_inIncident && clean >= recovered) {

@@ -78,4 +78,10 @@ void main() {
     ]);
     expect(switches, [false, false, true]);
   });
+
+  test('auto-skipping an ED that runs to the end advances once', () {
+    tick(const Duration(minutes: 22, seconds: 30), completed: false);
+    guard.onSeek(len);
+    expect(tick(len).step, EndStep.advance);
+  });
 }
