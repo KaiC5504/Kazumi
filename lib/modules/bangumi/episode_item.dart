@@ -1,6 +1,8 @@
 class EpisodeInfo {
   int id;
   num episode;
+  num ep;
+  String airdate;
   int type;
   String name;
   String nameCn;
@@ -11,6 +13,8 @@ class EpisodeInfo {
     required this.type,
     required this.name,
     required this.nameCn,
+    this.ep = 0,
+    this.airdate = '',
   });
 
   factory EpisodeInfo.fromJson(Map<String, dynamic> json) {
@@ -19,7 +23,9 @@ class EpisodeInfo {
         episode: json['sort'] ?? 0,
         type: json['type'] ?? 0,
         name: json['name'] ?? '',
-        nameCn: json['name_cn'] ?? '');
+        nameCn: json['name_cn'] ?? '',
+        ep: json['ep'] ?? 0,
+        airdate: json['airdate'] ?? '');
   }
 
   factory EpisodeInfo.fromTemplate() {
@@ -32,6 +38,8 @@ class EpisodeInfo {
     type = 0;
     name = '';
     nameCn = '';
+    ep = 0;
+    airdate = '';
   }
 
   String readType() {

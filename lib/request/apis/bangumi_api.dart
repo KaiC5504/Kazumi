@@ -16,6 +16,7 @@ import 'package:kazumi/modules/bangumi/bangumi_collection_type.dart';
 import 'package:kazumi/modules/comments/comment_item.dart';
 import 'package:kazumi/utils/search_parser.dart';
 import 'package:kazumi/utils/async_rate_limiter.dart';
+import 'package:kazumi/services/bangumi_progress/bangumi_progress_service.dart';
 
 class BangumiSearchPage {
   const BangumiSearchPage({
@@ -702,6 +703,29 @@ class BangumiApi {
         .d('get Bangumi collection count: ${bangumiCollection.length}');
     KazumiLogger().d('get item failed count: $failedItemCount');
     return bangumiCollection;
+  }
+
+  static Future<MarkResult> markEpisodeWatched(int episodeId) async {
+    await _writeRateLimiter.acquire();
+    try {
+      await _client.put(
+        ApiEndpoints.formatUrl(
+            ApiEndpoints.bangumiAuthAPIMirrorDomain +
+                ApiEndpoints.bangumiEpisodeCollection,
+            [episodeId]),
+        data: {'type': 2},
+        requiresAuth: true,
+      );
+      return MarkResult.ok;
+    } on NetworkException catch (e) {
+      return switch (e.statusCode) {
+        400 || 404 => MarkResult.notCollected,
+        401 || 403 => MarkResult.unauthorized,
+        _ => MarkResult.failed,
+      };
+    } catch (_) {
+      return MarkResult.failed;
+    }
   }
 
   static Future<bool> updateBangumiById(
