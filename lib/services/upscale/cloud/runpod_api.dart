@@ -245,6 +245,7 @@ RunpodException runpodError(int status, String body) {
   }
   if (lower.contains('capacity') ||
       lower.contains('no instances') ||
+      lower.contains('instances available') ||
       lower.contains('not available') ||
       lower.contains('no available')) {
     return RunpodException('悉尼暂无可用 GPU', statusCode: status, noCapacity: true);

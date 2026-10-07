@@ -198,6 +198,16 @@ void main() {
       );
       expect((e.noCapacity, e.message), (true, '悉尼暂无可用 GPU'));
     });
+    test('the 400 Runpod sends when the last card was just taken', () {
+      final e = runpodError(
+        400,
+        problem(
+          'There are no longer any instances available with the requested '
+          'specifications. Please refresh and try again.',
+        ),
+      );
+      expect(e.noCapacity, isTrue);
+    });
     test('anything else keeps the detail', () {
       expect(
         runpodError(500, problem('boom')).message,

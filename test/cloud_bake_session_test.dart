@@ -73,6 +73,7 @@ class FakeWorker implements CloudWorker {
   final episodes = <String, WorkerEpisode>{};
   final failIds = <String>{};
   final uploadFailIds = <String>{};
+  final uploadFailOnce = <String>{};
   final vanishIds = <String>{};
   var shaderFailures = 0;
   var garbledStatusCall = -1;
@@ -107,7 +108,7 @@ class FakeWorker implements CloudWorker {
     void Function(int sent)? onProgress,
     bool Function()? stopped,
   }) async {
-    if (uploadFailIds.contains(id)) {
+    if (uploadFailIds.contains(id) || uploadFailOnce.remove(id)) {
       throw const CloudWorkerException('upload broke');
     }
     onProgress?.call(await source.length());
@@ -164,6 +165,7 @@ void main() {
   late Directory dir;
   late List<int> cloudBaked, localBaked, returned, failed;
   late Map<int, CloudEpisodeStage?> stages;
+  late List<String> errors;
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('cloud_session_');
@@ -172,6 +174,7 @@ void main() {
     returned = [];
     failed = [];
     stages = {};
+    errors = [];
   });
   tearDown(() => dir.deleteSync(recursive: true));
 
@@ -221,7 +224,10 @@ void main() {
       },
       onCloudBaked: (job) async => cloudBaked.add(job.episodeNumber),
       onReturned: (job) async => returned.add(job.episodeNumber),
-      onFailed: (job, error) async => failed.add(job.episodeNumber),
+      onFailed: (job, error) async {
+        failed.add(job.episodeNumber);
+        errors.add(error);
+      },
       onPhase: (job, phase) => stages[job.episodeNumber] = phase?.stage,
       pollInterval: const Duration(milliseconds: 1),
       offerInterval: const Duration(milliseconds: 2),
@@ -309,15 +315,24 @@ void main() {
     },
   );
 
-  test('a failed upload goes to the laptop even when it is off', () async {
+  test('a failed upload is retried, then marked failed, never local', () async {
     final worker = FakeWorker()..uploadFailIds.add(id(1));
     await runIt(make(FakePodApi(), worker, includeLocal: false));
-    expect(localBaked, [1]);
+    expect(localBaked, isEmpty);
+    expect(failed, [1]);
     expect(cloudBaked..sort(), [2, 3, 4]);
   });
 
+  test('a failed upload that works the second time stays on the pod', () async {
+    final worker = FakeWorker()..uploadFailOnce.add(id(1));
+    await runIt(make(FakePodApi(), worker, includeLocal: false));
+    expect(cloudBaked..sort(), [1, 2, 3, 4]);
+    expect(localBaked, isEmpty);
+    expect(failed, isEmpty);
+  });
+
   test(
-    'a pod that never gets ready is deleted and the laptop bakes all',
+    'a pod that never gets ready is deleted and the episodes marked failed',
     () async {
       final api = FakePodApi(readyAfterPolls: 1 << 30);
       final s = make(
@@ -327,7 +342,9 @@ void main() {
         readyTimeout: const Duration(milliseconds: 20),
       );
       await runIt(s);
-      expect(localBaked..sort(), [1, 2, 3, 4]);
+      expect(localBaked, isEmpty);
+      expect(failed..sort(), [1, 2, 3, 4]);
+      expect(errors.first, contains('启动超时'));
       expect(api.deleted, ['pod1']);
       expect(s.view.message, contains('启动超时'));
     },
@@ -372,17 +389,43 @@ void main() {
     expect(s.add([job(3)], extraCapSec: 0), isFalse);
   });
 
-  test(
-    'a hard error at creation still hands everything to the laptop',
-    () async {
-      final api = FakePodApi(createError: const RunpodException('Runpod 余额不足'));
-      final s = make(api, FakeWorker(), includeLocal: false);
-      await runIt(s);
-      expect(localBaked..sort(), [1, 2, 3, 4]);
-      expect(api.deleted, isEmpty);
-      expect(s.view.message, 'Runpod 余额不足');
-    },
-  );
+  test('a hard error at creation marks cloud episodes failed', () async {
+    final api = FakePodApi(createError: const RunpodException('Runpod 余额不足'));
+    final s = make(api, FakeWorker(), includeLocal: false);
+    await runIt(s);
+    expect(localBaked, isEmpty);
+    expect(failed..sort(), [1, 2, 3, 4]);
+    expect(errors.first, '云端烘焙未完成: Runpod 余额不足');
+    expect(api.deleted, isEmpty);
+    expect(s.view.message, 'Runpod 余额不足');
+  });
+
+  test('with the laptop on, only episodes picked for the cloud fail', () async {
+    final api = FakePodApi(createError: const RunpodException('Runpod 余额不足'));
+    final s = CloudBakeSession(
+      api: api,
+      connect: (uri, token) => FakeWorker(),
+      jobs: [job(1), job(2, cloudOnly: true)],
+      includeLocal: true,
+      workerScript: 'packed',
+      capSec: 1800,
+      pricePerHour: 1.09,
+      shader: '',
+      targetHeight: 1440,
+      prepareInput: (job) async => (File(path.join(dir.path, 'x')), false),
+      bakeLocally: (job) async {
+        localBaked.add(job.episodeNumber);
+        return LocalBakeOutcome.done;
+      },
+      onCloudBaked: (job) async {},
+      onReturned: (job) async {},
+      onFailed: (job, error) async => failed.add(job.episodeNumber),
+      pollInterval: const Duration(milliseconds: 1),
+    );
+    await runIt(s);
+    expect(localBaked, [1]);
+    expect(failed, [2]);
+  });
 
   test(
     'episodes added while running go to the pod and raise the cap',
@@ -472,14 +515,15 @@ void main() {
     }
   });
 
-  test('losing the pod hands its episodes to the laptop', () async {
+  test('losing the pod marks its episodes failed', () async {
     final api = FakePodApi();
     final worker = FakeWorker()
       ..bakeForever = true
       ..goDarkAfterStatus = 2;
     final s = make(api, worker, includeLocal: false);
     await runIt(s);
-    expect(localBaked..sort(), [1, 2, 3, 4]);
+    expect(localBaked, isEmpty);
+    expect(failed..sort(), [1, 2, 3, 4]);
     expect(api.deleted, ['pod1']);
     expect(s.view.message, contains('失去联系'));
   });
@@ -500,14 +544,15 @@ void main() {
     expect(s.view.phase, CloudBakePhase.stopped);
   });
 
-  test('an episode that vanishes from the pod goes to the laptop', () async {
+  test('an episode that vanishes from the pod is marked failed', () async {
     final worker = FakeWorker()..vanishIds.add(id(2));
     await runIt(make(FakePodApi(), worker, includeLocal: false));
-    expect(localBaked, [2]);
+    expect(localBaked, isEmpty);
+    expect(failed, [2]);
     expect(cloudBaked..sort(), [1, 3, 4]);
   });
 
-  test('an episode stuck baking goes to the laptop', () async {
+  test('an episode stuck baking is marked failed', () async {
     final api = FakePodApi();
     final worker = FakeWorker()..bakeForever = true;
     await runIt(
@@ -519,7 +564,8 @@ void main() {
         stallAfter: const Duration(milliseconds: 30),
       ),
     );
-    expect(localBaked..sort(), [1, 2]);
+    expect(localBaked, isEmpty);
+    expect(failed..sort(), [1, 2]);
     expect(api.deleted, ['pod1']);
   });
 

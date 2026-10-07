@@ -170,7 +170,9 @@ String _podName() {
 /// takes episodes from the front of the queue and the laptop from the back
 /// until nothing is left, and more can be added while it runs. With no GPU
 /// in stock it waits for one. Anything the pod can't finish falls back to
-/// the laptop, and the pod is deleted as soon as it has nothing left to do.
+/// the laptop only when the laptop is part of the run; episodes picked for
+/// the cloud are marked failed instead, to be queued again. The pod is
+/// deleted as soon as it has nothing left to do.
 class CloudBakeSession {
   CloudBakeSession({
     required this.api,
@@ -203,6 +205,7 @@ class CloudBakeSession {
 
   static const maxHanded = 4;
   static const maxDownloads = 2;
+  static const maxUploadAttempts = 2;
 
   final CloudPodApi api;
   final CloudWorker Function(Uri base, String token) connect;
@@ -243,6 +246,7 @@ class CloudBakeSession {
   final Set<String> _freshDownloads = {};
   final Set<String> _committed = {};
   final Map<String, (double, DateTime)> _lastProgress = {};
+  final Map<String, int> _uploadAttempts = {};
   CloudJob? _local;
   CloudWorker? _worker;
   String? _podId;
@@ -350,7 +354,15 @@ class CloudBakeSession {
     _notify();
     final local = _localLane();
     await _cloudLane();
+    // Pulled out before _cloudOver flips, or the laptop lane would grab them
+    // while the awaits below run.
+    final orphans = _pending.where((j) => !_laptopMayTake(j)).toList();
+    _pending.removeWhere((j) => !_laptopMayTake(j));
     _cloudOver = true;
+    for (final job in orphans) {
+      _setPhase(job, null);
+      await _giveUp(job, _message ?? '云端 GPU 不可用');
+    }
     _wake();
     await local;
     _phase = _stopped ? CloudBakePhase.stopped : CloudBakePhase.done;
@@ -391,6 +403,21 @@ class CloudBakeSession {
       _notify();
       _wake();
     }
+  }
+
+  bool _laptopMayTake(CloudJob job) => includeLocal && !job.cloudOnly;
+
+  /// The pod can't bake [job]: the laptop takes it when it may, otherwise it
+  /// is marked failed with [reason] so the owner can queue it again.
+  Future<void> _giveUp(CloudJob job, String reason) async {
+    if (_laptopMayTake(job)) {
+      _fallback.add(job);
+    } else {
+      _failed++;
+      await onFailed(job, '云端烘焙未完成: $reason');
+    }
+    _wake();
+    _notify();
   }
 
   CloudJob? _nextLocal() {
@@ -480,7 +507,7 @@ class CloudBakeSession {
         if (_stopped) {
           await onReturned(job);
         } else {
-          _fallback.add(job);
+          await _giveUp(job, _message ?? '云端烘焙中断');
         }
       }
       if (!_stopped) _phase = CloudBakePhase.finishing;
@@ -514,7 +541,7 @@ class CloudBakeSession {
         }
       }
       if (DateTime.now().isAfter(deadline)) {
-        throw const CloudBakeException('云端 GPU 启动超时，改用本机烘焙');
+        throw const CloudBakeException('云端 GPU 启动超时');
       }
       await Future.delayed(pollInterval);
     }
@@ -569,12 +596,19 @@ class CloudBakeSession {
         } catch (e) {
           if (_stopped) return;
           KazumiLogger().w(
-            'CloudBakeSession: upload of ${job.id} failed, laptop takes it',
+            'CloudBakeSession: upload of ${job.id} failed',
             error: e,
           );
           _held.remove(job.id);
-          _setPhase(job, null);
-          _fallback.add(job);
+          final attempts = _uploadAttempts[job.id] =
+              (_uploadAttempts[job.id] ?? 0) + 1;
+          if (attempts < maxUploadAttempts && !_lost) {
+            _pending.add(job);
+            _setPhase(job, const CloudEpisodePhase(CloudEpisodeStage.queued));
+          } else {
+            _setPhase(job, null);
+            await _giveUp(job, '上传失败');
+          }
         } finally {
           if (input != null && input.$2) {
             try {
@@ -606,7 +640,7 @@ class CloudBakeSession {
         if (DateTime.now().difference(lastOk) > lostAfter) {
           KazumiLogger().w('CloudBakeSession: pod unreachable: $e');
           _lost = true;
-          _message = '与云端 GPU 失去联系，剩余剧集改用本机烘焙';
+          _message = '与云端 GPU 失去联系';
           _wake();
           break;
         }
@@ -617,13 +651,15 @@ class CloudBakeSession {
           if (_downloading.contains(job.id)) continue;
           if (episode == null) {
             // Committed but unknown: the worker restarted or lost it.
-            if (_committed.contains(job.id)) _toLaptop(job);
+            if (_committed.contains(job.id)) {
+              await _dropFromPod(job, '云端丢失了这一集');
+            }
             continue;
           }
           if (episode.state == 'baking' && _stalled(job.id, episode.progress)) {
             KazumiLogger().w('CloudBakeSession: ${job.id} stalled on the pod');
             unawaited(worker.drop(job.id).then((_) {}, onError: (_) {}));
-            _toLaptop(job);
+            await _dropFromPod(job, '云端烘焙卡住');
             continue;
           }
           switch (episode.state) {
@@ -645,7 +681,7 @@ class CloudBakeSession {
               _held.remove(job.id);
               _setPhase(job, null);
               unawaited(worker.drop(job.id).then((_) {}, onError: (_) {}));
-              if (includeLocal) {
+              if (_laptopMayTake(job)) {
                 _fallback.add(job);
               } else {
                 _failed++;
@@ -660,13 +696,12 @@ class CloudBakeSession {
     await Future.wait(downloads);
   }
 
-  void _toLaptop(CloudJob job) {
+  Future<void> _dropFromPod(CloudJob job, String reason) async {
     _held.remove(job.id);
     _committed.remove(job.id);
     _lastProgress.remove(job.id);
     _setPhase(job, null);
-    _fallback.add(job);
-    _wake();
+    await _giveUp(job, reason);
   }
 
   bool _stalled(String id, double progress) {
