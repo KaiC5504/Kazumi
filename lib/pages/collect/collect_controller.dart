@@ -6,6 +6,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/modules/collect/collect_module.dart';
 import 'package:kazumi/modules/collect/collect_type.dart';
+import 'package:kazumi/services/reminder/episode_reminder_service.dart';
 import 'package:kazumi/services/sync/bangumi_sync_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/sync/webdav.dart';
@@ -67,6 +68,7 @@ abstract class _CollectController with Store {
       type: type,
     );
     loadCollectibles();
+    EpisodeReminderService.instance.refreshSoon();
     _pushToWebDav();
   }
 
@@ -110,6 +112,7 @@ abstract class _CollectController with Store {
       type: 5,
     );
     loadCollectibles();
+    EpisodeReminderService.instance.refreshSoon();
     _pushToWebDav();
   }
 

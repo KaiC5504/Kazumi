@@ -57,6 +57,16 @@ class SettingsKeys {
     true,
     group: SettingGroup.misc,
   );
+  static const episodeReminders = SettingKey<bool>(
+    'episodeReminders',
+    true,
+    group: SettingGroup.misc,
+  );
+  static const reminderEpisodeCache = SettingKey<String>(
+    'reminderEpisodeCache',
+    '{}',
+    group: SettingGroup.misc,
+  );
   static const autoUpdate = SettingKey<bool>(
     _SettingBoxKey.autoUpdate,
     true,
@@ -712,6 +722,8 @@ class SettingsKeys {
     hAenable,
     hardwareDecoder,
     searchEnhanceEnable,
+    episodeReminders,
+    reminderEpisodeCache,
     autoUpdate,
     checkPluginUpdateOnStartup,
     alwaysOntop,

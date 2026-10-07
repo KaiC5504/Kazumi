@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
   dynamic_color
   file_selector_linux
+  flutter_timezone
   flutter_volume_controller
   gtk
   media_kit_video
