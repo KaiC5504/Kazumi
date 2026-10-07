@@ -9,6 +9,7 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/sync/webdav.dart';
 import 'package:kazumi/pages/history/history_controller.dart';
+import 'package:kazumi/pages/collect/collect_controller.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/metered_network_service.dart';
@@ -239,12 +240,16 @@ class _AppWidgetState extends State<AppWidget>
       KazumiLogger()
           .i("AppLifecycleState.paused: Application moved to background");
       unawaited(WebDav().syncHistoryIfEnabled());
+      unawaited(WebDav().syncCollectiblesIfEnabled());
     } else if (state == AppLifecycleState.resumed) {
       KazumiLogger()
           .i("AppLifecycleState.resumed: Application moved to foreground");
       unawaited(WebDav()
-          .syncHistoryIfEnabled()
+          .syncHistoryIfEnabled(fresh: true)
           .then((_) => inject<HistoryController>().init()));
+      unawaited(WebDav()
+          .syncCollectiblesIfEnabled(fresh: true)
+          .then((_) => inject<CollectController>().loadCollectibles()));
       await MeteredNetworkService.refresh();
     } else if (state == AppLifecycleState.inactive) {
       KazumiLogger().i("AppLifecycleState.inactive: Application is inactive");

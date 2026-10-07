@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
@@ -65,6 +67,13 @@ abstract class _CollectController with Store {
       type: type,
     );
     loadCollectibles();
+    _pushToWebDav();
+  }
+
+  // Push right away so the other device sees the change on its next resume.
+  void _pushToWebDav() {
+    unawaited(
+        WebDav().syncCollectiblesIfEnabled().then((_) => loadCollectibles()));
   }
 
   @action
@@ -101,6 +110,7 @@ abstract class _CollectController with Store {
       type: 5,
     );
     loadCollectibles();
+    _pushToWebDav();
   }
 
   Future<_BangumiDeleteSyncAction?> _resolveBangumiDeleteSyncAction(

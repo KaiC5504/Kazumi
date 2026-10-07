@@ -205,6 +205,8 @@ class _InitPageState extends State<InitPage> {
             );
           }
         }
+        await webDav.syncCollectiblesIfEnabled();
+        collectController.loadCollectibles();
       } catch (e, stackTrace) {
         KazumiLogger().w(
           'WebDav: automatic initialization failed',

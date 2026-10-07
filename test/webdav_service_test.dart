@@ -85,6 +85,26 @@ void main() {
     expect(GStorage.getSetting(SettingsKeys.webDavEnableHistory), isTrue);
   });
 
+  test('automatic collectibles sync survives an unreachable server', () async {
+    await GStorage.putSetting(SettingsKeys.webDavEnable, true);
+    await GStorage.putSetting(SettingsKeys.webDavEnableCollect, true);
+
+    await webDav.syncCollectiblesIfEnabled(fresh: true);
+
+    expect(webDav.initialized, isFalse);
+    expect(GStorage.getSetting(SettingsKeys.webDavEnableCollect), isTrue);
+  });
+
+  test('automatic collectibles sync is skipped when disabled', () async {
+    await GStorage.putSetting(SettingsKeys.webDavEnable, true);
+    await GStorage.putSetting(SettingsKeys.webDavEnableCollect, false);
+
+    final stopwatch = Stopwatch()..start();
+    await webDav.syncCollectiblesIfEnabled();
+
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
   group('danmaku shield sync', () {
     late DanmakuShieldRepository repository;
     late DanmakuShieldSyncService service;

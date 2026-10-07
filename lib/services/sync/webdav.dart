@@ -30,6 +30,8 @@ class WebDav {
 
   final AsyncSingleFlight<void> _historySyncSingleFlight =
       AsyncSingleFlight<void>();
+  final AsyncSingleFlight<void> _collectSyncSingleFlight =
+      AsyncSingleFlight<void>();
   final AsyncSerialQueue _webDavOperationQueue = AsyncSerialQueue();
   final WebDavRemoteFileCommitter _remoteFileCommitter =
       const WebDavRemoteFileCommitter();
@@ -60,6 +62,11 @@ class WebDav {
     );
     client.setHeaders({'accept-charset': 'utf-8'});
     client.c.options.contentType = 'application/octet-stream';
+    // Without timeouts a request cut off by iOS suspension never settles and
+    // blocks every sync queued behind it.
+    client.setConnectTimeout(15000);
+    client.setSendTimeout(60000);
+    client.setReceiveTimeout(30000);
     try {
       await client.ping();
       await _ensureRemoteDirectory(_syncRootPath);
@@ -171,16 +178,56 @@ class WebDav {
 
   // iOS resumes apps instead of relaunching them, so the launch-time sync alone
   // leaves the other device stale. Also run on background, resume and player exit.
-  Future<void> syncHistoryIfEnabled() async {
+  // Pass [fresh] on resume: a sync started before suspension may have died.
+  Future<void> syncHistoryIfEnabled({bool fresh = false}) async {
     if (!GStorage.getSetting(SettingsKeys.webDavEnable) ||
         !GStorage.getSetting(SettingsKeys.webDavEnableHistory)) {
       return;
     }
-    try {
-      if (!initialized) await init();
-      await syncHistory();
-    } catch (e) {
-      KazumiLogger().w('WebDav: automatic history sync failed', error: e);
+    await _autoSync(
+      'history',
+      syncHistory,
+      wasRunning: isHistorySyncing,
+      fresh: fresh,
+    );
+  }
+
+  Future<void> syncCollectiblesIfEnabled({bool fresh = false}) async {
+    if (!GStorage.getSetting(SettingsKeys.webDavEnable) ||
+        !GStorage.getSetting(SettingsKeys.webDavEnableCollect)) {
+      return;
+    }
+    await _autoSync(
+      'collectibles',
+      () => _collectSyncSingleFlight.run(syncCollectibles),
+      wasRunning: _collectSyncSingleFlight.isRunning,
+      fresh: fresh,
+    );
+  }
+
+  Future<void> _autoSync(
+    String name,
+    Future<void> Function() sync, {
+    required bool wasRunning,
+    required bool fresh,
+  }) async {
+    if (fresh && wasRunning) {
+      try {
+        await sync();
+      } catch (_) {}
+    }
+    for (var attempt = 1;; attempt++) {
+      try {
+        if (!initialized) await init();
+        await sync();
+        return;
+      } catch (e) {
+        if (attempt >= 2) {
+          KazumiLogger().w('WebDav: automatic $name sync failed', error: e);
+          return;
+        }
+        await Future.delayed(const Duration(seconds: 3));
+      }
     }
   }
 
