@@ -445,7 +445,7 @@ def main():
     if len(token) < 32:
         sys.exit('KAZUMI_TOKEN missing')
     root = os.environ.get('KAZUMI_ROOT', '/root/kazumi')
-    worker = Worker(root, token, int(os.environ.get('KAZUMI_CAP_SEC', '7200')))
+    worker = Worker(root, token, min(int(os.environ.get('KAZUMI_CAP_SEC', '7200')), MAX_CAP_SEC))
     for _ in range(SLOTS):
         threading.Thread(target=worker.slot, daemon=True).start()
     threading.Thread(target=boot, args=(worker,), daemon=True).start()

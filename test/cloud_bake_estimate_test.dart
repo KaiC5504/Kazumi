@@ -72,6 +72,10 @@ void main() {
     expect(e.capSec, 1800);
   });
 
+  test('the cap never goes past what the worker accepts', () {
+    expect(capFor(100 * 3600), CloudBakeRates.maxCapSec);
+  });
+
   test('in-flight work only counts what is left', () {
     const baking = PodWork(uploadBytes: 0, bakeSec: 3850, downloadBytes: 5e8);
     expect(simulatePod([baking]), closeTo(1000 + 25, 1e-6));

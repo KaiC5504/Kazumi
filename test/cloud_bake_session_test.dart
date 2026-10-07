@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_worker_client.dart';
 import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
@@ -18,10 +20,12 @@ class FakePodApi implements CloudPodApi {
   var polls = 0;
   var inStock = true;
   var offerChecks = 0;
+  void Function()? onOffer;
 
   @override
   Future<CloudOffer> sydneyOffer() async {
     offerChecks++;
+    onOffer?.call();
     return CloudOffer(available: inStock, pricePerHour: 1.09);
   }
 
@@ -389,6 +393,19 @@ void main() {
     expect(stages.values.whereType<CloudEpisodeStage>(), isEmpty);
   });
 
+  test('stopping during a stock check rents nothing', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(api, FakeWorker(), includeLocal: false);
+    api.onOffer = () {
+      // Stock turns up in the same reply that Stop raced.
+      api.inStock = true;
+      unawaited(s.stop());
+    };
+    await runIt(s);
+    expect(api.created, isEmpty);
+    expect(s.view.phase, CloudBakePhase.stopped);
+  });
+
   test('while waiting the laptop can drain the queue and end it', () async {
     final api = FakePodApi()..inStock = false;
     final s = make(api, FakeWorker(), includeLocal: true, count: 2);
@@ -495,6 +512,19 @@ void main() {
     await until(() => worker.caps.isNotEmpty);
     // 1700 s used and a half-baked episode left: the pod gets well past 1800.
     expect(worker.caps.last, greaterThan(1700 + 300));
+    await s.stop();
+    await running;
+  });
+
+  test('a pod at the 12 h ceiling is not asked for more every poll', () async {
+    final worker = FakeWorker()
+      ..bakeForever = true
+      ..uptimeSec = CloudBakeRates.maxCapSec - 100
+      ..podCapSec = CloudBakeRates.maxCapSec;
+    final s = make(FakePodApi(), worker, includeLocal: false, count: 1);
+    final running = runIt(s);
+    await until(() => worker.statusCalls >= 20);
+    expect(worker.caps, isEmpty);
     await s.stop();
     await running;
   });

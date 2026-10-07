@@ -385,12 +385,14 @@ class UpscaleController {
     final session = _cloud;
     if (session == null) return null;
     final ffmpeg = await _requireCloud();
-    final jobs = await _cloudJobs(
+    final probed = await _cloudJobs(
       ffmpeg,
       recordKey,
       episodeNumber: episodeNumber,
     );
     if (!identical(session, _cloud)) return null;
+    final jobs = _notOnLaptop(probed);
+    if (jobs.isEmpty) throw const CloudBakeException('该集已在本机烘焙');
     final added = session.add(jobs);
     if (!added) {
       throw const CloudBakeException('云端 GPU 正在收尾，请稍后再试');
@@ -403,9 +405,25 @@ class UpscaleController {
   Future<void> removeFromCloud(String recordKey, int episodeNumber) async =>
       _cloud?.remove(recordKey, episodeNumber);
 
+  /// Drops what the laptop started or finished while the caller awaited.
+  List<CloudJob> _notOnLaptop(List<CloudJob> jobs) => [
+    for (final job in jobs)
+      if (_activeKey != progressKey(job.recordKey, job.episodeNumber) &&
+          _repository
+                  .getRecord(job.recordKey)
+                  ?.episodes[job.episodeNumber]
+                  ?.upscaleStatus !=
+              UpscaleStatus.done)
+        job,
+  ];
+
   Future<void> _takeFromLocalQueue(List<CloudJob> jobs) async {
+    // All out of the queue before the first await, or the laptop could
+    // pick up a later one meanwhile.
     for (final job in jobs) {
       _bakeQueue.remove((job.recordKey, job.episodeNumber));
+    }
+    for (final job in jobs) {
       await _updateEpisode(job.recordKey, job.episodeNumber, (e) {
         e.upscaleStatus = UpscaleStatus.queued;
       });
@@ -422,11 +440,14 @@ class UpscaleController {
         _shaderAssetService.shadersDirectory.path,
       ),
     ).readAsString();
+    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
+    final jobs = _notOnLaptop(quote.jobs);
+    if (jobs.isEmpty) throw const CloudBakeException('该集已在本机烘焙');
 
     final session = CloudBakeSession(
       api: _runpod(),
       connect: (uri, token) => CloudBakeWorkerClient(uri, token),
-      jobs: quote.jobs,
+      jobs: jobs,
       includeLocal: quote.includeLocal,
       workerScript: script,
       capSec: quote.estimate.capSec,
@@ -457,7 +478,7 @@ class UpscaleController {
       onChanged: (view) => runInAction(() => cloudSession.value = view),
     );
     _cloud = session;
-    await _takeFromLocalQueue(quote.jobs);
+    await _takeFromLocalQueue(jobs);
     KeepAwake.instance.acquire();
     unawaited(() async {
       try {

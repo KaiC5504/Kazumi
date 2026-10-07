@@ -23,6 +23,9 @@ class CloudBakeRates {
   /// For a source whose size is unknown: about a 1080p web encode.
   static const sourceBytesPerSec = 250e3;
   static const minCapSec = 1800;
+
+  /// The worker refuses to live longer than this (MAX_CAP_SEC).
+  static const maxCapSec = 12 * 3600;
   static const unknownDurationSec = 1440;
 }
 
@@ -94,8 +97,10 @@ double simulatePod(List<PodWork> work, {double readyInSec = 0}) {
   return end;
 }
 
-int capFor(double podSec) =>
-    max(CloudBakeRates.minCapSec, (podSec * 1.5).ceil());
+int capFor(double podSec) => min(
+  CloudBakeRates.maxCapSec,
+  max(CloudBakeRates.minCapSec, (podSec * 1.5).ceil()),
+);
 
 class CloudBakeEstimate {
   const CloudBakeEstimate({

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
@@ -178,7 +180,7 @@ class CloudBakeReportDialog extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                 itemCount: report.episodes.length,
                 itemBuilder: (context, i) => _Rise(
-                  delay: Duration(milliseconds: 60 * i),
+                  delay: Duration(milliseconds: 60 * min(i, 8)),
                   child: _EpisodeRow(
                     episode: report.episodes[i],
                     titleOf: titleOf,

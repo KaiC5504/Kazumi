@@ -517,7 +517,10 @@ class CloudBakeSession {
         podUptimeSec ??
         (start == null ? 0 : DateTime.now().difference(start).inSeconds);
     final remaining = remainingPodSec();
-    final need = max(capFor(remaining), used + (remaining * 1.5).ceil());
+    final need = min(
+      CloudBakeRates.maxCapSec,
+      max(capFor(remaining), used + (remaining * 1.5).ceil()),
+    );
     // The pod's own figure wins: a raise that never arrived shows up here.
     final current = podCapSec ?? _capSec;
     if (need <= current) {
@@ -526,7 +529,7 @@ class CloudBakeSession {
     }
     // Ten minutes of slack, so a bake running a bit slow doesn't send a
     // raise every poll.
-    _capSec = need + 600;
+    _capSec = min(need + 600, CloudBakeRates.maxCapSec);
     final worker = _worker;
     if (worker != null) {
       unawaited(
@@ -566,6 +569,11 @@ class CloudBakeSession {
         if (!holds(job.recordKey, job.episodeNumber)) job,
     ];
     if (fresh.isEmpty) return true;
+    for (final job in fresh) {
+      // A retry after a failed run here starts clean.
+      _freshDownloads.remove(job.id);
+      _uploadAttempts.remove(job.id);
+    }
     _pending.addAll(fresh);
     _total += fresh.length;
     for (final job in fresh) {
@@ -692,6 +700,7 @@ class CloudBakeSession {
           KazumiLogger().w('CloudBakeSession: stock check failed: $e');
           available = false;
         }
+        if (_stopped || _pending.isEmpty) break;
       }
       if (available) {
         try {
@@ -710,6 +719,7 @@ class CloudBakeSession {
           if (!e.noCapacity) rethrow;
         }
       }
+      if (_stopped) break;
       if (_phase != CloudBakePhase.waiting) {
         _phase = CloudBakePhase.waiting;
         _notify();
