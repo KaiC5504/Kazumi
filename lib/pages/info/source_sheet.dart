@@ -13,13 +13,17 @@ import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/bean/widget/empty_state_widget.dart';
 import 'package:kazumi/bean/widget/split_list_row.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
+import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/modules/search/plugin_search_module.dart';
 import 'package:kazumi/pages/collect/collect_controller.dart';
+import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/pages/history/history_controller.dart';
 import 'package:kazumi/pages/info/info_controller.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/plugins/anti_crawler_config.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
+import 'package:kazumi/services/download/offline_launch.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/plugin/captcha_verification_service.dart';
 import 'package:kazumi/services/plugin/plugin_search_service.dart';
@@ -44,6 +48,9 @@ class SourceSheet extends StatefulWidget {
 class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
   final CollectController _collectController = inject<CollectController>();
   final PluginsController _pluginsController = inject<PluginsController>();
+  final DownloadController _downloadController = inject<DownloadController>();
+  final HistoryController _historyController = inject<HistoryController>();
+  late final List<LocalSource> _localSources;
   final Map<String, String> _sourceKeywords = {};
 
   late final String _keyword;
@@ -63,6 +70,15 @@ class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
       onVerified: _showVerifiedResult,
       onCancelled: (plugin) => _retry(plugin.name),
     );
+    _localSources = [
+      for (final record in _downloadController.records)
+        if (record.bangumiId == item.id)
+          LocalSource(
+            record,
+            _downloadController.getCompletedEpisodes(
+                record.bangumiId, record.pluginName),
+          ),
+    ]..removeWhere((s) => s.completed.isEmpty);
     _searchService.queryAllSource(_keyword);
   }
 
@@ -116,6 +132,26 @@ class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
       KazumiLogger().w('SourceSheet: failed to open browser', error: error);
     }
     if (mounted) KazumiDialog.showToast(message: '无法打开浏览器，请稍后重试');
+  }
+
+  void _openLocal(LocalSource source) {
+    final last = _historyController.lastWatching(
+      widget.infoController.bangumiItem,
+      source.record.pluginName,
+      entryKind: HistoryEntryKind.offline,
+    );
+    final start = pickStartEpisode(source.completed, last?.episode);
+    final episode =
+        source.completed.firstWhere((e) => e.episodeNumber == start);
+    context.pushNamed(
+      '/video/',
+      arguments: buildOfflineArgs(
+        record: source.record,
+        episodeNumber: start,
+        road: episode.road,
+        completed: source.completed,
+      ),
+    );
   }
 
   Future<void> _openSearchItem(String name, SearchItem searchItem) async {
@@ -212,6 +248,8 @@ class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
                 _captchaFlow.start(_pluginFor(name), _keywordFor(name)),
             onOpenBrowser: _openInBrowser,
             onPlay: _openSearchItem,
+            localSources: _localSources,
+            onPlayLocal: _openLocal,
             onClose: () => Navigator.of(context).pop(),
           );
         },

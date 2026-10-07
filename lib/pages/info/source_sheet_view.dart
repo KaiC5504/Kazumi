@@ -40,6 +40,8 @@ class _SourceSheetView extends StatefulWidget {
     required this.onVerify,
     required this.onOpenBrowser,
     required this.onPlay,
+    required this.localSources,
+    required this.onPlayLocal,
     required this.onClose,
   });
 
@@ -52,6 +54,8 @@ class _SourceSheetView extends StatefulWidget {
   final ValueChanged<String> onVerify;
   final ValueChanged<String> onOpenBrowser;
   final void Function(String sourceName, SearchItem result) onPlay;
+  final List<LocalSource> localSources;
+  final ValueChanged<LocalSource> onPlayLocal;
   final VoidCallback onClose;
 
   @override
@@ -142,6 +146,12 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
               child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [
+                  if (widget.localSources.isNotEmpty)
+                    SliverList.builder(
+                      itemCount: widget.localSources.length,
+                      itemBuilder: (context, index) =>
+                          _localCard(context, widget.localSources[index]),
+                    ),
                   if (widget.groups.isEmpty)
                     const SliverToBoxAdapter(
                       child: GeneralEmptyState(
@@ -177,6 +187,27 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _localCard(BuildContext context, LocalSource s) {
+    final colors = Theme.of(context).colorScheme;
+    return Card.filled(
+      color: colors.primaryContainer,
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+      child: ListTile(
+        leading:
+            Icon(Icons.download_done_rounded, color: colors.onPrimaryContainer),
+        title: Text('本地 · 已下载 ${s.completed.length} 集',
+            style: TextStyle(color: colors.onPrimaryContainer)),
+        subtitle: Text(s.record.pluginName,
+            style: TextStyle(color: colors.onPrimaryContainer)),
+        trailing: s.preUpscaled
+            ? const Chip(
+                label: Text('超分'), visualDensity: VisualDensity.compact)
+            : null,
+        onTap: () => widget.onPlayLocal(s),
       ),
     );
   }
