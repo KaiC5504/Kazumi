@@ -888,6 +888,7 @@ class SimViewer {
     }
     _tick?.cancel();
     _tick = null;
+    sync.onPaused();
     server.suspend(name, seconds, lost: !socketSurvives);
     _note('suspended for ${seconds}s at ${position.toStringAsFixed(1)}');
     await clock.wait(seconds);

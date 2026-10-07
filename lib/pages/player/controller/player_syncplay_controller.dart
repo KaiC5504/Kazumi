@@ -128,6 +128,7 @@ abstract class _PlayerSyncPlayController with Store {
 
   Timer? _ticker;
   DateTime? _lastTickAt;
+  bool _backgrounded = false;
 
   final StreamController<SyncPlayChatMessage> _chatStreamController =
       StreamController<SyncPlayChatMessage>.broadcast();
@@ -165,6 +166,11 @@ abstract class _PlayerSyncPlayController with Store {
     // reconnect and leave handling mustn't stop with it.
     _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
       final last = _lastTickAt;
+      // In the background the resume path takes over; running the watchdog
+      // here would redial in the seconds before iOS suspends us.
+      if (_backgrounded) {
+        return;
+      }
       if (last == null ||
           clock().difference(last) >= const Duration(seconds: 2)) {
         onPlayerTick();
@@ -645,7 +651,12 @@ abstract class _PlayerSyncPlayController with Store {
     }
   }
 
+  void onPaused() {
+    _backgrounded = true;
+  }
+
   void onResumed(Duration background) {
+    _backgrounded = false;
     if (syncplayController == null && !reconnecting) return;
     switch (_watchdog.onResumed(background)) {
       case WatchAction.none:
