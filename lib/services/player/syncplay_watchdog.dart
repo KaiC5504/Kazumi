@@ -16,12 +16,14 @@ class SyncPlayWatchdog {
   DateTime? _probedAt;
   NetKind? _kind;
   bool _offline = false;
+  bool _reconnecting = false;
 
   bool get offline => _offline;
 
   void onConnected() {
     _lastInbound = _clock();
     _probedAt = null;
+    _reconnecting = false;
   }
 
   void onInbound() {
@@ -32,11 +34,14 @@ class SyncPlayWatchdog {
   WatchAction onTick() {
     final last = _lastInbound;
     if (_offline || last == null) return WatchAction.none;
+    if (_reconnecting) return WatchAction.none;
     final now = _clock();
     if (_probedAt != null) {
-      return now.difference(_probedAt!) >= probeGrace
-          ? WatchAction.reconnect
-          : WatchAction.none;
+      if (now.difference(_probedAt!) >= probeGrace) {
+        _reconnecting = true;
+        return WatchAction.reconnect;
+      }
+      return WatchAction.none;
     }
     if (now.difference(last) >= silence) {
       _probedAt = now;
@@ -55,13 +60,18 @@ class SyncPlayWatchdog {
     final wasOffline = _offline;
     _offline = false;
     if (wasOffline || (previous != null && previous != kind)) {
+      _reconnecting = true;
       return WatchAction.reconnect;
     }
     return WatchAction.none;
   }
 
   WatchAction onResumed(Duration background) {
-    if (background > const Duration(seconds: 60)) return WatchAction.reconnect;
+    if (_offline) return WatchAction.none;
+    if (background > const Duration(seconds: 60)) {
+      _reconnecting = true;
+      return WatchAction.reconnect;
+    }
     if (background > const Duration(seconds: 10)) {
       _probedAt = _clock();
       return WatchAction.probe;

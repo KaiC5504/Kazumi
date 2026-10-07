@@ -54,6 +54,35 @@ void main() {
     expect(dog.onResumed(const Duration(seconds: 61)), WatchAction.reconnect);
   });
 
+  test('reconnect is signalled once until reconnected', () {
+    advance(6);
+    expect(dog.onTick(), WatchAction.probe);
+    advance(3);
+    expect(dog.onTick(), WatchAction.reconnect);
+    advance(1);
+    expect(dog.onTick(), WatchAction.none);
+    advance(5);
+    expect(dog.onTick(), WatchAction.none);
+    dog.onConnected();
+    advance(6);
+    expect(dog.onTick(), WatchAction.probe);
+  });
+
+  test('resume while offline holds', () {
+    dog.onNetwork(NetKind.wifi);
+    dog.onNetwork(NetKind.none);
+    expect(dog.onResumed(const Duration(seconds: 61)), WatchAction.none);
+    expect(dog.onResumed(const Duration(seconds: 30)), WatchAction.none);
+    expect(dog.onNetwork(NetKind.wifi), WatchAction.reconnect);
+  });
+
+  test('interface change latches too', () {
+    dog.onNetwork(NetKind.wifi);
+    expect(dog.onNetwork(NetKind.cellular), WatchAction.reconnect);
+    advance(10);
+    expect(dog.onTick(), WatchAction.none);
+  });
+
   group('ReconnectBackoff', () {
     test('0,1,2,4,8,15,15,15 then exhausted at about a minute', () {
       final b = ReconnectBackoff(clock: () => now)..start();
