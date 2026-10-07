@@ -225,6 +225,12 @@ abstract class _PlayerSyncPlayController with Store {
           // checks the connection's own flag rather than shared state.
           if (message['type'] == 'init') {
             final String named = message['username'];
+            if (_isOwnGhost(named, client)) {
+              // The room's position is our own old connection's: catch up
+              // with it, but it says nothing about who else is here.
+              _announceWhenCaughtUp = true;
+              return;
+            }
             if (quiet && named != client.username) {
               // Peers carried over from the old connection that the new
               // room doesn't confirm count as just left: back within the
@@ -261,7 +267,7 @@ abstract class _PlayerSyncPlayController with Store {
           }
           if (message['type'] == 'left') {
             final String name = message['username'];
-            if (name == client.username) {
+            if (name == client.username || _isOwnGhost(name, client)) {
               // Our own dead connection timing out on the server.
               return;
             }
@@ -277,6 +283,23 @@ abstract class _PlayerSyncPlayController with Store {
             _pendingLeft[name] = clock();
           }
           if (message['type'] == 'joined') {
+            final String name = message['username'];
+            if (_isOwnGhost(name, client)) {
+              return;
+            }
+            final renamed = _renamedFrom(name);
+            if (renamed != null) {
+              // Syncplay gives a peer who rejoins while it still holds their
+              // old connection a new name; it's the same person, and the old
+              // name's 'left' is that connection timing out.
+              if (_pendingLeft.remove(renamed) != null) {
+                _peerFiles[name] = _leftFiles.remove(renamed);
+              } else {
+                _peerFiles[name] = _peerFiles.remove(renamed);
+                _ghosts.update(renamed, (n) => n + 1, ifAbsent: () => 1);
+              }
+              return;
+            }
             // A peer back from a dead socket can rejoin while the server
             // still holds the old connection, so no 'left' came first.
             final known = _peerFiles.containsKey(message['username']);
@@ -305,7 +328,9 @@ abstract class _PlayerSyncPlayController with Store {
           KazumiLogger().i(
               'SyncPlay: file changed by ${message['setBy']}: ${message['name']}');
           final String? setBy = message['setBy'];
-          if (setBy != null && setBy != client.username) {
+          if (setBy != null &&
+              setBy != client.username &&
+              !_isOwnGhost(setBy, client)) {
             _peerFiles[setBy] = message['name'];
             if (_waitingForPeers && _peersBehind().isEmpty) {
               _stopWaiting(caughtUp: setBy);
@@ -598,6 +623,34 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   String _currentFile() => "${bangumiId()}[${currentEpisode()}]";
+
+  // Syncplay makes a taken name unique by appending underscores.
+  static String _baseName(String name) =>
+      name.replaceFirst(RegExp(r'_+$'), '');
+
+  /// An earlier connection of ours that the server still holds (or is only
+  /// now timing out) under a different name from this one's.
+  bool _isOwnGhost(String name, SyncplayClient client) {
+    final own = _username;
+    return own != null &&
+        name.isNotEmpty &&
+        name != client.username &&
+        _baseName(name) == _baseName(own);
+  }
+
+  /// The peer a newly joined [name] was known as before the server renamed
+  /// them, if any.
+  String? _renamedFrom(String name) {
+    if (_peerFiles.containsKey(name) || _pendingLeft.containsKey(name)) {
+      return null;
+    }
+    for (final peer in [..._peerFiles.keys, ..._pendingLeft.keys]) {
+      if (peer != name && _baseName(peer) == _baseName(name)) {
+        return peer;
+      }
+    }
+    return null;
+  }
 
   List<String> _peersElsewhere() => [
         for (final entry in _peerFiles.entries)

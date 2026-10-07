@@ -177,13 +177,17 @@ class _Watcher {
 /// flag differs from the room's pauses or resumes it, and a seek moves
 /// everyone.
 class SimSyncplayServer {
-  SimSyncplayServer._(this.clock, this._server, this._random)
+  SimSyncplayServer._(this.clock, this._server, this._random, this.renames)
     : openedAt = clock.seconds;
 
   final VirtualClock clock;
   final double openedAt;
   final ServerSocket _server;
   final Random _random;
+
+  /// A name already in use gets underscores appended, as the real server's
+  /// findFreeUsername does, so a ghost and its rejoin differ.
+  final bool renames;
   final List<_Watcher> _watchers = [];
   final Map<String, NetworkProfile> _profiles = {};
   final List<NetworkProfile> _nextProfiles = [];
@@ -201,11 +205,13 @@ class SimSyncplayServer {
   static Future<SimSyncplayServer> start(
     VirtualClock clock, {
     int seed = 1,
+    bool renames = false,
   }) async {
     final server = SimSyncplayServer._(
       clock,
       await ServerSocket.bind('127.0.0.1', 0),
       Random(seed),
+      renames,
     );
     // A client that hangs up at teardown, mid-dial or mid-write, surfaces
     // as a SocketException (10053 on Windows) in the zone that accepted
@@ -273,13 +279,18 @@ class SimSyncplayServer {
     if (!_watchers.contains(watcher)) return;
     final message = json.decode(line) as Map<String, dynamic>;
     if (message['Hello'] case final Map hello) {
-      watcher.name = hello['username'];
-      if (_silenced.contains(watcher.name)) {
+      var name = hello['username'] as String;
+      while (renames && _watchers.any((w) => w.name == name)) {
+        name += '_';
+      }
+      watcher.name = name;
+      if (_silenced.contains(hello['username'])) {
         watcher.link.dead = true;
         return;
       }
       if (watcher.profileGuessed) {
-        watcher.link.profile = _profiles[watcher.name!] ?? watcher.link.profile;
+        watcher.link.profile =
+            _profiles[hello['username']] ?? watcher.link.profile;
       }
       _profiles[watcher.name!] = watcher.link.profile;
       final others = _watchers.where((w) => w != watcher && w.name != null);
@@ -704,6 +715,32 @@ class SimViewer {
     sync.onNetwork(NetKind.wifi);
     await clock.until(
       () => sync.syncplayController?.username == name,
+      what: '$name to join',
+    );
+    await clock.wait(network.rtt * 2 + 0.5);
+    _tick ??= Timer.periodic(clock.real(1), (_) => _onTick());
+  }
+
+  /// [join] against a server outside the sim, e.g. a real Syncplay server.
+  /// The playhead counts from the clock's start, so viewers who join back to
+  /// back start level. A real server reads a room literally named 'room'
+  /// as a room change in the client's ready message, so use another.
+  Future<void> joinEndpoint(
+    String endpoint, {
+    String room = 'kazumi-lab',
+    int episode = 1,
+    double at = 0,
+  }) async {
+    this.episode = episode;
+    _anchorPosition = at;
+    _anchorAt = 0;
+    playing = true;
+    endGuard.onEpisodeStarted('1[$episode]');
+    await GStorage.putSetting(SettingsKeys.syncPlayEndPoint, endpoint);
+    await sync.createRoom(room, name, changeEpisode);
+    sync.onNetwork(NetKind.wifi);
+    await clock.until(
+      () => sync.syncplayController?.username != null,
       what: '$name to join',
     );
     await clock.wait(network.rtt * 2 + 0.5);

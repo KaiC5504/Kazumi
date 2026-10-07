@@ -18,9 +18,9 @@ void main() {
   GapRecorder? gaps;
   final viewers = <SimViewer>[];
 
-  Future<void> start({int seed = 1}) async {
+  Future<void> start({int seed = 1, bool renames = false}) async {
     clock = VirtualClock(_speed);
-    server = await SimSyncplayServer.start(clock, seed: seed);
+    server = await SimSyncplayServer.start(clock, seed: seed, renames: renames);
     me = SimViewer(
       'kai',
       clock,
@@ -195,6 +195,34 @@ void main() {
         simNotices.where((n) => n.contains('离开') || n.contains('加入')),
         isEmpty,
       );
+    });
+  });
+
+  test('renamed rejoin (Syncplay her_): same person, no pills either side', () {
+    return eachSeed(12, (seed) async {
+      await start(seed: seed, renames: true);
+      await clock.wait(20);
+      server.zombie('her');
+      her.switchNetwork(NetKind.cellular);
+      await clock.until(
+        () =>
+            her.sync.syncplayController?.isConnected == true &&
+            !her.sync.reconnecting,
+        timeout: 20,
+        what: 'her to reconnect',
+      );
+      expect(her.sync.syncplayController?.username, 'her_');
+      await clock.wait(5);
+      expect(me.sync.peers, ['her_']);
+      server.dropGhosts('her');
+      await clock.wait(20);
+      expect(me.sync.peers, ['her_']);
+      expect(her.sync.peers, ['kai']);
+      expect(
+        simNotices.where((n) => n.contains('离开') || n.contains('加入')),
+        isEmpty,
+      );
+      expect(gaps!.lastGap, lessThan(1.5));
     });
   });
 
