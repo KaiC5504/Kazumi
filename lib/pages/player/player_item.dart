@@ -164,7 +164,6 @@ class _PlayerItemState extends State<PlayerItem>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused) {
       _pausedAt = DateTime.now();
-      playerController.syncplay.onPaused();
     }
     if (state == AppLifecycleState.paused && !backgroundPlayback) {
       // Suspend before awaiting pause so a later resume wins; pause alone keeps prefetching.

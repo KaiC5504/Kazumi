@@ -53,7 +53,9 @@ class EpisodeReminderService {
     AppLifecycleListener(
       onResume: () {
         final last = _lastRun;
-        if (last == null ||
+        // Coming back from iOS Settings after granting permission.
+        if (permissionDenied.value ||
+            last == null ||
             DateTime.now().difference(last) > const Duration(hours: 6)) {
           unawaited(refresh());
         }
