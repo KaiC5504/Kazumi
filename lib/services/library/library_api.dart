@@ -114,10 +114,15 @@ class LibraryException implements Exception {
 
 /// Client for the shared episode library on the owner's server.
 class LibraryApi {
-  LibraryApi(String server, this.key) : baseUri = normalizeServer(server);
+  LibraryApi(String server, this.key, {this.apiHost})
+    : baseUri = normalizeServer(server);
 
   final Uri baseUri;
   final String key;
+
+  /// A relay to send lobby calls through instead of [baseUri]. Writes that
+  /// must not be repeated or that move big bodies always go direct.
+  final Uri? apiHost;
 
   static Uri normalizeServer(String server) {
     var value = server.trim();
@@ -203,7 +208,12 @@ class LibraryApi {
   static Future<String> redeem(String server, String code) async {
     final api = LibraryApi(server, '');
     try {
-      final json = await api._json('POST', '/api/redeem', body: {'code': code});
+      final json = await api._json(
+        'POST',
+        '/api/redeem',
+        body: {'code': code},
+        direct: true,
+      );
       final key = json['key'] as String? ?? '';
       if (key.isEmpty) throw const LibraryException('服务器没有返回密钥');
       return key;
@@ -217,7 +227,7 @@ class LibraryApi {
   }
 
   Future<({String code, DateTime expiresAt})> createInvite() async {
-    final json = await _json('POST', '/api/invites');
+    final json = await _json('POST', '/api/invites', direct: true);
     return (
       code: json['code'] as String,
       expiresAt: DateTime.parse(json['expiresAt'] as String).toLocal(),
@@ -311,7 +321,7 @@ class LibraryApi {
   }
 
   Future<int> uploadedSize(String id, String file) async {
-    final json = await _json('GET', '/api/upload/$id/$file');
+    final json = await _json('GET', '/api/upload/$id/$file', direct: true);
     return json['size'] as int? ?? 0;
   }
 
@@ -364,7 +374,11 @@ class LibraryApi {
   /// Finished parts as index → size, or null when the server predates parts.
   Future<Map<int, int>?> uploadedParts(String id, String file) async {
     try {
-      final json = await _json('GET', '/api/upload/$id/$file/parts');
+      final json = await _json(
+        'GET',
+        '/api/upload/$id/$file/parts',
+        direct: true,
+      );
       final parts = json['parts'] as Map<String, dynamic>? ?? {};
       return {for (final e in parts.entries) int.parse(e.key): e.value as int};
     } on LibraryException catch (e) {
@@ -416,7 +430,12 @@ class LibraryApi {
   }
 
   Future<void> commit(String id, UpscaledEpisodeManifest manifest) async {
-    await _json('POST', '/api/upload/$id/commit', body: manifest.toJson());
+    await _json(
+      'POST',
+      '/api/upload/$id/commit',
+      body: manifest.toJson(),
+      direct: true,
+    );
   }
 
   static const _responseTimeout = Duration(seconds: 30);
@@ -428,10 +447,12 @@ class LibraryApi {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    bool direct = false,
   }) async {
     final client = _client();
     try {
-      final request = await client.openUrl(method, baseUri.replace(path: path));
+      final host = direct ? baseUri : (apiHost ?? baseUri);
+      final request = await client.openUrl(method, host.replace(path: path));
       request.headers.set(lanShareTokenHeader, key);
       if (body != null) {
         request.headers.contentType = ContentType.json;
@@ -442,6 +463,10 @@ class LibraryApi {
       _check(response);
       return text.isEmpty ? {} : jsonDecode(text) as Map<String, dynamic>;
     } on SocketException {
+      throw const LibraryException('无法连接到片库服务器');
+    } on HttpException {
+      throw const LibraryException('无法连接到片库服务器');
+    } on TlsException {
       throw const LibraryException('无法连接到片库服务器');
     } on TimeoutException {
       throw const LibraryException('连接片库服务器超时');
