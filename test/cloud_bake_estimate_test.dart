@@ -54,15 +54,23 @@ void main() {
     expect(busy.localOnlySec, 2400 + (1440 / 2.7).ceil());
   });
 
-  test('extra cap for added episodes is 1.5x their pod time', () {
-    expect(CloudBakeEstimate.extraCapSec([7700]), 1500);
-    expect(CloudBakeEstimate.extraCapSec([0]), (1440 / 7.7 * 1.5).ceil());
+  test('extra cap for added episodes assumes a single slot', () {
+    expect(CloudBakeEstimate.extraCapSec([7700]), 3000);
+    expect(CloudBakeEstimate.extraCapSec([0]), (1440 * 2 / 7.7 * 1.5).ceil());
+  });
+
+  test('a lone film gets a cap that covers baking on one slot', () {
+    final e = CloudBakeEstimate.forDurations([7200], includeLocal: false);
+    expect(e.slowCloudSec, (300 + 60 + 7200 * 2 / 7.7).ceil());
+    expect(e.capSec, (e.slowCloudSec * 1.5).ceil());
+    expect(e.capSec, greaterThan(3000));
   });
 
   test('the cap is 1.5x the cloud time once that passes 30 minutes', () {
     final durations = List.filled(25, 1440);
     final e = CloudBakeEstimate.forDurations(durations, includeLocal: false);
-    expect(e.capSec, (e.cloudSec * 1.5).ceil());
+    expect(e.capSec, (e.slowCloudSec * 1.5).ceil());
+    expect(e.slowCloudSec, (300 + 60 + 25 * 1440 * 2 / 7.7).ceil());
     expect(e.cost(1.09), closeTo(e.cloudSec / 3600 * 1.09, 1e-9));
     expect(e.maxCost(1.09), closeTo(e.capSec / 3600 * 1.09, 1e-9));
   });

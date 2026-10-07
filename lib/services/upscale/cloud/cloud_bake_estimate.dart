@@ -5,6 +5,9 @@ class CloudBakeRates {
   /// Two concurrent bakes on a Sydney L40S.
   static const cloudRealtime = 7.7;
 
+  /// The pod bakes two at once; a lone episode only gets one slot.
+  static const cloudSlots = 2;
+
   /// The laptop's RTX 4070; a second concurrent bake doesn't help.
   static const localRealtime = 2.7;
   static const startupSec = 300;
@@ -20,6 +23,7 @@ class CloudBakeEstimate {
     required this.cloudSec,
     required this.finishSec,
     this.localOnlySec = 0,
+    this.slowCloudSec = 0,
   });
 
   final int cloudCount;
@@ -32,7 +36,12 @@ class CloudBakeEstimate {
   /// When the laptop alone would be done, for comparing against the pod.
   final int localOnlySec;
 
-  int get capSec => max(CloudBakeRates.minCapSec, (cloudSec * 1.5).ceil());
+  /// The pod's time if nothing overlapped, each episode on a single slot.
+  /// A film alone on the pod takes this long, not [cloudSec].
+  final int slowCloudSec;
+
+  int get capSec =>
+      max(CloudBakeRates.minCapSec, (max(cloudSec, slowCloudSec) * 1.5).ceil());
 
   double cost(double pricePerHour) => cloudSec / 3600 * pricePerHour;
 
@@ -40,10 +49,12 @@ class CloudBakeEstimate {
 
   /// Extra pod time to allow for episodes added to a running session.
   static int extraCapSec(List<int> durationsSec) =>
-      (_durations(durationsSec).fold(0, (a, b) => a + b) /
-              CloudBakeRates.cloudRealtime *
-              1.5)
-          .ceil();
+      (_slowBakeSec(_durations(durationsSec)) * 1.5).ceil();
+
+  static double _slowBakeSec(List<int> durations) =>
+      durations.fold(0, (a, b) => a + b) *
+      CloudBakeRates.cloudSlots /
+      CloudBakeRates.cloudRealtime;
 
   static List<int> _durations(List<int> durationsSec) => [
     for (final s in durationsSec) s > 0 ? s : CloudBakeRates.unknownDurationSec,
@@ -65,11 +76,13 @@ class CloudBakeEstimate {
     var localFree = includeLocal ? localBusySec.toDouble() : double.infinity;
     var cloudCount = 0;
     var localCount = 0;
+    final onCloud = <int>[];
     while (front <= back) {
       final cloudDone = cloudFree + d[front] / CloudBakeRates.cloudRealtime;
       final localDone = localFree + d[back] / CloudBakeRates.localRealtime;
       if (cloudDone + CloudBakeRates.downloadTailSec <= localDone) {
         cloudFree = cloudDone;
+        onCloud.add(d[front]);
         front++;
         cloudCount++;
       } else {
@@ -91,6 +104,12 @@ class CloudBakeEstimate {
       cloudSec: cloudSec,
       finishSec: max(cloudSec, localSec),
       localOnlySec: localOnly.ceil(),
+      slowCloudSec: cloudCount == 0
+          ? 0
+          : (CloudBakeRates.startupSec +
+                    CloudBakeRates.downloadTailSec +
+                    _slowBakeSec(onCloud))
+                .ceil(),
     );
   }
 }

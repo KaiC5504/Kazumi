@@ -460,6 +460,22 @@ void main() {
     },
   );
 
+  test(
+    'episodes added while the pod boots raise its cap once it is up',
+    () async {
+      final api = FakePodApi(readyAfterPolls: 5);
+      final worker = FakeWorker();
+      final s = make(api, worker, includeLocal: false, count: 1);
+      final running = runIt(s);
+      await until(() => api.created.isNotEmpty);
+      expect(api.created.single['KAZUMI_CAP_SEC'], '1800');
+      expect(s.add([job(2)], extraCapSec: 900), isTrue);
+      await running;
+      expect(worker.caps.first, 2700);
+      expect(cloudBaked..sort(), [1, 2]);
+    },
+  );
+
   test('adding an episode the session already holds is a no-op', () async {
     final s = make(
       FakePodApi()..inStock = false,

@@ -238,6 +238,7 @@ class CloudBakeSession {
   final String token;
   int _total;
   int _capSec;
+  int _createdCapSec = 0;
 
   final List<CloudJob> _pending;
   final List<CloudJob> _fallback = [];
@@ -445,6 +446,7 @@ class CloudBakeSession {
       }
       if (available) {
         try {
+          _createdCapSec = _capSec;
           return await api.createPod(
             name: _podName(),
             diskGb: 50,
@@ -489,6 +491,18 @@ class CloudBakeSession {
         }
       }
       if (_stopped) return;
+      // Episodes added while the pod booted raised the cap after it was
+      // baked into the pod's env.
+      if (_capSec > _createdCapSec) {
+        try {
+          await worker.extendCap(_capSec);
+        } catch (e) {
+          KazumiLogger().w(
+            'CloudBakeSession: raising the cap failed',
+            error: e,
+          );
+        }
+      }
       _phase = CloudBakePhase.running;
       _notify();
       await Future.wait([_uploadLoop(worker), _pollLoop(worker)]);
