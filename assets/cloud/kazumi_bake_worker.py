@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Kazumi cloud bake worker. Runs on a rented Runpod GPU: takes episodes over
 # HTTP, bakes them with the same Anime4K chain and encoder settings as the PC,
 # serves the results back, and deletes its own pod once the PC goes quiet.
