@@ -117,6 +117,11 @@ abstract class _PlayerSyncPlayController with Store {
   @observable
   int syncplayClientRtt = 0;
 
+  /// Rooms play at 1.0×. Held from createRoom through reconnects and
+  /// 同步中断 (its 重新连接 rejoins the same room) until exitRoom.
+  @observable
+  bool speedLocked = false;
+
   bool get hasSession => syncplayController != null;
 
   /// In a room from createRoom until exitRoom, including the gaps of a quiet
@@ -159,6 +164,8 @@ abstract class _PlayerSyncPlayController with Store {
     if (_connectionSessions.isClosed) {
       return;
     }
+    final rejoining = speedLocked;
+    speedLocked = true;
     _room = room;
     _username = username;
     _changeEpisode = changeEpisode;
@@ -208,7 +215,10 @@ abstract class _PlayerSyncPlayController with Store {
       GlassNotice.show('同步服务器地址不对',
           icon: Icons.error_outline_rounded, bottom: true);
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
-      if (!reconnecting) _leaveRoomState();
+      if (!reconnecting) {
+        _leaveRoomState();
+        speedLocked = rejoining;
+      }
       return;
     }
     // The watch-together library's own server has a real certificate too.
@@ -536,6 +546,7 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       _leaveRoomState();
+      speedLocked = rejoining;
       GlassNotice.show(
         '连不上同步服务器',
         icon: Icons.link_off_rounded,
@@ -628,7 +639,7 @@ abstract class _PlayerSyncPlayController with Store {
     _backoff.reset();
     _reconnectNoticeShown = false;
     final room = _room!, user = _username!, change = _changeEpisode!;
-    unawaited(exitRoom());
+    unawaited(_closeRoom());
     GlassNotice.show(
       '同步中断',
       icon: Icons.link_off_rounded,
@@ -970,6 +981,11 @@ abstract class _PlayerSyncPlayController with Store {
 
   @action
   Future<void> exitRoom() async {
+    speedLocked = false;
+    await _closeRoom();
+  }
+
+  Future<void> _closeRoom() async {
     _backoff.reset();
     _hollowReconnects = 0;
     _leaveRoomState();
