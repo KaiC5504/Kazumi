@@ -165,6 +165,9 @@ class _SyncPlayHomeSheet extends StatelessWidget {
     return Observer(builder: (context) {
       // Read all observables here; the deferred body builder is not tracked.
       final bool hasSession = playerController.syncplay.hasSession;
+      // After 同步中断 the room still holds the speed lock; leaving it here
+      // is the way out.
+      final bool held = hasSession || playerController.syncplay.speedLocked;
       final String room = playerController.syncplay.syncplayRoom;
       final int rtt = playerController.syncplay.syncplayClientRtt;
       final bool connected = room.isNotEmpty;
@@ -174,7 +177,7 @@ class _SyncPlayHomeSheet extends StatelessWidget {
       return _SyncPlaySheetScaffold(
         title: '一起看',
         description: '和朋友同步看番',
-        primaryAction: hasSession
+        primaryAction: held
             ? FilledButton.tonalIcon(
                 onPressed: () async {
                   await playerController.exitSyncPlayRoom();

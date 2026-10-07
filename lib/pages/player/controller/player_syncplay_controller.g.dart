@@ -57,6 +57,22 @@ mixin _$PlayerSyncPlayController on _PlayerSyncPlayController, Store {
     });
   }
 
+  late final _$speedLockedAtom =
+      Atom(name: '_PlayerSyncPlayController.speedLocked', context: context);
+
+  @override
+  bool get speedLocked {
+    _$speedLockedAtom.reportRead();
+    return super.speedLocked;
+  }
+
+  @override
+  set speedLocked(bool value) {
+    _$speedLockedAtom.reportWrite(value, super.speedLocked, () {
+      super.speedLocked = value;
+    });
+  }
+
   late final _$exitRoomAsyncAction =
       AsyncAction('_PlayerSyncPlayController.exitRoom', context: context);
 
@@ -70,7 +86,8 @@ mixin _$PlayerSyncPlayController on _PlayerSyncPlayController, Store {
     return '''
 syncplayController: ${syncplayController},
 syncplayRoom: ${syncplayRoom},
-syncplayClientRtt: ${syncplayClientRtt}
+syncplayClientRtt: ${syncplayClientRtt},
+speedLocked: ${speedLocked}
     ''';
   }
 }

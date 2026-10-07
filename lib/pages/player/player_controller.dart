@@ -199,7 +199,7 @@ class PlayerController implements Disposable {
     playback.resetForInit();
     debug.playerLogLevel = GStorage.getSetting(SettingsKeys.playerLogLevel);
     playback.playerSpeed =
-        AnimeSpeedStore.speedFor(bangumiId, inRoom: syncplay.inRoom);
+        AnimeSpeedStore.speedFor(bangumiId, inRoom: syncplay.speedLocked);
     panel.aspectRatioMode = PlayerAspectRatio.fromStorageValue(
       GStorage.getSetting(SettingsKeys.defaultAspectRatioType),
     );

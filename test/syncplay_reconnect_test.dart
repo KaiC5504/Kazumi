@@ -194,6 +194,29 @@ void main() {
     });
   });
 
+  test('the 1.0× lock holds through reconnects and 同步中断 until she leaves', () {
+    return eachSeed(11, (seed) async {
+      await start(seed: seed);
+      await clock.wait(20);
+      expect(her.sync.speedLocked, isTrue);
+      server.hollow('her');
+      server.zombie('her');
+      her.switchNetwork(NetKind.cellular);
+      await clock.until(
+        () {
+          expect(her.sync.speedLocked, isTrue);
+          return simNotices.any((n) => n.contains('同步中断'));
+        },
+        timeout: 60,
+        what: '同步中断',
+      );
+      expect(her.sync.inRoom, isFalse);
+      expect(her.sync.speedLocked, isTrue);
+      await her.sync.exitRoom();
+      expect(her.sync.speedLocked, isFalse);
+    });
+  });
+
   test('her old connection timing out later keeps her in the room', () {
     return eachSeed(6, (seed) async {
       await start(seed: seed);

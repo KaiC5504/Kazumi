@@ -455,7 +455,7 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   Future<void> handleShortcutForwardRepeat() async {
-    if (playerController.syncplay.inRoom) return;
+    if (playerController.syncplay.speedLocked) return;
     final double defaultShortcutForwardPlaySpeed =
         GStorage.getSetting(SettingsKeys.defaultShortcutForwardPlaySpeed);
     if (playerController.playback.playerSpeed <
@@ -1053,14 +1053,14 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   bool _speedLockedInRoom() {
-    if (!playerController.syncplay.inRoom) return false;
+    if (!playerController.syncplay.speedLocked) return false;
     GlassNotice.show('一起看时不能调速', icon: Icons.speed_rounded);
     return true;
   }
 
   /// A hold that began outside a room can end inside one.
   double _speedAfterHold() =>
-      playerController.syncplay.inRoom ? 1.0 : lastPlayerSpeed;
+      playerController.syncplay.speedLocked ? 1.0 : lastPlayerSpeed;
 
   /// A speed the user picked, as opposed to a temporary hold-to-speed-up.
   Future<void> chooseSpeed(double speed) async {
