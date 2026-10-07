@@ -430,13 +430,6 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
             description: Text('对方在「我的 → 一起看」输入邀请码即可加入，7 天内有效'),
             onPressed: (_) => _createInviteCode(),
           ),
-          SettingsTile(
-            leading: Icons.alt_route_rounded,
-            title: Text('一起看线路'),
-            description: Text('默认香港；可重新测速'),
-            onPressed: (_) =>
-                showRouteSheet(context, inject<LibraryController>()),
-          ),
           SettingsTile.switchTile(
             leading: Icons.cloud_upload_rounded,
             title: Text('烘焙后自动上传'),
@@ -594,6 +587,20 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
             ],
           ),
           if (upscaleController.canBake) ..._upscaleSections(context),
+          // Phones can't bake, so the route lives outside the upload section.
+          if (inject<LibraryController>().isConfigured)
+            SettingsSection(
+              title: Text('一起看'),
+              tiles: [
+                SettingsTile(
+                  leading: Icons.alt_route_rounded,
+                  title: Text('一起看线路'),
+                  description: Text('默认香港；可重新测速'),
+                  onPressed: (_) =>
+                      showRouteSheet(context, inject<LibraryController>()),
+                ),
+              ],
+            ),
           SettingsSection(
             title: Text('说明'),
             tiles: [
