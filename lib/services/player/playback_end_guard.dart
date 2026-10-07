@@ -119,15 +119,6 @@ class PlaybackEndGuard {
     );
   }
 
-  /// The reload never reached the player (the episode didn't resolve, or
-  /// isn't downloaded) and the caller already shows its error. Like giving
-  /// up, a refresh then starts with a fresh budget.
-  void onReloadFailed() {
-    if (!_awaitingReload) return;
-    _awaitingReload = false;
-    _gaveUp = true;
-  }
-
   EndDecision _giveUp() {
     _gaveUp = true;
     return const EndDecision(EndAction.giveUp);

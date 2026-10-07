@@ -179,33 +179,6 @@ void main() {
     );
   });
 
-  test('a reload that fails before loading waits for refresh, then starts '
-      'fresh', () {
-    playTo(const Duration(minutes: 8));
-    expect(
-      brokenUntilAction(const Duration(minutes: 8)).action,
-      EndAction.reload,
-    );
-    guard.onReloadFailed();
-    wait(10);
-    expect(complete(const Duration(minutes: 8)).action, EndAction.none);
-    guard.onEpisodeStarted('1[5]'); // the refresh button
-    expect(guard.incidents, 0);
-    expect(guard.attempts, 0);
-  });
-
-  test('a late reload failure after the next episode started is ignored', () {
-    playTo(const Duration(minutes: 8));
-    brokenUntilAction(const Duration(minutes: 8));
-    guard.onEpisodeStarted('1[6]');
-    guard.onReloadFailed();
-    playTo(const Duration(minutes: 1));
-    expect(
-      brokenUntilAction(const Duration(minutes: 1)).action,
-      EndAction.reload,
-    );
-  });
-
   test('two clean minutes refill the outage budget', () {
     playTo(const Duration(minutes: 5));
     brokenUntilAction(const Duration(minutes: 5));
