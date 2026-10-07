@@ -300,8 +300,22 @@ class UpscaleController {
             upscaledVideoFileName,
           ),
           cloudOnly: episodeNumber != null,
+          bytes: _sourceBytes(e),
         ),
     ];
+  }
+
+  /// HLS downloads are remuxed before upload, which keeps their size.
+  static int _sourceBytes(DownloadEpisode episode) {
+    final input = episode.localM3u8Path;
+    if (!input.toLowerCase().endsWith('.m3u8')) {
+      try {
+        return File(input).lengthSync();
+      } on FileSystemException {
+        return 0;
+      }
+    }
+    return episode.totalBytes;
   }
 
   Future<int> _durationSec(FfmpegInfo ffmpeg, DownloadEpisode episode) async =>
@@ -355,8 +369,8 @@ class UpscaleController {
       offer: offer,
       includeLocal: includeLocal,
       height: height,
-      estimate: CloudBakeEstimate.forDurations(
-        [for (final j in jobs) j.durationSec],
+      estimate: CloudBakeEstimate.forLoads(
+        [for (final j in jobs) j.load],
         includeLocal: includeLocal,
         localBusySec: includeLocal ? await _localBusySec(ffmpeg) : 0,
       ),
@@ -376,12 +390,7 @@ class UpscaleController {
       episodeNumber: episodeNumber,
     );
     if (!identical(session, _cloud)) return null;
-    final added = session.add(
-      jobs,
-      extraCapSec: CloudBakeEstimate.extraCapSec([
-        for (final j in jobs) j.durationSec,
-      ]),
-    );
+    final added = session.add(jobs);
     if (!added) {
       throw const CloudBakeException('云端 GPU 正在收尾，请稍后再试');
     }

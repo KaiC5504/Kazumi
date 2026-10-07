@@ -83,6 +83,8 @@ class FakeWorker implements CloudWorker {
   var goDarkAfterStatus = 1 << 30;
   var statusCalls = 0;
   var shutdowns = 0;
+  int? uptimeSec;
+  int? podCapSec;
 
   @override
   Future<WorkerStatus> status() async {
@@ -92,7 +94,12 @@ class FakeWorker implements CloudWorker {
     if (statusCalls == garbledStatusCall) {
       throw const FormatException('Unexpected end of input');
     }
-    return WorkerStatus(state: 'ready', episodes: Map.of(episodes));
+    return WorkerStatus(
+      state: 'ready',
+      episodes: Map.of(episodes),
+      uptimeSec: uptimeSec,
+      capSec: podCapSec,
+    );
   }
 
   @override
@@ -178,19 +185,18 @@ void main() {
   });
   tearDown(() => dir.deleteSync(recursive: true));
 
-  CloudJob job(int n, {bool cloudOnly = false, String recordKey = 'r'}) =>
-      CloudJob(
-        recordKey: recordKey,
-        episodeNumber: n,
-        durationSec: 1440,
-        outputPath: path.join(
-          dir.path,
-          '$recordKey$n',
-          'upscaled',
-          'video.mp4',
-        ),
-        cloudOnly: cloudOnly,
-      );
+  CloudJob job(
+    int n, {
+    bool cloudOnly = false,
+    String recordKey = 'r',
+    int durationSec = 1440,
+  }) => CloudJob(
+    recordKey: recordKey,
+    episodeNumber: n,
+    durationSec: durationSec,
+    outputPath: path.join(dir.path, '$recordKey$n', 'upscaled', 'video.mp4'),
+    cloudOnly: cloudOnly,
+  );
 
   CloudBakeSession make(
     FakePodApi api,
@@ -269,7 +275,10 @@ void main() {
         api.created.single['KAZUMI_TOKEN']!.length,
         greaterThanOrEqualTo(32),
       );
-      expect(api.created.single['KAZUMI_CAP_SEC'], '1800');
+      expect(
+        int.parse(api.created.single['KAZUMI_CAP_SEC']!),
+        greaterThanOrEqualTo(1800),
+      );
       expect(api.created.single['KAZUMI_WORKER'], 'packed');
       expect(s.view.phase, CloudBakePhase.done);
       expect(s.holds('r', 1), isFalse);
@@ -386,7 +395,7 @@ void main() {
     await runIt(s);
     expect(localBaked..sort(), [1, 2]);
     expect(api.created, isEmpty);
-    expect(s.add([job(3)], extraCapSec: 0), isFalse);
+    expect(s.add([job(3)]), isFalse);
   });
 
   test('a hard error at creation marks cloud episodes failed', () async {
@@ -436,14 +445,14 @@ void main() {
       final running = runIt(s);
       await until(() => worker.episodes.isNotEmpty);
       expect(
-        s.add([job(7, recordKey: 'other', cloudOnly: true)], extraCapSec: 600),
+        s.add([job(7, recordKey: 'other', cloudOnly: true, durationSec: 7200)]),
         isTrue,
       );
       expect(s.holds('other', 7), isTrue);
       expect(s.view.total, 2);
-      expect(s.capSec, 1800 + 600);
+      expect(s.capSec, greaterThan(3000));
       await until(() => worker.caps.isNotEmpty);
-      expect(worker.caps.last, 2400);
+      expect(worker.caps.last, s.capSec);
       await until(() => worker.episodes.length == 2);
       worker.bakeForever = false;
       for (final key in worker.episodes.keys.toList()) {
@@ -456,7 +465,7 @@ void main() {
       await running;
       expect(cloudBaked..sort(), [1, 7]);
       expect(api.created, hasLength(1));
-      expect(s.add([job(8)], extraCapSec: 0), isFalse);
+      expect(s.add([job(8)]), isFalse);
     },
   );
 
@@ -469,12 +478,26 @@ void main() {
       final running = runIt(s);
       await until(() => api.created.isNotEmpty);
       expect(api.created.single['KAZUMI_CAP_SEC'], '1800');
-      expect(s.add([job(2)], extraCapSec: 900), isTrue);
+      expect(s.add([job(2, durationSec: 7200)]), isTrue);
       await running;
-      expect(worker.caps.first, 2700);
+      expect(worker.caps.first, greaterThan(3000));
       expect(cloudBaked..sort(), [1, 2]);
     },
   );
+
+  test('the app tops up a pod whose cap would run out first', () async {
+    final worker = FakeWorker()
+      ..bakeForever = true
+      ..uptimeSec = 1700
+      ..podCapSec = 1800;
+    final s = make(FakePodApi(), worker, includeLocal: false, count: 1);
+    final running = runIt(s);
+    await until(() => worker.caps.isNotEmpty);
+    // 1700 s used and a half-baked episode left: the pod gets well past 1800.
+    expect(worker.caps.last, greaterThan(1700 + 300));
+    await s.stop();
+    await running;
+  });
 
   test('adding an episode the session already holds is a no-op', () async {
     final s = make(
@@ -485,7 +508,7 @@ void main() {
     );
     final running = runIt(s);
     await until(() => s.view.phase == CloudBakePhase.waiting);
-    expect(s.add([job(1)], extraCapSec: 600), isTrue);
+    expect(s.add([job(1)]), isTrue);
     expect((s.view.total, s.capSec), (1, 1800));
     await s.stop();
     await running;

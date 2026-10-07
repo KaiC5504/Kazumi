@@ -37,11 +37,15 @@ class CloudJob {
     required this.durationSec,
     required this.outputPath,
     this.cloudOnly = false,
+    this.bytes = 0,
   });
 
   final String recordKey;
   final int episodeNumber;
   final int durationSec;
+
+  /// Size of the source to upload; 0 when unknown.
+  final int bytes;
 
   /// Where the baked video ends up: `<episode>/upscaled/video.mp4`.
   final String outputPath;
@@ -52,12 +56,15 @@ class CloudJob {
 
   String get id => idFor(recordKey, episodeNumber);
 
+  CloudLoad get load => CloudLoad(durationSec, bytes);
+
   CloudJob asCloudOnly() => CloudJob(
     recordKey: recordKey,
     episodeNumber: episodeNumber,
     durationSec: durationSec,
     outputPath: outputPath,
     cloudOnly: true,
+    bytes: bytes,
   );
 
   /// Unique across shows on one pod. Record keys can hold any plugin name,
@@ -96,8 +103,8 @@ class CloudBakeQuote {
     offer: offer,
     includeLocal: false,
     height: height,
-    estimate: CloudBakeEstimate.forDurations([
-      for (final j in jobs) j.durationSec,
+    estimate: CloudBakeEstimate.forLoads([
+      for (final j in jobs) j.load,
     ], includeLocal: false),
   );
 }
@@ -114,6 +121,8 @@ class CloudBakeSessionView {
     this.podStartedAt,
     this.podEndedAt,
     this.message,
+    this.podRemainingSec,
+    this.projectedAt,
   });
 
   final CloudBakePhase phase;
@@ -126,6 +135,25 @@ class CloudBakeSessionView {
   final DateTime? podEndedAt;
   final double pricePerHour;
   final String? message;
+
+  /// The pod's remaining time as estimated at [projectedAt]; null once
+  /// there is nothing left for it.
+  final int? podRemainingSec;
+  final DateTime? projectedAt;
+
+  int? remainingAt(DateTime now) {
+    final remaining = podRemainingSec;
+    final at = projectedAt;
+    if (remaining == null || at == null) return null;
+    return max(0, remaining - now.difference(at).inSeconds);
+  }
+
+  /// What the pod will have cost by the time the queue is done.
+  double? projectedCost(DateTime now) {
+    final remaining = remainingAt(now);
+    if (remaining == null) return null;
+    return costAt(now) + remaining / 3600 * pricePerHour;
+  }
 
   double costAt(DateTime now) {
     final start = podStartedAt;
@@ -248,6 +276,8 @@ class CloudBakeSession {
   final Set<String> _committed = {};
   final Map<String, (double, DateTime)> _lastProgress = {};
   final Map<String, int> _uploadAttempts = {};
+  final Map<String, CloudEpisodePhase> _phases = {};
+  DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
   CloudJob? _local;
   CloudWorker? _worker;
   String? _podId;
@@ -281,9 +311,106 @@ class CloudBakeSession {
     podEndedAt: _podEndedAt,
     pricePerHour: _podPrice ?? pricePerHour,
     message: _message,
+    podRemainingSec: _podDone ? null : remainingPodSec().ceil(),
+    projectedAt: DateTime.now(),
   );
 
   int get capSec => _capSec;
+
+  bool get _podDone =>
+      _stopped || _closed || _cloudOver || (_pending.isEmpty && _held.isEmpty);
+
+  /// Seconds until the pod should have every queued episode home, from where
+  /// each one is now.
+  double remainingPodSec() {
+    final now = DateTime.now();
+    final podStart = _podStartedAt;
+    final double readyIn;
+    if (_worker != null) {
+      readyIn = 0;
+    } else if (podStart != null) {
+      readyIn = max(
+        60,
+        CloudBakeRates.startupSec - now.difference(podStart).inSeconds,
+      ).toDouble();
+    } else {
+      readyIn = CloudBakeRates.startupSec.toDouble();
+    }
+    PodWork left(CloudJob job) {
+      final fresh = PodWork.fresh(job.load);
+      final phase = _phases[job.id];
+      final p = phase?.progress ?? 0;
+      return switch (phase?.stage) {
+        CloudEpisodeStage.uploading => PodWork(
+          uploadBytes: fresh.uploadBytes * (1 - p),
+          bakeSec: fresh.bakeSec,
+          downloadBytes: fresh.downloadBytes,
+        ),
+        CloudEpisodeStage.waiting => PodWork(
+          uploadBytes: 0,
+          bakeSec: fresh.bakeSec,
+          downloadBytes: fresh.downloadBytes,
+        ),
+        CloudEpisodeStage.baking => PodWork(
+          uploadBytes: 0,
+          bakeSec: fresh.bakeSec * (1 - p),
+          downloadBytes: fresh.downloadBytes,
+        ),
+        CloudEpisodeStage.downloading => PodWork(
+          uploadBytes: 0,
+          bakeSec: 0,
+          downloadBytes: fresh.downloadBytes * (1 - p),
+        ),
+        _ => fresh,
+      };
+    }
+
+    int order(CloudJob job) => switch (_phases[job.id]?.stage) {
+      CloudEpisodeStage.downloading => 0,
+      CloudEpisodeStage.baking => 1,
+      CloudEpisodeStage.waiting => 2,
+      CloudEpisodeStage.uploading => 3,
+      _ => 4,
+    };
+    final held = _held.values.toList()
+      ..sort((a, b) => order(a).compareTo(order(b)));
+    return simulatePod([
+      for (final job in held) left(job),
+      for (final job in _pending) left(job),
+    ], readyInSec: readyIn);
+  }
+
+  /// Keeps the pod's cap at 1.5x what is left on top of what it has used,
+  /// so queued work never outlives it. Only ever raised. [podUptimeSec] and
+  /// [podCapSec] come from the pod itself when it has answered.
+  void _raiseCap({int? podUptimeSec, int? podCapSec}) {
+    final start = _podStartedAt;
+    final used =
+        podUptimeSec ??
+        (start == null ? 0 : DateTime.now().difference(start).inSeconds);
+    final remaining = remainingPodSec();
+    final need = max(capFor(remaining), used + (remaining * 1.5).ceil());
+    // The pod's own figure wins: a raise that never arrived shows up here.
+    final current = podCapSec ?? _capSec;
+    if (need <= current) {
+      _capSec = max(_capSec, current);
+      return;
+    }
+    // Ten minutes of slack, so a bake running a bit slow doesn't send a
+    // raise every poll.
+    _capSec = need + 600;
+    final worker = _worker;
+    if (worker != null) {
+      unawaited(
+        worker.extendCap(_capSec).catchError((Object e) {
+          KazumiLogger().w(
+            'CloudBakeSession: raising the cap failed',
+            error: e,
+          );
+        }),
+      );
+    }
+  }
 
   /// True while the session still owes this episode a bake.
   bool holds(String recordKey, int episodeNumber) {
@@ -304,7 +431,7 @@ class CloudBakeSession {
 
   /// Queues more episodes for the pod. False once the pod is gone or going,
   /// when the caller has to start a new session instead.
-  bool add(List<CloudJob> jobs, {required int extraCapSec}) {
+  bool add(List<CloudJob> jobs) {
     if (_stopped || _closed || _cloudOver) return false;
     final fresh = [
       for (final job in jobs)
@@ -313,21 +440,10 @@ class CloudBakeSession {
     if (fresh.isEmpty) return true;
     _pending.addAll(fresh);
     _total += fresh.length;
-    _capSec += extraCapSec;
     for (final job in fresh) {
       _setPhase(job, const CloudEpisodePhase(CloudEpisodeStage.queued));
     }
-    final worker = _worker;
-    if (worker != null) {
-      unawaited(
-        worker.extendCap(_capSec).catchError((Object e) {
-          KazumiLogger().w(
-            'CloudBakeSession: raising the cap failed',
-            error: e,
-          );
-        }),
-      );
-    }
+    _raiseCap();
     _wake();
     _notify();
     return true;
@@ -446,6 +562,7 @@ class CloudBakeSession {
       }
       if (available) {
         try {
+          _raiseCap();
           _createdCapSec = _capSec;
           return await api.createPod(
             name: _podName(),
@@ -660,6 +777,7 @@ class CloudBakeSession {
         }
       }
       if (status != null) {
+        _raiseCap(podUptimeSec: status.uptimeSec, podCapSec: status.capSec);
         for (final job in _held.values.toList()) {
           final episode = status.episodes[job.id];
           if (_downloading.contains(job.id)) continue;
@@ -816,10 +934,25 @@ class CloudBakeSession {
     _notify();
   }
 
-  void _setPhase(CloudJob job, CloudEpisodePhase? phase) =>
-      onPhase?.call(job, phase);
+  void _setPhase(CloudJob job, CloudEpisodePhase? phase) {
+    final before = _phases[job.id]?.stage;
+    if (phase == null) {
+      _phases.remove(job.id);
+    } else {
+      _phases[job.id] = phase;
+    }
+    onPhase?.call(job, phase);
+    // Progress ticks often; the projection only needs a refresh now and then.
+    if (phase?.stage != before ||
+        DateTime.now().difference(_lastNotify) > const Duration(seconds: 10)) {
+      _notify();
+    }
+  }
 
-  void _notify() => onChanged?.call(view);
+  void _notify() {
+    _lastNotify = DateTime.now();
+    onChanged?.call(view);
+  }
 
   void _wake() {
     final signal = _signal;

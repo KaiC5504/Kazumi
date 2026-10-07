@@ -42,6 +42,8 @@ class WorkerStatus {
     required this.episodes,
     this.encoder,
     this.error,
+    this.uptimeSec,
+    this.capSec,
   });
 
   /// booting, ready or broken.
@@ -50,10 +52,16 @@ class WorkerStatus {
   final String? encoder;
   final String? error;
 
+  /// The pod's own clock: it deletes itself once uptime passes the cap.
+  final int? uptimeSec;
+  final int? capSec;
+
   factory WorkerStatus.fromJson(Map<String, dynamic> json) => WorkerStatus(
     state: json['state'] as String? ?? '',
     encoder: json['encoder'] as String?,
     error: json['error'] as String?,
+    uptimeSec: (json['uptimeSec'] as num?)?.toInt(),
+    capSec: (json['capSec'] as num?)?.toInt(),
     episodes: {
       for (final e in (json['episodes'] as Map<String, dynamic>? ?? {}).entries)
         e.key: WorkerEpisode.fromJson(e.value as Map<String, dynamic>),

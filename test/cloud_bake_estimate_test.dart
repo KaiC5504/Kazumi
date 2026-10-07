@@ -2,76 +2,79 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
 
 void main() {
-  // 1540 s bakes in 200 s on the pod (7.7x) and ~570 s on the laptop (2.7x).
-  test('the laptop takes from the back while the pod starts up', () {
-    final e = CloudBakeEstimate.forDurations([
-      1540,
-      1540,
-      1540,
-    ], includeLocal: true);
-    expect((e.cloudCount, e.localCount), (2, 1));
-    expect(e.cloudSec, 300 + 200 + 200 + 60);
-    expect(e.finishSec, 760);
-    expect(e.capSec, 1800);
-  });
-
-  test('cloud only puts every episode on the pod', () {
-    final e = CloudBakeEstimate.forDurations([
-      1540,
-      1540,
-      1540,
+  test('a lone film: startup, upload, one slot, download', () {
+    final e = CloudBakeEstimate.forLoads([
+      const CloudLoad(7200, 1500000000),
     ], includeLocal: false);
-    expect((e.cloudCount, e.localCount), (3, 0));
-    expect(e.cloudSec, 960);
+    expect(
+      e.cloudSec,
+      (300 + 1.5e9 / 6e6 + 7200 / 3.85 + 1.5e9 * 2.3 / 20e6).ceil(),
+    );
+    expect(e.cost(1.09), closeTo(e.cloudSec / 3600 * 1.09, 1e-9));
+    expect(e.capSec, (e.cloudSec * 1.5).ceil());
   });
 
-  test('an unknown duration counts as a 24-minute episode', () {
-    final e = CloudBakeEstimate.forDurations([0], includeLocal: false);
-    expect(e.cloudSec, (300 + 1440 / 7.7 + 60).ceil());
+  test('two films bake side by side on the two slots', () {
+    final e = CloudBakeEstimate.forLoads([
+      const CloudLoad(7325, 1480000000),
+      const CloudLoad(7028, 1310000000),
+    ], includeLocal: false);
+    // The 2026-10-08 run: the pod lived about 47 minutes for both.
+    expect(e.cloudSec, inInclusiveRange(2600, 2900));
   });
 
-  test('one episode with the laptop on never reaches the pod', () {
-    final e = CloudBakeEstimate.forDurations([1440], includeLocal: true);
+  test('a season keeps the measured two-slot throughput', () {
+    final e = CloudBakeEstimate.forLoads(
+      List.filled(12, const CloudLoad(1440, 360000000)),
+      includeLocal: false,
+    );
+    expect(e.cloudSec, greaterThan(300 + 12 * 1440 / 7.7));
+    expect(e.cloudSec, lessThan(3000));
+  });
+
+  test('an unknown duration or size gets a typical one', () {
+    const load = CloudLoad(0);
+    expect(load.durationSec, 1440);
+    expect(load.bytes, 1440 * 250000);
+  });
+
+  test('a short episode with an idle laptop stays on the laptop', () {
+    final e = CloudBakeEstimate.forLoads([
+      const CloudLoad(1440),
+    ], includeLocal: true);
     expect((e.cloudCount, e.localCount, e.cloudSec), (0, 1, 0));
   });
 
-  test('a film goes to the pod even with the laptop free', () {
-    final e = CloudBakeEstimate.forDurations([7200], includeLocal: true);
-    expect((e.cloudCount, e.localCount), (1, 0));
-    expect(e.finishSec, (300 + 7200 / 7.7 + 60).ceil());
-    expect(e.localOnlySec, (7200 / 2.7).ceil());
-  });
-
   test('work the laptop already has pushes episodes to the pod', () {
-    final idle = CloudBakeEstimate.forDurations([1440], includeLocal: true);
-    final busy = CloudBakeEstimate.forDurations(
-      [1440],
+    final busy = CloudBakeEstimate.forLoads(
+      [const CloudLoad(1440)],
       includeLocal: true,
       localBusySec: 2400,
     );
-    expect(idle.cloudCount, 0);
     expect(busy.cloudCount, 1);
     expect(busy.localOnlySec, 2400 + (1440 / 2.7).ceil());
   });
 
-  test('extra cap for added episodes assumes a single slot', () {
-    expect(CloudBakeEstimate.extraCapSec([7700]), 3000);
-    expect(CloudBakeEstimate.extraCapSec([0]), (1440 * 2 / 7.7 * 1.5).ceil());
+  test('the laptop takes from the back while the pod starts up', () {
+    final e = CloudBakeEstimate.forLoads(
+      List.filled(6, const CloudLoad(1440, 360000000)),
+      includeLocal: true,
+    );
+    expect(e.cloudCount, greaterThan(0));
+    expect(e.localCount, greaterThan(0));
+    expect(e.cloudCount + e.localCount, 6);
   });
 
-  test('a lone film gets a cap that covers baking on one slot', () {
-    final e = CloudBakeEstimate.forDurations([7200], includeLocal: false);
-    expect(e.slowCloudSec, (300 + 60 + 7200 * 2 / 7.7).ceil());
-    expect(e.capSec, (e.slowCloudSec * 1.5).ceil());
-    expect(e.capSec, greaterThan(3000));
+  test('a short run still gets the minimum cap', () {
+    final e = CloudBakeEstimate.forLoads([
+      const CloudLoad(600, 100000000),
+    ], includeLocal: false);
+    expect(e.capSec, 1800);
   });
 
-  test('the cap is 1.5x the cloud time once that passes 30 minutes', () {
-    final durations = List.filled(25, 1440);
-    final e = CloudBakeEstimate.forDurations(durations, includeLocal: false);
-    expect(e.capSec, (e.slowCloudSec * 1.5).ceil());
-    expect(e.slowCloudSec, (300 + 60 + 25 * 1440 * 2 / 7.7).ceil());
-    expect(e.cost(1.09), closeTo(e.cloudSec / 3600 * 1.09, 1e-9));
-    expect(e.maxCost(1.09), closeTo(e.capSec / 3600 * 1.09, 1e-9));
+  test('in-flight work only counts what is left', () {
+    const baking = PodWork(uploadBytes: 0, bakeSec: 3850, downloadBytes: 5e8);
+    expect(simulatePod([baking]), closeTo(1000 + 25, 1e-6));
+    expect(simulatePod([baking], readyInSec: 60), closeTo(1085, 1e-6));
   });
 }

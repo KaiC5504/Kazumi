@@ -53,9 +53,12 @@ Future<bool> _joinRunning(
       episodeNumber: episodeNumber,
     );
     if (added == null) return false;
-    KazumiDialog.showToast(
-      message: episodeNumber == null ? '已加入云端队列 · $added 集' : '已加入云端队列',
+    final projected = controller.cloudSession.value?.projectedCost(
+      DateTime.now(),
     );
+    final count = episodeNumber == null ? ' · $added 集' : '';
+    final total = projected == null ? '' : ' · 预计共 ${_money(projected)}';
+    KazumiDialog.showToast(message: '已加入云端队列$count$total');
   } on CloudBakeException catch (e) {
     KazumiDialog.showToast(message: e.message);
   }
@@ -389,6 +392,15 @@ class _Stat extends StatelessWidget {
   }
 }
 
+/// The banner's look-ahead: time left on the pod and what it will cost.
+String? projection(CloudBakeSessionView view, DateTime now) {
+  final remaining = view.remainingAt(now);
+  final cost = view.projectedCost(now);
+  if (remaining == null || cost == null) return null;
+  final when = view.phase == CloudBakePhase.waiting ? '启动后约' : '预计还需';
+  return '$when ${_minutes(remaining)} · 共约 ${_money(cost)}';
+}
+
 /// Shown above the download list while a cloud bake runs.
 class CloudBakeBanner extends StatefulWidget {
   const CloudBakeBanner({
@@ -548,6 +560,13 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
                             color: colorScheme.onTertiaryContainer,
                           ),
                         ),
+                        if (projection(view, now) case final line?)
+                          Text(
+                            line,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onTertiaryContainer,
+                            ),
+                          ),
                         if (view.message != null)
                           Text(
                             view.message!,
