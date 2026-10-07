@@ -83,6 +83,16 @@ void main() {
     expect(dog.onTick(), WatchAction.none);
   });
 
+  test('a forgotten network is a fresh baseline, offline included', () {
+    dog.onNetwork(NetKind.wifi);
+    dog.forgetNetwork();
+    expect(dog.onNetwork(NetKind.cellular), WatchAction.none);
+    dog.onNetwork(NetKind.none);
+    dog.forgetNetwork();
+    expect(dog.offline, isFalse);
+    expect(dog.onNetwork(NetKind.wifi), WatchAction.none);
+  });
+
   group('ReconnectBackoff', () {
     test('0,1,2,4,8,15,15,15 then exhausted at about a minute', () {
       final b = ReconnectBackoff(clock: () => now)..start();

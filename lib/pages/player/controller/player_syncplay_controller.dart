@@ -70,6 +70,9 @@ abstract class _PlayerSyncPlayController with Store {
   bool _reconnectNoticeShown = false;
   // A peer's 'left' waits here so a quick rejoin shows no pills at all.
   final Map<String, DateTime> _pendingLeft = {};
+  // Peers who rejoined while the server still held their old connection;
+  // that connection's 'left' arrives later and must not remove them.
+  final Map<String, int> _ghosts = {};
   int _reconnectAttempts = 0;
 
   // The backoff stops counting as running once its last attempt is spent,
@@ -77,6 +80,8 @@ abstract class _PlayerSyncPlayController with Store {
   bool get reconnecting => _backoff.running || _backoff.exhausted;
   @visibleForTesting
   int get reconnectAttempts => _reconnectAttempts;
+  @visibleForTesting
+  Iterable<String> get peers => _peerFiles.keys;
 
   @visibleForTesting
   bool get waitingForPeers => _waitingForPeers;
@@ -171,7 +176,15 @@ abstract class _PlayerSyncPlayController with Store {
       _watchdog.onConnected();
       client.livePosition = _reportedPosition;
       client.onGeneralMessage.listen(
-        null,
+        (message) {
+          // Only the server's Hello reply comes through here. A reconnect
+          // counts once the server answers, not when our Hello is written:
+          // a server that accepts and then stays silent must not reset the
+          // backoff, or the loop would never give up.
+          if (_isCurrentConnection(session, client) && reconnecting) {
+            _reconnected();
+          }
+        },
         onError: (error) {
           if (!_isCurrentConnection(session, client)) {
             return;
@@ -200,6 +213,7 @@ abstract class _PlayerSyncPlayController with Store {
               setPlayingBangumi();
             } else {
               _peerFiles.putIfAbsent(message['username'], () => null);
+              _pendingLeft.remove(message['username']);
               if (!quiet) {
                 GlassNotice.show('已跟上 ${message['username']} 的进度',
                     icon: Icons.sync_rounded);
@@ -208,8 +222,19 @@ abstract class _PlayerSyncPlayController with Store {
             }
           }
           if (message['type'] == 'left') {
-            _peerFiles.remove(message['username']);
-            _pendingLeft[message['username']] = clock();
+            final String name = message['username'];
+            if (name == client.username) {
+              // Our own dead connection timing out on the server.
+              return;
+            }
+            final ghosts = _ghosts[name] ?? 0;
+            if (ghosts > 0) {
+              // The old connection of a peer who already rejoined.
+              _ghosts[name] = ghosts - 1;
+              return;
+            }
+            _peerFiles.remove(name);
+            _pendingLeft[name] = clock();
             if (_waitingForPeers && _peersBehind().isEmpty) {
               _stopWaiting();
             }
@@ -218,6 +243,10 @@ abstract class _PlayerSyncPlayController with Store {
             // A peer back from a dead socket can rejoin while the server
             // still holds the old connection, so no 'left' came first.
             final known = _peerFiles.containsKey(message['username']);
+            if (known) {
+              _ghosts.update(message['username'], (n) => n + 1,
+                  ifAbsent: () => 1);
+            }
             if (message['username'] != client.username) {
               _peerFiles[message['username']] = null;
             }
@@ -394,14 +423,6 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       syncplayRoom = room;
-      if (reconnecting) {
-        _backoff.reset();
-        if (_reconnectNoticeShown) {
-          GlassNotice.show('已重新同步', icon: Icons.sync_rounded);
-        }
-        _reconnectNoticeAt = null;
-        _reconnectNoticeShown = false;
-      }
     } catch (e) {
       KazumiLogger().e('SyncPlay: error', error: e);
       if (!_isCurrentConnection(session, client)) {
@@ -423,6 +444,15 @@ abstract class _PlayerSyncPlayController with Store {
         onAction: () => createRoom(room, username, changeEpisode),
       );
     }
+  }
+
+  void _reconnected() {
+    _backoff.reset();
+    if (_reconnectNoticeShown) {
+      GlassNotice.show('已重新同步', icon: Icons.sync_rounded);
+    }
+    _reconnectNoticeAt = null;
+    _reconnectNoticeShown = false;
   }
 
   void _beginReconnect() {
@@ -746,6 +776,9 @@ abstract class _PlayerSyncPlayController with Store {
     _backoff.reset();
     _room = null;
     _pendingLeft.clear();
+    _ghosts.clear();
+    // The next room starts from whatever network it opens on.
+    _watchdog.forgetNetwork();
     _reconnectNoticeAt = null;
     if (_reconnectNoticeShown) {
       _reconnectNoticeShown = false;

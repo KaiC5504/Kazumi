@@ -184,6 +184,7 @@ class SimSyncplayServer {
   final List<_Watcher> _watchers = [];
   final Map<String, NetworkProfile> _profiles = {};
   final List<NetworkProfile> _nextProfiles = [];
+  final Set<String> _silenced = {};
   bool paused = true;
   int _serverAcks = 0;
   Timer? _ticker;
@@ -260,6 +261,10 @@ class SimSyncplayServer {
     final message = json.decode(line) as Map<String, dynamic>;
     if (message['Hello'] case final Map hello) {
       watcher.name = hello['username'];
+      if (_silenced.contains(watcher.name)) {
+        watcher.link.dead = true;
+        return;
+      }
       if (watcher.profileGuessed) {
         watcher.link.profile = _profiles[watcher.name!] ?? watcher.link.profile;
       }
@@ -428,6 +433,18 @@ class SimSyncplayServer {
         _drop(w);
         await w.socket.close();
       }
+    }
+  }
+
+  /// Every later connection from [name] is accepted and then never
+  /// answered, like a half-hung server or a throttling middlebox.
+  void silence(String name) => _silenced.add(name);
+
+  /// The server finally times out [name]'s dead connections and tells the
+  /// room they left.
+  void dropGhosts(String name) {
+    for (final w in List.of(_watchers)) {
+      if (w.name == name && w.link.dead) _drop(w);
     }
   }
 

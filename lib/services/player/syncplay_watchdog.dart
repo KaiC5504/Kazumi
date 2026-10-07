@@ -26,6 +26,11 @@ class SyncPlayWatchdog {
     _reconnecting = false;
   }
 
+  void forgetNetwork() {
+    _kind = null;
+    _offline = false;
+  }
+
   void onInbound() {
     _lastInbound = _clock();
     _probedAt = null;
