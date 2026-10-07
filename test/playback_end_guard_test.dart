@@ -128,6 +128,21 @@ void main() {
     },
   );
 
+  test('mpv recovering by itself mid-wait restarts the gap', () {
+    playTo(const Duration(minutes: 8));
+    expect(complete(const Duration(minutes: 8)).action, EndAction.none);
+    for (var s = 1; s <= 3; s++) {
+      wait(1);
+      playTo(Duration(minutes: 8, seconds: s));
+    }
+    const p = Duration(minutes: 8, seconds: 3);
+    expect(complete(p).action, EndAction.none);
+    wait(1);
+    expect(complete(p).action, EndAction.none);
+    wait(1);
+    expect(complete(p).action, EndAction.reload);
+  });
+
   test('three separate outages are fine; a fourth within 2 min gives up', () {
     for (var i = 0; i < 3; i++) {
       playTo(Duration(minutes: 5 + i));

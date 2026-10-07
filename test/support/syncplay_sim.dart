@@ -188,6 +188,7 @@ class SimSyncplayServer {
   final Map<String, NetworkProfile> _profiles = {};
   final List<NetworkProfile> _nextProfiles = [];
   final Set<String> _silenced = {};
+  final Set<String> _hollow = {};
   bool paused = true;
   int _serverAcks = 0;
   Timer? _ticker;
@@ -300,6 +301,8 @@ class SimSyncplayServer {
       for (final other in others) {
         _send(other, _userEvent(watcher.name!, 'joined'));
       }
+      // Replies already queued still arrive; nothing after them does.
+      if (_hollow.contains(watcher.name)) watcher.link.dead = true;
       return;
     }
     if (message['Set'] case final Map set) {
@@ -452,6 +455,10 @@ class SimSyncplayServer {
   /// Every later connection from [name] is accepted and then never
   /// answered, like a half-hung server or a throttling middlebox.
   void silence(String name) => _silenced.add(name);
+
+  /// Every later connection from [name] gets its Hello answered and then
+  /// nothing more, like a server stuck after the handshake.
+  void hollow(String name) => _hollow.add(name);
 
   /// The server finally times out [name]'s dead connections and tells the
   /// room they left.

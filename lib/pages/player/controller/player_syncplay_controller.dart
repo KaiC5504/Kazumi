@@ -76,6 +76,11 @@ abstract class _PlayerSyncPlayController with Store {
   // that connection's 'left' arrives later and must not remove them.
   final Map<String, int> _ghosts = {};
   int _reconnectAttempts = 0;
+  // Reconnects the server answered with a Hello but no room state since.
+  // A server that does that and then goes quiet would otherwise be redialled
+  // forever, each cycle looking like a successful reconnect.
+  int _hollowReconnects = 0;
+  static const _maxHollowReconnects = 3;
   // The file this player last announced to the room. Unlike the client's
   // own file name it survives a quiet reconnect, so a reload of the same
   // episode can tell it isn't an episode change.
@@ -83,6 +88,8 @@ abstract class _PlayerSyncPlayController with Store {
   // Where a same-file reload resumes; reported until the player has loaded,
   // since an empty player reads 0 and the room follows the slowest watcher.
   Duration? _reloadingAt;
+  // The episode's length before that reload emptied the player.
+  Duration? _reloadingLength;
 
   // The backoff stops counting as running once its last attempt is spent,
   // but that attempt still needs time to land before giving up.
@@ -361,6 +368,7 @@ abstract class _PlayerSyncPlayController with Store {
           if (!_isCurrentConnection(session, client)) {
             return;
           }
+          _hollowReconnects = 0;
           syncplayClientRtt = (message['clientRtt'].toDouble() * 1000).toInt();
           KazumiLogger().i(
               'SyncPlay: position changed by ${message['setBy']}: [${DateTime.now().millisecondsSinceEpoch / 1000.0}] calculatedPosition ${message['calculatedPositon']} position: ${message['position']} doSeek: ${message['doSeek']} paused: ${message['paused']} clientRtt: ${message['clientRtt']} serverRtt: ${message['serverRtt']} fd: ${message['fd']}');
@@ -487,6 +495,7 @@ abstract class _PlayerSyncPlayController with Store {
 
   void _reconnected() {
     _backoff.reset();
+    _hollowReconnects++;
     if (_reconnectNoticeShown) {
       GlassNotice.show('已重新同步', icon: Icons.sync_rounded);
     }
@@ -497,6 +506,10 @@ abstract class _PlayerSyncPlayController with Store {
   void _beginReconnect() {
     if (_room == null || _changeEpisode == null) return;
     if (reconnecting) return;
+    if (_hollowReconnects >= _maxHollowReconnects) {
+      _giveUp();
+      return;
+    }
     _backoff.start();
     _reconnectNoticeAt = clock().add(const Duration(seconds: 3));
   }
@@ -547,17 +560,7 @@ abstract class _PlayerSyncPlayController with Store {
     if (_backoff.exhausted) {
       // The last attempt goes out about 60 s in; give it time to land.
       if (_backoff.elapsed < const Duration(seconds: 75)) return;
-      _backoff.reset();
-      _reconnectNoticeShown = false;
-      final room = _room!, user = _username!, change = _changeEpisode!;
-      unawaited(exitRoom());
-      GlassNotice.show(
-        '同步中断',
-        icon: Icons.link_off_rounded,
-        bottom: true,
-        actionLabel: '重新连接',
-        onAction: () => createRoom(room, user, change),
-      );
+      _giveUp();
       return;
     }
     if (_backoff.due()) {
@@ -565,6 +568,20 @@ abstract class _PlayerSyncPlayController with Store {
       _reconnectAttempts++;
       unawaited(createRoom(_room!, _username!, _changeEpisode!, quiet: true));
     }
+  }
+
+  void _giveUp() {
+    _backoff.reset();
+    _reconnectNoticeShown = false;
+    final room = _room!, user = _username!, change = _changeEpisode!;
+    unawaited(exitRoom());
+    GlassNotice.show(
+      '同步中断',
+      icon: Icons.link_off_rounded,
+      bottom: true,
+      actionLabel: '重新连接',
+      onAction: () => createRoom(room, user, change),
+    );
   }
 
   void onNetwork(NetKind kind) {
@@ -627,10 +644,16 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   bool _finishCurrentFirst(int episode) {
-    final total = duration();
+    var total = duration();
+    var position = playerPosition();
+    final reloadingAt = _reloadingAt;
+    if (total <= Duration.zero && reloadingAt != null) {
+      total = _reloadingLength ?? Duration.zero;
+      position = reloadingAt;
+    }
     return episode == currentEpisode() + 1 &&
         total > Duration.zero &&
-        total - playerPosition() <= const Duration(minutes: 3);
+        total - position <= const Duration(minutes: 3);
   }
 
   double _reportedPosition() {
@@ -803,7 +826,15 @@ abstract class _PlayerSyncPlayController with Store {
 
   /// Called as the player starts loading [file] at [offset].
   void onEpisodeLoading(String file, Duration offset) {
-    _reloadingAt = file == _announcedFile ? offset : null;
+    final reload = file == _announcedFile;
+    _reloadingAt = reload ? offset : null;
+    if (!reload) {
+      _reloadingLength = null;
+    } else if (duration() > Duration.zero) {
+      // A retry after a failed load starts from an empty player; keep the
+      // length the first reload saw.
+      _reloadingLength = duration();
+    }
   }
 
   /// Called once the player has loaded the current episode. A new episode is
@@ -853,6 +884,7 @@ abstract class _PlayerSyncPlayController with Store {
   @action
   Future<void> exitRoom() async {
     _backoff.reset();
+    _hollowReconnects = 0;
     _room = null;
     _pendingLeft.clear();
     _leftFiles.clear();

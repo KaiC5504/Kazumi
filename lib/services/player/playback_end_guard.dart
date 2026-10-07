@@ -74,6 +74,8 @@ class PlaybackEndGuard {
       return;
     }
     if (position > Duration.zero) _lastGood = position;
+    // mpv recovered by itself mid-wait: the next EOF waits its full gap.
+    _failedAt = null;
     final now = _clock();
     _cleanSince ??= now;
     final clean = now.difference(_cleanSince!);

@@ -21,7 +21,7 @@ void main() {
   late SimViewer her;
   final viewers = <SimViewer>[];
 
-  Future<void> start(int seed) async {
+  Future<void> start(int seed, {double at = 300}) async {
     clock = VirtualClock(_speed);
     server = await SimSyncplayServer.start(clock, seed: seed);
     kai = SimViewer(
@@ -38,8 +38,8 @@ void main() {
       episodeLength: 1440,
     )..hosts = [SimHost('sg', 6)];
     viewers.addAll([kai, her]);
-    await kai.join(server, at: 300);
-    await her.join(server, at: 300);
+    await kai.join(server, at: at);
+    await her.join(server, at: at);
     simNotices.clear();
   }
 
@@ -145,6 +145,25 @@ void main() {
         server.roomPauseChanges.where((c) => c.startsWith('her')),
         isEmpty,
       );
+    });
+  });
+
+  test('he moves on while she reloads near the end: she finishes first', () {
+    return eachSeed(51, (seed) async {
+      await start(seed, at: 1340);
+      await clock.wait(10);
+      her.cutStream(recoverAfter: 0);
+      await clock.until(() => her.loading, timeout: 10, what: 'the reload');
+      unawaited(kai.changeEpisode(2));
+      await clock.until(
+        () => her.sync.followEpisode == 2,
+        timeout: 5,
+        what: 'her to queue episode 2',
+      );
+      expect(her.episodeChanges, isEmpty);
+      expect(simNotices.any((n) => n.contains('本集播完后跟上')), isTrue);
+      await clock.until(() => her.episode == 2, timeout: 120, what: 'her');
+      expect(her.furthest[1], greaterThan(1430));
     });
   });
 
