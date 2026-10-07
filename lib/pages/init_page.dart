@@ -22,6 +22,7 @@ import 'package:kazumi/services/platform/platform_environment_service.dart';
 import 'package:kazumi/services/update/startup_update_check.dart';
 import 'package:kazumi/navigation.dart';
 import 'package:kazumi/services/library/library_controller.dart';
+import 'package:kazumi/services/reminder/episode_reminder_service.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 
 class InitPage extends StatefulWidget {
@@ -65,6 +66,8 @@ class _InitPageState extends State<InitPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Timer(const Duration(seconds: 2),
           () => widget.libraryController.scheduleRouteCheckOnce());
+      Timer(const Duration(seconds: 5),
+          () => unawaited(EpisodeReminderService.instance.refresh()));
     });
   }
 
@@ -122,6 +125,14 @@ class _InitPageState extends State<InitPage> {
     ));
     KazumiLogger().i('InitPage: init took ${initWatch.elapsedMilliseconds}ms');
     _startDefaultPage();
+    EpisodeReminderService.instance.onOpen = (id) {
+      final c = GStorage.collectibles.get(id);
+      final ctx = rootNavigatorKey.currentContext;
+      if (c != null && ctx != null && ctx.mounted) {
+        ctx.pushNamed('/info/', arguments: c.bangumiItem);
+      }
+    };
+    unawaited(EpisodeReminderService.instance.handleLaunchTap());
     unawaited(checkLeftoverCloudPods(widget.upscaleController));
   }
 

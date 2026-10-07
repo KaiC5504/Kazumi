@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import Flutter
 import AVKit
 import UniformTypeIdentifiers
@@ -10,6 +11,7 @@ import UniformTypeIdentifiers
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 

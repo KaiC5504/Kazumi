@@ -104,6 +104,9 @@ dependencies:
       ref: 803c4a27912091db6f839d48d1b984a0d9f588c7
       path: ./media_kit_video
   macos_secure_bookmarks: ^0.2.1
+  flutter_local_notifications: ^22.3.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.1
 
 dev_dependencies:
   path_provider_platform_interface: ^2.1.2
