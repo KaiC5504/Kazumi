@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kazumi/services/download/mirror_selector.dart';
 import 'package:kazumi/services/library/library_api.dart';
@@ -27,6 +29,21 @@ void main() {
       final api = LibraryApi('kazumi.kaic5504.com', 'secret');
       expect(api.ownsUrl(LibraryApi.rehost(queued, hk)), isTrue);
     });
+  });
+
+  test('a relay that accepts but stalls gives up quickly', () async {
+    final hung = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    hung.listen((_) {});
+    addTearDown(() => hung.close(force: true));
+    final api = LibraryApi(
+      'kazumi.kaic5504.com',
+      'secret',
+      apiHost: Uri.parse('http://127.0.0.1:${hung.port}'),
+      relayTimeout: const Duration(milliseconds: 300),
+    );
+    final watch = Stopwatch()..start();
+    await expectLater(api.config(), throwsA(isA<LibraryException>()));
+    expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
   });
 
   group('LibraryApi.hostOrder', () {

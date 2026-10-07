@@ -25,17 +25,20 @@ class PlayerSeekController {
     required Future<void> Function({bool enableSync}) pause,
     required Future<void> Function({bool enableSync}) play,
     required Future<void> Function(bool enableSync) onSeekCompleted,
+    void Function(Duration target)? onSeek,
   })  : _playback = playback,
         _danmaku = danmaku,
         _pause = pause,
         _play = play,
-        _onSeekCompleted = onSeekCompleted;
+        _onSeekCompleted = onSeekCompleted,
+        _onSeek = onSeek;
 
   final PlayerPlaybackController _playback;
   final PlayerDanmakuController _danmaku;
   final Future<void> Function({bool enableSync}) _pause;
   final Future<void> Function({bool enableSync}) _play;
   final Future<void> Function(bool enableSync) _onSeekCompleted;
+  final void Function(Duration target)? _onSeek;
 
   Future<void> _seekTail = Future<void>.value();
   _InteractiveSeekSession? _interactiveSession;
@@ -53,6 +56,7 @@ class PlayerSeekController {
 
     final normalizedTarget = _normalize(target);
     _playback.currentPosition = normalizedTarget;
+    _onSeek?.call(normalizedTarget);
     _danmaku.clearAndInvalidateScheduledDanmakus();
 
     final operation = _seekTail.then((_) async {

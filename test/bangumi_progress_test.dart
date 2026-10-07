@@ -118,6 +118,52 @@ void main() {
       expect(marked, isEmpty);
     });
 
+    test('400 is dropped and never collects', () async {
+      next = MarkResult.rejected;
+      await watch(3, 0.95);
+      expect(collected, isEmpty);
+      expect(jsonDecode(queue), isEmpty);
+    });
+
+    test('only 404 means not collected', () {
+      expect(markResultForStatus(404), MarkResult.notCollected);
+      expect(markResultForStatus(400), MarkResult.rejected);
+      expect(markResultForStatus(401), MarkResult.unauthorized);
+      expect(markResultForStatus(500), MarkResult.failed);
+      expect(markResultForStatus(null), MarkResult.failed);
+    });
+
+    test('flush keeps unsent marks queued while it works', () async {
+      queue = jsonEncode([
+        {'s': 9, 'e': 1},
+        {'s': 9, 'e': 2},
+        {'s': 9, 'e': 3},
+      ]);
+      final seen = <String>[];
+      final flushing = BangumiProgressService(
+        fetchEpisodes: (id) async => [
+          for (var i = 1; i <= 12; i++) ep(500 + i, i, i),
+        ],
+        mark: (id) async {
+          seen.add(queue);
+          return id == 502 ? MarkResult.failed : MarkResult.ok;
+        },
+        collectAsWatching: (id) async => fail('must not collect'),
+        enabled: () => true,
+        readQueue: () => queue,
+        writeQueue: (v) async => queue = v,
+      );
+      await flushing.flush();
+      // Killed during the second mark, the queue would still hold 2 and 3.
+      expect(jsonDecode(seen[1]), [
+        {'s': 9, 'e': 2},
+        {'s': 9, 'e': 3},
+      ]);
+      expect(jsonDecode(queue), [
+        {'s': 9, 'e': 2},
+      ]);
+    });
+
     test('short clips are ignored', () async {
       s.onPosition(
         subjectId: 9,

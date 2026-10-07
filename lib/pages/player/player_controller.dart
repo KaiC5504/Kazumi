@@ -81,6 +81,7 @@ class PlayerController implements Disposable {
     pause: pause,
     play: play,
     onSeekCompleted: _onSeekCompleted,
+    onSeek: endGuard.onSeek,
   );
   late final ExternalPlaybackLauncher externalPlayback =
       ExternalPlaybackLauncher(
@@ -287,7 +288,8 @@ class PlayerController implements Disposable {
     if (!_ownsInitialization(initialization, player)) {
       return false;
     }
-    endGuard.onEpisodeStarted('$bangumiId[$currentEpisode]');
+    endGuard.onEpisodeStarted(
+        PlaybackEndGuard.keyFor(bangumiId, currentEpisode));
     KazumiLogger().i('PlayerController: video initialized');
     playback.loading = false;
 

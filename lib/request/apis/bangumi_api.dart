@@ -718,11 +718,7 @@ class BangumiApi {
       );
       return MarkResult.ok;
     } on NetworkException catch (e) {
-      return switch (e.statusCode) {
-        400 || 404 => MarkResult.notCollected,
-        401 || 403 => MarkResult.unauthorized,
-        _ => MarkResult.failed,
-      };
+      return markResultForStatus(e.statusCode);
     } catch (_) {
       return MarkResult.failed;
     }

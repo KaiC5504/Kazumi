@@ -27,6 +27,7 @@ import 'package:kazumi/pages/video/video_page_layout.dart';
 import 'package:kazumi/pages/video/video_side_panel.dart';
 import 'package:kazumi/pages/video/video_system_bars.dart';
 import 'package:kazumi/services/player/pip_utils.dart';
+import 'package:kazumi/services/player/playback_end_guard.dart';
 import 'package:kazumi/services/player/timed_shutdown_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/utils/device.dart';
@@ -436,8 +437,12 @@ class _VideoPageState extends State<VideoPage>
                                   videoPageController.selectedEpisode.episode,
                                   currentRoad:
                                       videoPageController.selectedEpisode.road,
-                                  offset: playerController
-                                      .endGuard.lastGoodPosition.inSeconds);
+                                  offset: playerController.endGuard
+                                      .resumeFor(PlaybackEndGuard.keyFor(
+                                          videoPageController.bangumiItem.id,
+                                          videoPageController
+                                              .selectedEpisode.episode))
+                                      .inSeconds);
                             },
                           ),
                           if (layout.hasSidePanel)
@@ -466,7 +471,9 @@ class _VideoPageState extends State<VideoPage>
           ),
         ),
         Positioned.fill(
-          child: playerLoading
+          // A failed reload leaves an initialised player whose surface would
+          // cover the error and its 刷新 button.
+          child: playerLoading || videoPageController.errorMessage != null
               ? const SizedBox.shrink()
               : PlayerItem(
                   fillsWindow: layout.fillsWindow,

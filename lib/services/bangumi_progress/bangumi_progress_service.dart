@@ -8,7 +8,16 @@ import 'package:kazumi/services/bangumi_progress/bangumi_episode_matcher.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/storage/storage.dart';
 
-enum MarkResult { ok, notCollected, unauthorized, failed }
+enum MarkResult { ok, notCollected, unauthorized, rejected, failed }
+
+/// Only 404 means the subject isn't collected. A 400 can be any validation
+/// error, and collecting on it would overwrite 看过 or 抛弃 with 在看.
+MarkResult markResultForStatus(int? status) => switch (status) {
+  404 => MarkResult.notCollected,
+  401 || 403 => MarkResult.unauthorized,
+  400 => MarkResult.rejected,
+  _ => MarkResult.failed,
+};
 
 /// Marks an episode 看过 on Bangumi once it's 90% watched. Marks made
 /// offline (downloads on the iPad) wait in a queue until the next flush.
@@ -81,11 +90,10 @@ class BangumiProgressService {
     }
     return _chain = _chain.then((_) async {
       try {
-        final items = _readItems();
-        if (items.isEmpty) return;
-        await writeQueue('[]');
-        for (final (s, e) in items) {
-          await _markOrQueue(s, e);
+        // Items leave the queue one at a time, so a kill mid-flush (it runs
+        // on resume) loses nothing.
+        for (final (s, e) in _readItems()) {
+          if (!await _markOrQueue(s, e)) await _dequeue(s, e);
         }
       } catch (e) {
         KazumiLogger().w('BangumiProgress: flush failed', error: e);
@@ -113,20 +121,30 @@ class BangumiProgressService {
     );
   }
 
-  Future<void> _markOrQueue(int subjectId, int episodeNumber) async {
+  Future<void> _dequeue(int subjectId, int episodeNumber) async {
+    final items = _readItems()..remove((subjectId, episodeNumber));
+    await writeQueue(
+      jsonEncode([
+        for (final (s, e) in items) {'s': s, 'e': e},
+      ]),
+    );
+  }
+
+  /// Returns whether the mark is (still) queued.
+  Future<bool> _markOrQueue(int subjectId, int episodeNumber) async {
     try {
       final eps = _episodes[subjectId] ??= await fetchEpisodes(subjectId);
       if (eps.isEmpty) {
         _episodes.remove(subjectId);
         await _enqueue(subjectId, episodeNumber);
-        return;
+        return true;
       }
       final id = matchBangumiEpisodeId(eps, episodeNumber);
       if (id == null) {
         KazumiLogger().i(
           'BangumiProgress: no episode $episodeNumber in $subjectId',
         );
-        return;
+        return false;
       }
       var result = await mark(id);
       if (result == MarkResult.notCollected &&
@@ -135,18 +153,24 @@ class BangumiProgressService {
       }
       switch (result) {
         case MarkResult.ok:
-          break;
+          return false;
         case MarkResult.unauthorized:
           KazumiLogger().w('BangumiProgress: token rejected, dropping mark');
+          return false;
+        case MarkResult.rejected:
+          KazumiLogger().w('BangumiProgress: mark rejected, dropping it');
+          return false;
         case MarkResult.notCollected:
         case MarkResult.failed:
           await _enqueue(subjectId, episodeNumber);
+          return true;
       }
     } catch (e) {
       KazumiLogger().w('BangumiProgress: mark failed, queued', error: e);
       try {
         await _enqueue(subjectId, episodeNumber);
       } catch (_) {}
+      return true;
     }
   }
 }

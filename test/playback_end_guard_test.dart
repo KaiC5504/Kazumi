@@ -183,4 +183,54 @@ void main() {
     expect(guard.attempts, 0);
     expect(guard.lastGoodPosition, Duration.zero);
   });
+
+  test('a seek to the end finishes the episode', () {
+    playTo(const Duration(minutes: 10));
+    guard.onSeek(len);
+    expect(complete(len).action, EndAction.trueEnd);
+  });
+
+  test('a seek to just before the end finishes the episode', () {
+    playTo(const Duration(minutes: 10));
+    guard.onSeek(len - const Duration(milliseconds: 500));
+    expect(complete(len).action, EndAction.trueEnd);
+  });
+
+  test('a stale tick from before the seek is ignored', () {
+    playTo(const Duration(minutes: 22, seconds: 30));
+    guard.onSeek(len);
+    playTo(const Duration(minutes: 22, seconds: 30));
+    expect(complete(len).action, EndAction.trueEnd);
+  });
+
+  test('ticks count again once the seek has landed', () {
+    playTo(const Duration(minutes: 20));
+    guard.onSeek(const Duration(minutes: 10));
+    playTo(const Duration(minutes: 20));
+    expect(guard.lastGoodPosition, const Duration(minutes: 10));
+    wait(1);
+    playTo(const Duration(minutes: 10, seconds: 1));
+    wait(1);
+    playTo(const Duration(minutes: 10, seconds: 2));
+    expect(
+      brokenUntilAction(const Duration(minutes: 10, seconds: 2)).resumeAt,
+      const Duration(minutes: 10, seconds: 2),
+    );
+  });
+
+  test('a seek that never lands stops masking ticks', () {
+    guard.onSeek(const Duration(minutes: 10));
+    wait(PlaybackEndGuard.seekSettle.inSeconds);
+    playTo(const Duration(minutes: 4));
+    expect(guard.lastGoodPosition, const Duration(minutes: 4));
+  });
+
+  test('retry only resumes the episode the position belongs to', () {
+    playTo(const Duration(minutes: 23, seconds: 10));
+    expect(
+      guard.resumeFor(PlaybackEndGuard.keyFor(1, 5)),
+      const Duration(minutes: 23, seconds: 10),
+    );
+    expect(guard.resumeFor(PlaybackEndGuard.keyFor(1, 6)), Duration.zero);
+  });
 }

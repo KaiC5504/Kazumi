@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/services/library/host_router.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 
@@ -83,7 +84,13 @@ class _RouteSheetState extends State<_RouteSheet> {
                       ? null
                       : () async {
                           setState(() => _checking = true);
-                          await c.recheckRoute();
+                          final result = await c.recheckRoute();
+                          if (result == null) {
+                            GlassNotice.show(
+                              '测速失败，仍用原线路',
+                              icon: Icons.wifi_off_rounded,
+                            );
+                          }
                           if (mounted) setState(() => _checking = false);
                         },
                   icon: _checking

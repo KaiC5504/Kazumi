@@ -114,8 +114,12 @@ class LibraryException implements Exception {
 
 /// Client for the shared episode library on the owner's server.
 class LibraryApi {
-  LibraryApi(String server, this.key, {this.apiHost})
-    : baseUri = normalizeServer(server);
+  LibraryApi(
+    String server,
+    this.key, {
+    this.apiHost,
+    this.relayTimeout = const Duration(seconds: 8),
+  }) : baseUri = normalizeServer(server);
 
   final Uri baseUri;
   final String key;
@@ -123,6 +127,10 @@ class LibraryApi {
   /// A relay to send lobby calls through instead of [baseUri]. Writes that
   /// must not be repeated or that move big bodies always go direct.
   final Uri? apiHost;
+
+  /// A relay that accepts but stalls shouldn't hold a lobby call for the
+  /// full timeout before the caller falls back to [baseUri].
+  final Duration relayTimeout;
 
   static Uri normalizeServer(String server) {
     var value = server.trim();
@@ -452,13 +460,17 @@ class LibraryApi {
     final client = _client();
     try {
       final host = direct ? baseUri : (apiHost ?? baseUri);
+      final viaRelay = host != baseUri;
+      if (viaRelay) client.connectionTimeout = relayTimeout;
       final request = await client.openUrl(method, host.replace(path: path));
       request.headers.set(lanShareTokenHeader, key);
       if (body != null) {
         request.headers.contentType = ContentType.json;
         request.write(jsonEncode(body));
       }
-      final response = await request.close().timeout(_responseTimeout);
+      final response = await request.close().timeout(
+        viaRelay ? relayTimeout : _responseTimeout,
+      );
       final text = await utf8.decodeStream(response);
       _check(response);
       return text.isEmpty ? {} : jsonDecode(text) as Map<String, dynamic>;
