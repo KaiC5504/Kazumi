@@ -21,6 +21,75 @@ class CloudEpisodePhase {
 
 enum LocalBakeOutcome { done, failed, cancelled }
 
+/// How one episode of a cloud session ended.
+enum CloudEpisodeOutcome { cloud, local, failed, returned }
+
+class CloudEpisodeReport {
+  const CloudEpisodeReport({
+    required this.job,
+    required this.outcome,
+    this.error,
+    this.uploadSec,
+    this.bakeSec,
+    this.downloadSec,
+    this.outBytes,
+  });
+
+  final CloudJob job;
+  final CloudEpisodeOutcome outcome;
+  final String? error;
+  final int? uploadSec;
+  final int? bakeSec;
+  final int? downloadSec;
+  final int? outBytes;
+}
+
+/// Everything the end-of-run summary shows, built once every baked episode
+/// is home and the pod is gone.
+class CloudBakeReport {
+  const CloudBakeReport({
+    required this.startedAt,
+    required this.endedAt,
+    required this.pricePerHour,
+    required this.episodes,
+    required this.stopped,
+    this.podStartedAt,
+    this.podEndedAt,
+    this.encoder,
+    this.message,
+  });
+
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final DateTime? podStartedAt;
+  final DateTime? podEndedAt;
+  final double pricePerHour;
+  final String? encoder;
+  final String? message;
+  final bool stopped;
+  final List<CloudEpisodeReport> episodes;
+
+  Duration get wall => endedAt.difference(startedAt);
+
+  int get podSec {
+    final start = podStartedAt;
+    if (start == null) return 0;
+    return (podEndedAt ?? endedAt).difference(start).inSeconds;
+  }
+
+  double get cost => podSec / 3600 * pricePerHour;
+
+  Iterable<CloudEpisodeReport> where(CloudEpisodeOutcome outcome) =>
+      episodes.where((e) => e.outcome == outcome);
+
+  /// Media time the pod baked.
+  int get cloudMediaSec =>
+      where(CloudEpisodeOutcome.cloud).fold(0, (a, e) => a + e.job.durationSec);
+
+  /// How long the laptop alone would have needed for what the pod did.
+  int get laptopSec => (cloudMediaSec / CloudBakeRates.localRealtime).ceil();
+}
+
 class CloudBakeException implements Exception {
   const CloudBakeException(this.message);
 
@@ -277,6 +346,9 @@ class CloudBakeSession {
   final Map<String, (double, DateTime)> _lastProgress = {};
   final Map<String, int> _uploadAttempts = {};
   final Map<String, CloudEpisodePhase> _phases = {};
+  final Map<String, Map<CloudEpisodeStage, DateTime>> _marks = {};
+  final Map<String, CloudEpisodeReport> _outcomes = {};
+  String? _encoder;
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
   CloudJob? _local;
   CloudWorker? _worker;
@@ -316,6 +388,62 @@ class CloudBakeSession {
   );
 
   int get capSec => _capSec;
+
+  CloudBakeReport get report => CloudBakeReport(
+    startedAt: _startedAt,
+    endedAt: DateTime.now(),
+    podStartedAt: _podStartedAt,
+    podEndedAt: _podEndedAt,
+    pricePerHour: _podPrice ?? pricePerHour,
+    encoder: _encoder,
+    message: _message,
+    stopped: _stopped,
+    episodes: _outcomes.values.toList(),
+  );
+
+  void _record(
+    CloudJob job,
+    CloudEpisodeOutcome outcome, {
+    String? error,
+    int? outBytes,
+  }) {
+    final marks = _marks.remove(job.id) ?? const {};
+    int? between(CloudEpisodeStage from, CloudEpisodeStage? to) {
+      final a = marks[from];
+      if (a == null) return null;
+      final b = to == null ? DateTime.now() : marks[to];
+      return b?.difference(a).inSeconds;
+    }
+
+    final bakeStart =
+        marks[CloudEpisodeStage.waiting] ?? marks[CloudEpisodeStage.baking];
+    _outcomes.remove(job.id);
+    _outcomes[job.id] = CloudEpisodeReport(
+      job: job,
+      outcome: outcome,
+      error: error,
+      uploadSec: bakeStart == null
+          ? null
+          : marks[CloudEpisodeStage.uploading] == null
+          ? null
+          : bakeStart.difference(marks[CloudEpisodeStage.uploading]!).inSeconds,
+      bakeSec: between(CloudEpisodeStage.baking, CloudEpisodeStage.downloading),
+      downloadSec: outcome == CloudEpisodeOutcome.cloud
+          ? between(CloudEpisodeStage.downloading, null)
+          : null,
+      outBytes: outBytes,
+    );
+  }
+
+  Future<void> _failedJob(CloudJob job, String error) async {
+    _record(job, CloudEpisodeOutcome.failed, error: error);
+    await onFailed(job, error);
+  }
+
+  Future<void> _returnedJob(CloudJob job) async {
+    _record(job, CloudEpisodeOutcome.returned);
+    await onReturned(job);
+  }
 
   bool get _podDone =>
       _stopped || _closed || _cloudOver || (_pending.isEmpty && _held.isEmpty);
@@ -495,7 +623,7 @@ class CloudBakeSession {
     _fallback.clear();
     for (final job in unstarted) {
       _setPhase(job, null);
-      await onReturned(job);
+      await _returnedJob(job);
     }
     _wake();
     _notify();
@@ -517,6 +645,11 @@ class CloudBakeSession {
       _local = null;
       if (outcome == LocalBakeOutcome.done) _localDone++;
       if (outcome == LocalBakeOutcome.failed) _failed++;
+      _record(job, switch (outcome) {
+        LocalBakeOutcome.done => CloudEpisodeOutcome.local,
+        LocalBakeOutcome.failed => CloudEpisodeOutcome.failed,
+        LocalBakeOutcome.cancelled => CloudEpisodeOutcome.returned,
+      }, error: outcome == LocalBakeOutcome.failed ? '本机烘焙失败' : null);
       _notify();
       _wake();
     }
@@ -531,7 +664,7 @@ class CloudBakeSession {
       _fallback.add(job);
     } else {
       _failed++;
-      await onFailed(job, '云端烘焙未完成: $reason');
+      await _failedJob(job, '云端烘焙未完成: $reason');
     }
     _wake();
     _notify();
@@ -636,7 +769,7 @@ class CloudBakeSession {
         _held.remove(job.id);
         onPhase?.call(job, null);
         if (_stopped) {
-          await onReturned(job);
+          await _returnedJob(job);
         } else {
           await _giveUp(job, _message ?? '云端烘焙中断');
         }
@@ -666,7 +799,10 @@ class CloudBakeSession {
         } on CloudWorkerException {
           // Still booting: the port is mapped before the worker listens.
         }
-        if (status?.state == 'ready') return worker;
+        if (status?.state == 'ready') {
+          _encoder = status!.encoder;
+          return worker;
+        }
         if (status?.state == 'broken') {
           throw CloudBakeException('云端 GPU 环境异常: ${status!.error}');
         }
@@ -817,7 +953,7 @@ class CloudBakeSession {
                 _fallback.add(job);
               } else {
                 _failed++;
-                await onFailed(job, '云端烘焙失败: ${episode.error}');
+                await _failedJob(job, '云端烘焙失败: ${episode.error}');
               }
               _wake();
           }
@@ -882,6 +1018,7 @@ class CloudBakeSession {
     }
     _held.remove(job.id);
     _downloading.remove(job.id);
+    _record(job, CloudEpisodeOutcome.cloud, outBytes: bytes);
     _setPhase(job, null);
     _cloudDone++;
     try {
@@ -940,6 +1077,7 @@ class CloudBakeSession {
       _phases.remove(job.id);
     } else {
       _phases[job.id] = phase;
+      (_marks[job.id] ??= {}).putIfAbsent(phase.stage, DateTime.now);
     }
     onPhase?.call(job, phase);
     // Progress ticks often; the projection only needs a refresh now and then.

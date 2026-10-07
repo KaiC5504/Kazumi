@@ -544,6 +544,44 @@ void main() {
     expect(cloudBaked, [1]);
   });
 
+  test('the report lists every episode once it is home', () async {
+    final api = FakePodApi();
+    final worker = FakeWorker()..failIds.add(id(3));
+    final s = make(api, worker, includeLocal: false);
+    await runIt(s);
+    final report = s.report;
+    expect(report.stopped, isFalse);
+    expect(report.podEndedAt, isNotNull);
+    final byEp = {for (final e in report.episodes) e.job.episodeNumber: e};
+    expect(byEp.keys.toSet(), {1, 2, 3, 4});
+    expect(byEp[1]!.outcome, CloudEpisodeOutcome.cloud);
+    expect(byEp[1]!.outBytes, 3);
+    expect(byEp[1]!.uploadSec, isNotNull);
+    expect(byEp[3]!.outcome, CloudEpisodeOutcome.failed);
+    expect(byEp[3]!.error, contains('boom'));
+    for (final n in [1, 2, 4]) {
+      expect(
+        File(path.join(dir.path, 'r$n', 'upscaled', 'video.mp4')).existsSync(),
+        isTrue,
+      );
+    }
+    expect(report.cloudMediaSec, 3 * 1440);
+    expect(report.laptopSec, (3 * 1440 / 2.7).ceil());
+  });
+
+  test('a stopped run reports its episodes as returned', () async {
+    final worker = FakeWorker()..bakeForever = true;
+    final s = make(FakePodApi(), worker, includeLocal: false, count: 2);
+    final running = runIt(s);
+    await until(() => worker.episodes.isNotEmpty);
+    await s.stop();
+    await running;
+    expect(s.report.stopped, isTrue);
+    expect(s.report.episodes.map((e) => e.outcome).toSet(), {
+      CloudEpisodeOutcome.returned,
+    });
+  });
+
   test('ids are unique across shows and safe for the worker', () {
     final a = CloudJob.idFor('109375_xfdmnext', 1);
     final b = CloudJob.idFor('175599_淘片动漫', 1);

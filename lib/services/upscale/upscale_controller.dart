@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/pages/download/cloud_bake_report.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
@@ -469,19 +470,35 @@ class UpscaleController {
         KazumiLogger().i(
           'UpscaleController: ${session.view.summary(DateTime.now())}',
         );
-        KazumiDialog.showToast(
-          message: session.view.summary(DateTime.now()),
-          duration: const Duration(seconds: 6),
-        );
         runInAction(() {
           cloudSession.value = null;
           cloudPhases.clear();
         });
+        // run() only returns once every baked episode has been downloaded
+        // and adopted, and the pod is deleted, so this never shows early.
+        final report = session.report;
+        if (report.stopped || report.episodes.isEmpty) {
+          KazumiDialog.showToast(
+            message: session.view.summary(DateTime.now()),
+            duration: const Duration(seconds: 6),
+          );
+        } else {
+          unawaited(showCloudBakeReport(report, titleOf: _cloudTitle));
+        }
       }
     }());
   }
 
   Future<void> stopCloudBake() async => _cloud?.stop();
+
+  (String, String) _cloudTitle(CloudJob job) {
+    final record = _repository.getRecord(job.recordKey);
+    final name = record?.episodes[job.episodeNumber]?.episodeName ?? '';
+    return (
+      record?.bangumiName ?? '',
+      name.isNotEmpty ? name : '第 ${job.episodeNumber} 集',
+    );
+  }
 
   /// The pod needs one file; HLS downloads (playlist plus segments) are
   /// remuxed into one without re-encoding.
