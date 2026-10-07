@@ -455,7 +455,7 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   Future<void> handleShortcutForwardRepeat() async {
-    if (playerController.syncplay.hasSession) return;
+    if (playerController.syncplay.inRoom) return;
     final double defaultShortcutForwardPlaySpeed =
         GStorage.getSetting(SettingsKeys.defaultShortcutForwardPlaySpeed);
     if (playerController.playback.playerSpeed <
@@ -468,7 +468,7 @@ class _PlayerItemState extends State<PlayerItem>
   Future<void> handleShortcutForwardUp() async {
     if (playerController.panel.showPlaySpeed) {
       playerController.panel.showPlaySpeed = false;
-      await setPlaybackSpeed(lastPlayerSpeed);
+      await setPlaybackSpeed(_speedAfterHold());
     } else {
       try {
         await _seekWithPlayerTimer(
@@ -838,7 +838,7 @@ class _PlayerItemState extends State<PlayerItem>
     final source = videoPageController.src;
     final resume =
         playerController.playback.playing &&
-        !playerController.syncplay.hasSession;
+        !playerController.syncplay.inRoom;
     final sleepRemaining = TimedShutdownService().remainingSecondsNotifier.value;
     final sleepDeadline = sleepRemaining > 0
         ? DateTime.now().add(Duration(seconds: sleepRemaining))
@@ -858,7 +858,7 @@ class _PlayerItemState extends State<PlayerItem>
             videoPageController.playbackEpisode == episode &&
             videoPageController.src == source &&
             !videoPageController.loading &&
-            !playerController.syncplay.hasSession &&
+            !playerController.syncplay.inRoom &&
             (sleepDeadline == null || DateTime.now().isBefore(sleepDeadline)) &&
             WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
             (ModalRoute.of(context)?.isCurrent ?? false)) {
@@ -1053,10 +1053,14 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   bool _speedLockedInRoom() {
-    if (!playerController.syncplay.hasSession) return false;
+    if (!playerController.syncplay.inRoom) return false;
     GlassNotice.show('一起看时不能调速', icon: Icons.speed_rounded);
     return true;
   }
+
+  /// A hold that began outside a room can end inside one.
+  double _speedAfterHold() =>
+      playerController.syncplay.inRoom ? 1.0 : lastPlayerSpeed;
 
   /// A speed the user picked, as opposed to a temporary hold-to-speed-up.
   Future<void> chooseSpeed(double speed) async {
@@ -1558,11 +1562,11 @@ class _PlayerItemState extends State<PlayerItem>
                         if (playerController.panel.lockPanel) {
                           return;
                         }
-                        if (playerController.syncplay.hasSession) return;
+                        if (!playerController.panel.showPlaySpeed) return;
                         setState(() {
                           playerController.panel.showPlaySpeed = false;
                         });
-                        setPlaybackSpeed(lastPlayerSpeed);
+                        setPlaybackSpeed(_speedAfterHold());
                       },
                       child: Container(
                         color: Colors.transparent,

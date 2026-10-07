@@ -173,6 +173,27 @@ void main() {
     });
   });
 
+  test('a server that answers Hello and then goes quiet ends in 同步中断', () {
+    return eachSeed(10, (seed) async {
+      await start(seed: seed);
+      await clock.wait(20);
+      server.hollow('her');
+      server.zombie('her');
+      her.switchNetwork(NetKind.cellular);
+      await clock.until(
+        () => simNotices.any((n) => n.contains('同步中断')),
+        timeout: 60,
+        what: '同步中断',
+      );
+      expect(her.sync.reconnecting, isFalse);
+      expect(her.sync.syncplayController, isNull);
+      final attempts = her.sync.reconnectAttempts;
+      expect(attempts, 3);
+      await clock.wait(30);
+      expect(her.sync.reconnectAttempts, attempts);
+    });
+  });
+
   test('her old connection timing out later keeps her in the room', () {
     return eachSeed(6, (seed) async {
       await start(seed: seed);

@@ -629,7 +629,7 @@ class LibraryController implements OfflinePlaybackHooks {
     _startHeartbeat();
 
     final roomName = syncRoom;
-    if (roomName.isNotEmpty && !player.syncplay.hasSession) {
+    if (roomName.isNotEmpty && !player.syncplay.inRoom) {
       unawaited(
         player.createSyncPlayRoom(roomName, displayName, changeEpisode),
       );

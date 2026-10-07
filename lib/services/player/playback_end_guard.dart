@@ -94,6 +94,8 @@ class PlaybackEndGuard {
       _cleanSince = null;
       return;
     }
+    // mpv recovered by itself mid-wait: the next EOF waits its full gap.
+    _failedAt = null;
     final now = _clock();
     final target = _seekTarget;
     if (target != null &&
