@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:kazumi/services/bangumi_progress/bangumi_progress_service.dart';
 import 'dart:io';
 import 'package:kazumi/pages/player/player_item_panel.dart';
 import 'package:kazumi/pages/player/player_keyboard_shortcuts.dart';
@@ -1244,6 +1245,21 @@ class _PlayerItemState extends State<PlayerItem>
       final playingSelection = videoPageController.playbackEpisode;
       final playingRoadData =
           videoPageController.roadList[playingSelection.road];
+      if (playerController.playback.playerPlaying &&
+          !videoPageController.loading) {
+        // Unparsable titles are skipped: guessing by list index could mark
+        // the wrong episode on Bangumi.
+        final sortNumber =
+            videoPageController.resolveEpisode(playingSelection)?.sortNumber;
+        if (sortNumber != null) {
+          BangumiProgressService.instance.onPosition(
+            subjectId: videoPageController.bangumiItem.id,
+            episodeNumber: sortNumber,
+            position: playerController.playback.playerPosition,
+            duration: playerController.playback.playerDuration,
+          );
+        }
+      }
       final end = decideEndStep(
         guard: playerController.endGuard,
         completed: playerController.playback.completed,

@@ -69,6 +69,8 @@ class ApiEndpoints {
 
   /// 从条目ID获取剧集ID
   static const String bangumiEpisodeByID = '/v0/episodes';
+  static const String bangumiEpisodeCollection =
+      '/v0/users/-/collections/-/episodes/{0}';
 
   /// 返回当前 Access Token 对应的用户信息
   static const String bangumiUsernameByToken = '/v0/me';

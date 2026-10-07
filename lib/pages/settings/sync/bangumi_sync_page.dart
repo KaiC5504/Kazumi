@@ -229,6 +229,21 @@ class _BangumiSyncPageState extends State<BangumiSyncPage> {
                         ),
                         const Divider(indent: 16, endIndent: 16),
                         SwitchListTile(
+                          title: const Text('自动标记看过'),
+                          subtitle: const Text('看到 90% 时在 Bangumi 标记该集为看过'),
+                          value: GStorage.getSetting(
+                              SettingsKeys.bangumiAutoMarkWatched),
+                          onChanged: _busy
+                              ? null
+                              : (value) async {
+                                  await GStorage.putSetting(
+                                    SettingsKeys.bangumiAutoMarkWatched,
+                                    value,
+                                  );
+                                  if (mounted) setState(() {});
+                                },
+                        ),
+                        SwitchListTile(
                           title: const Text('同步结果提示'),
                           subtitle: const Text('修改追番状态后显示同步结果'),
                           value: showToast,
