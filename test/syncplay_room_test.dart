@@ -44,8 +44,19 @@ void main() {
     );
     await me.join(server, at: 60);
     await her.join(server, at: 60);
-    me.place(60 + startGap);
-    her.place(60);
+    // Joins start level, but a slow join leaves both well past 60 and the
+    // server already holds that. Moving her back would put her behind the
+    // room before she has announced, and her catch-up would jump her. Let
+    // the catch-up finish instead: a late first message on a lossy line can
+    // still make it jump once, which is by design and not what these tests
+    // watch for.
+    await clock.until(
+      () => server.fileOf('her') != null,
+      what: 'her to catch up',
+    );
+    me.place(her.position + startGap);
+    me.seeks.clear();
+    her.seeks.clear();
     gaps = GapRecorder(clock, me, her);
     server.roomPauseChanges.clear();
   }
