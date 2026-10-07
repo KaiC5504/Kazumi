@@ -282,9 +282,6 @@ class UpdateDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
     return PopScope(
       canPop: !required,
       child: AlertDialog(
@@ -296,19 +293,10 @@ class UpdateDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (required) ...[
-                const Text('这个版本需要更新后才能继续使用。'),
+              if (required) const Text('这个版本需要更新后才能继续使用。'),
+              if (required && release.notes.isNotEmpty)
                 const SizedBox(height: 8),
-              ],
-              if (release.notes.isNotEmpty) ...[
-                Text(release.notes),
-                const SizedBox(height: 12),
-              ],
-              Text(
-                '点「去更新」会打开 TestFlight，在 Kazumi 那里点「更新」。'
-                'TestFlight 里还没出现新版本的话，等几分钟再试。',
-                style: muted,
-              ),
+              if (release.notes.isNotEmpty) Text(release.notes),
             ],
           ),
         ),
