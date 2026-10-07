@@ -1298,9 +1298,15 @@ class _PlayerItemState extends State<PlayerItem>
         case EndStep.reload:
           if (end.decision!.switchHost) videoPageController.rotateRemoteHost();
           GlassNotice.show('网络中断，正在重连…', icon: Icons.wifi_off_rounded);
-          widget.changeEpisode(playingSelection.episode,
-              currentRoad: playingSelection.road,
-              offset: end.decision!.resumeAt.inSeconds);
+          unawaited(widget
+              .changeEpisode(playingSelection.episode,
+                  currentRoad: playingSelection.road,
+                  offset: end.decision!.resumeAt.inSeconds)
+              .then((_) {
+            if (videoPageController.errorMessage != null) {
+              playerController.endGuard.onReloadFailed();
+            }
+          }));
         case EndStep.giveUp:
           videoPageController.reportPlaybackFailure('网络中断，重连失败');
       }
