@@ -142,7 +142,8 @@ abstract class _VideoPageController with Store implements Disposable {
   late Plugin currentPlugin;
 
   String _offlinePluginName = '';
-  Map<int, String> _remoteVideoUrls = const {};
+  Map<int, List<String>> _remoteVideoUrls = const {};
+  int _remoteHostOffset = 0;
   OfflinePlaybackHooks? _offlineHooks;
 
   final HistoryController historyController;
@@ -178,6 +179,7 @@ abstract class _VideoPageController with Store implements Disposable {
           downloadedEpisodes: args.downloadedEpisodes,
         );
         _remoteVideoUrls = args.remoteVideoUrls;
+        _remoteHostOffset = 0;
         _offlineHooks = args.hooks;
     }
   }
@@ -422,6 +424,25 @@ abstract class _VideoPageController with Store implements Disposable {
     _errorMessage = message;
   }
 
+  void reportPlaybackFailure(String message) => _failLoading(message);
+
+  String? _remoteUrlFor(int episodeNumber) {
+    final urls = _remoteVideoUrls[episodeNumber];
+    if (urls == null || urls.isEmpty) return null;
+    return urls[_remoteHostOffset % urls.length];
+  }
+
+  /// Moves streamed episodes to the next host; returns the one that failed.
+  String? rotateRemoteHost() {
+    final key = resolveEpisode(playbackEpisode)?.historyEpisodeNumber;
+    final urls = key == null ? null : _remoteVideoUrls[key];
+    if (urls == null || urls.length < 2) return null;
+    final failed = urls[_remoteHostOffset % urls.length];
+    _remoteHostOffset++;
+    _offlineHooks?.onStreamHostFailed(failed);
+    return failed;
+  }
+
   Future<void> changeEpisode(
     int episode, {
     int currentRoad = 0,
@@ -510,8 +531,7 @@ abstract class _VideoPageController with Store implements Disposable {
       _offlinePluginName,
       resolvedEpisode.historyEpisodeNumber,
     );
-    final remoteUrl =
-        _remoteVideoUrls[resolvedEpisode.historyEpisodeNumber];
+    final remoteUrl = _remoteUrlFor(resolvedEpisode.historyEpisodeNumber);
     final downloadedPath = downloadManager.getLocalVideoPath(downloadedEpisode);
     // An original-quality download of the same episode must not win over the
     // upscaled stream.

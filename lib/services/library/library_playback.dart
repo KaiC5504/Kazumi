@@ -13,4 +13,7 @@ abstract class OfflinePlaybackHooks {
   );
 
   void onPlaybackClosed();
+
+  /// A streamed episode failed on [failedUrl]'s host; the player moved on.
+  void onStreamHostFailed(String failedUrl) {}
 }

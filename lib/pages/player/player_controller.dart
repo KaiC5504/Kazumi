@@ -21,6 +21,7 @@ import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
+import 'package:kazumi/services/player/playback_end_guard.dart';
 import 'package:kazumi/utils/async_session.dart';
 import 'package:kazumi/utils/device.dart';
 
@@ -45,6 +46,7 @@ class PlayerController implements Disposable {
   final PlayerPanelController panel = PlayerPanelController();
   final PlayerScreenshotController screenshots = PlayerScreenshotController();
   final PlayerDebugController debug = PlayerDebugController();
+  final PlaybackEndGuard endGuard = PlaybackEndGuard();
 
   late final PlayerDanmakuController danmaku;
   late final PlayerPlaybackController playback = PlayerPlaybackController(
@@ -277,6 +279,7 @@ class PlayerController implements Disposable {
     if (!_ownsInitialization(initialization, player)) {
       return false;
     }
+    endGuard.onEpisodeStarted('$bangumiId[$currentEpisode]');
     KazumiLogger().i('PlayerController: video initialized');
     playback.loading = false;
 

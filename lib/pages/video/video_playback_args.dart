@@ -46,6 +46,6 @@ class OfflineVideoPlaybackArgs extends VideoPlaybackArgs {
 
   /// Streamed instead when an episode isn't on the device yet. Keyed by
   /// episode number; these files are already upscaled.
-  final Map<int, String> remoteVideoUrls;
+  final Map<int, List<String>> remoteVideoUrls;
   final OfflinePlaybackHooks? hooks;
 }

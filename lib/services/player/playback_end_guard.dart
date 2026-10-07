@@ -122,3 +122,44 @@ class PlaybackEndGuard {
     return const EndDecision(EndAction.giveUp);
   }
 }
+
+enum EndStep { nothing, replay, advance, followRoom, reload, giveUp }
+
+/// One tick of the player page's end-of-episode handling, shared by the app
+/// and the watch-together simulator so the lab can't pass on logic the app
+/// doesn't run.
+({EndStep step, EndDecision? decision}) decideEndStep({
+  required PlaybackEndGuard guard,
+  required bool completed,
+  required bool loading,
+  required Duration position,
+  required Duration duration,
+  required bool playing,
+  required bool resumedNearEnd,
+  required bool hasNextEpisode,
+  required bool autoPlayNext,
+  required bool roomWantsNext,
+}) {
+  guard.onTick(position: position, playing: playing, completed: completed);
+  if (!completed || loading) return (step: EndStep.nothing, decision: null);
+  final decision = guard.onCompleted(
+    position: position,
+    duration: duration,
+    resumedNearEnd: resumedNearEnd,
+  );
+  final step = switch (decision.action) {
+    EndAction.none => EndStep.nothing,
+    EndAction.replay => EndStep.replay,
+    EndAction.reload => EndStep.reload,
+    EndAction.giveUp => EndStep.giveUp,
+    EndAction.trueEnd =>
+      !hasNextEpisode
+          ? EndStep.nothing
+          : autoPlayNext
+          ? EndStep.advance
+          : roomWantsNext
+          ? EndStep.followRoom
+          : EndStep.nothing,
+  };
+  return (step: step, decision: decision);
+}

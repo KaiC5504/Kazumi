@@ -435,7 +435,9 @@ class _VideoPageState extends State<VideoPage>
                               changeEpisode(
                                   videoPageController.selectedEpisode.episode,
                                   currentRoad:
-                                      videoPageController.selectedEpisode.road);
+                                      videoPageController.selectedEpisode.road,
+                                  offset: playerController
+                                      .endGuard.lastGoodPosition.inSeconds);
                             },
                           ),
                           if (layout.hasSidePanel)

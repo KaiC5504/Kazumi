@@ -465,7 +465,7 @@ class LibraryController implements OfflinePlaybackHooks {
 
     final series = seriesOf(episode);
     final playlist = <DownloadEpisode>[];
-    final remote = <int, String>{};
+    final remote = <int, List<String>>{};
     for (final e in series) {
       final local = localEpisode(e);
       final ready =
@@ -476,7 +476,7 @@ class LibraryController implements OfflinePlaybackHooks {
         playlist.add(local);
       } else {
         playlist.add(e.manifest.toDownloadEntities().$2);
-        remote[e.manifest.episodeNumber] = _videoUrls(api, e).first;
+        remote[e.manifest.episodeNumber] = _videoUrls(api, e);
       }
     }
 
@@ -565,6 +565,11 @@ class LibraryController implements OfflinePlaybackHooks {
     });
 
     unawaited(_prefetchAfter(watching));
+  }
+
+  @override
+  void onStreamHostFailed(String failedUrl) {
+    KazumiLogger().w('LibraryController: stream host failed $failedUrl');
   }
 
   @override

@@ -13,6 +13,8 @@ import 'package:kazumi/pages/player/controller/player_screenshot_controller.dart
 import 'package:kazumi/pages/player/syncplay_sheet.dart';
 import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/services/logging/logger.dart';
+import 'package:kazumi/services/player/playback_end_guard.dart';
+import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/services/player/pip_utils.dart';
 import 'package:kazumi/services/sync/webdav.dart';
 import 'package:flutter/gestures.dart';
@@ -1217,14 +1219,27 @@ class _PlayerItemState extends State<PlayerItem>
       final playingSelection = videoPageController.playbackEpisode;
       final playingRoadData =
           videoPageController.roadList[playingSelection.road];
-      if (playerController.playback.completed && !videoPageController.loading) {
-        if (playerController.playback.resumedNearEnd) {
-          // Replay stale near-end resumes instead of advancing to the next episode.
+      final end = decideEndStep(
+        guard: playerController.endGuard,
+        completed: playerController.playback.completed,
+        loading: videoPageController.loading,
+        position: playerController.playback.playerPosition,
+        duration: playerController.playback.playerDuration,
+        playing: playerController.playback.playerPlaying,
+        resumedNearEnd: playerController.playback.resumedNearEnd,
+        hasNextEpisode:
+            playingSelection.episode < playingRoadData.data.length,
+        autoPlayNext: autoPlayNext,
+        roomWantsNext: playerController.syncplay.followEpisode ==
+            playingSelection.episode + 1,
+      );
+      switch (end.step) {
+        case EndStep.nothing:
+          break;
+        case EndStep.replay:
           unawaited(playerController.playback.restartFromBeginning());
-        } else if (playingSelection.episode < playingRoadData.data.length &&
-            (autoPlayNext ||
-                playerController.syncplay.followEpisode ==
-                    playingSelection.episode + 1)) {
+        case EndStep.advance:
+        case EndStep.followRoom:
           final nextSelection = VideoEpisodeSelection(
             episode: playingSelection.episode + 1,
             road: playingSelection.road,
@@ -1239,7 +1254,14 @@ class _PlayerItemState extends State<PlayerItem>
           } catch (_) {}
           widget.changeEpisode(playingSelection.episode + 1,
               currentRoad: playingSelection.road);
-        }
+        case EndStep.reload:
+          if (end.decision!.switchHost) videoPageController.rotateRemoteHost();
+          GlassNotice.show('网络中断，正在重连…', icon: Icons.wifi_off_rounded);
+          widget.changeEpisode(playingSelection.episode,
+              currentRoad: playingSelection.road,
+              offset: end.decision!.resumeAt.inSeconds);
+        case EndStep.giveUp:
+          videoPageController.reportPlaybackFailure('网络中断，重连失败');
       }
       playerController.setSyncPlayCurrentPosition();
     });
