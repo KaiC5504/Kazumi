@@ -19,6 +19,7 @@ class CloudBakeEstimate {
     required this.localCount,
     required this.cloudSec,
     required this.finishSec,
+    this.localOnlySec = 0,
   });
 
   final int cloudCount;
@@ -28,35 +29,52 @@ class CloudBakeEstimate {
   final int cloudSec;
   final int finishSec;
 
+  /// When the laptop alone would be done, for comparing against the pod.
+  final int localOnlySec;
+
   int get capSec => max(CloudBakeRates.minCapSec, (cloudSec * 1.5).ceil());
 
   double cost(double pricePerHour) => cloudSec / 3600 * pricePerHour;
 
   double maxCost(double pricePerHour) => capSec / 3600 * pricePerHour;
 
+  /// Extra pod time to allow for episodes added to a running session.
+  static int extraCapSec(List<int> durationsSec) =>
+      (_durations(durationsSec).fold(0, (a, b) => a + b) /
+              CloudBakeRates.cloudRealtime *
+              1.5)
+          .ceil();
+
+  static List<int> _durations(List<int> durationsSec) => [
+    for (final s in durationsSec) s > 0 ? s : CloudBakeRates.unknownDurationSec,
+  ];
+
   /// Plays both lanes over the season in order: the pod from the front once
-  /// it has started, the laptop from the back, each taking the next episode
-  /// as soon as it is free.
+  /// it has started, the laptop from the back after [localBusySec] of work
+  /// it already has. Each episode goes to whichever lane would finish it
+  /// first, so a long film can go to the pod even though the laptop is free.
   factory CloudBakeEstimate.forDurations(
     List<int> durationsSec, {
     required bool includeLocal,
+    int localBusySec = 0,
   }) {
-    final d = [
-      for (final s in durationsSec)
-        s > 0 ? s : CloudBakeRates.unknownDurationSec,
-    ];
+    final d = _durations(durationsSec);
     var front = 0;
     var back = d.length - 1;
     var cloudFree = CloudBakeRates.startupSec.toDouble();
-    var localFree = includeLocal ? 0.0 : double.infinity;
+    var localFree = includeLocal ? localBusySec.toDouble() : double.infinity;
     var cloudCount = 0;
     var localCount = 0;
     while (front <= back) {
-      if (cloudFree <= localFree) {
-        cloudFree += d[front++] / CloudBakeRates.cloudRealtime;
+      final cloudDone = cloudFree + d[front] / CloudBakeRates.cloudRealtime;
+      final localDone = localFree + d[back] / CloudBakeRates.localRealtime;
+      if (cloudDone + CloudBakeRates.downloadTailSec <= localDone) {
+        cloudFree = cloudDone;
+        front++;
         cloudCount++;
       } else {
-        localFree += d[back--] / CloudBakeRates.localRealtime;
+        localFree = localDone;
+        back--;
         localCount++;
       }
     }
@@ -64,11 +82,15 @@ class CloudBakeEstimate {
         ? 0
         : (cloudFree + CloudBakeRates.downloadTailSec).ceil();
     final localSec = localCount == 0 ? 0 : localFree.ceil();
+    final localOnly =
+        localBusySec +
+        d.fold(0.0, (a, s) => a + s / CloudBakeRates.localRealtime);
     return CloudBakeEstimate(
       cloudCount: cloudCount,
       localCount: localCount,
       cloudSec: cloudSec,
       finishSec: max(cloudSec, localSec),
+      localOnlySec: localOnly.ceil(),
     );
   }
 }

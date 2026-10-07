@@ -8,9 +8,9 @@ import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_worker_client.dart';
 import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
 
-enum CloudBakePhase { starting, running, finishing, done, stopped }
+enum CloudBakePhase { waiting, starting, running, finishing, done, stopped }
 
-enum CloudEpisodeStage { uploading, waiting, baking, downloading }
+enum CloudEpisodeStage { queued, uploading, waiting, baking, downloading }
 
 class CloudEpisodePhase {
   const CloudEpisodePhase(this.stage, [this.progress = 0]);
@@ -36,6 +36,7 @@ class CloudJob {
     required this.episodeNumber,
     required this.durationSec,
     required this.outputPath,
+    this.cloudOnly = false,
   });
 
   final String recordKey;
@@ -45,8 +46,29 @@ class CloudJob {
   /// Where the baked video ends up: `<episode>/upscaled/video.mp4`.
   final String outputPath;
 
-  /// A session covers one show, so the episode number is unique on the pod.
-  String get id => 'ep$episodeNumber';
+  /// Picked for the cloud by hand: the laptop lane leaves it alone unless
+  /// the pod is gone.
+  final bool cloudOnly;
+
+  String get id => idFor(recordKey, episodeNumber);
+
+  CloudJob asCloudOnly() => CloudJob(
+    recordKey: recordKey,
+    episodeNumber: episodeNumber,
+    durationSec: durationSec,
+    outputPath: outputPath,
+    cloudOnly: true,
+  );
+
+  /// Unique across shows on one pod. Record keys can hold any plugin name,
+  /// and the worker only takes `[A-Za-z0-9_-]`, so the key is hashed.
+  static String idFor(String recordKey, int episodeNumber) {
+    var hash = 0x811c9dc5;
+    for (final unit in utf8.encode(recordKey)) {
+      hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
+    }
+    return 'ep${episodeNumber}_${hash.toRadixString(16).padLeft(8, '0')}';
+  }
 }
 
 class CloudBakeQuote {
@@ -65,6 +87,19 @@ class CloudBakeQuote {
   final CloudBakeEstimate estimate;
   final bool includeLocal;
   final int height;
+
+  /// The same episodes with the laptop left out, for when the owner picks
+  /// the cloud over an estimate that favours the laptop.
+  CloudBakeQuote allCloud() => CloudBakeQuote(
+    recordKey: recordKey,
+    jobs: [for (final j in jobs) j.asCloudOnly()],
+    offer: offer,
+    includeLocal: false,
+    height: height,
+    estimate: CloudBakeEstimate.forDurations([
+      for (final j in jobs) j.durationSec,
+    ], includeLocal: false),
+  );
 }
 
 class CloudBakeSessionView {
@@ -104,8 +139,12 @@ class CloudBakeSessionView {
     final cost = '\$${costAt(now).toStringAsFixed(2)}';
     if (phase == CloudBakePhase.stopped) return '已停止云端烘焙 · 费用 $cost';
     final failedText = failed > 0 ? ' · $failed 集失败' : '';
+    final done = cloudDone + localDone;
+    if (done == 0 && podStartedAt == null && failed == 0) {
+      return '云端烘焙已结束，未启动 GPU${message == null ? '' : ' · $message'}';
+    }
     final note = message == null ? '' : ' · $message';
-    return '云端烘焙完成 · ${cloudDone + localDone} 集 · $minutes 分钟 · '
+    return '云端烘焙完成 · $done 集 · $minutes 分钟 · '
         '$cost$failedText$note';
   }
 }
@@ -127,19 +166,19 @@ String _podName() {
       ]);
 }
 
-/// One cloud bake of one show. The pod takes episodes from the front of the
-/// list and the laptop from the back until nothing is left. Anything the pod
-/// can't finish falls back to the laptop, and the pod is deleted as soon as
-/// it has nothing left to do.
+/// One rented pod and the episodes queued for it, from any show. The pod
+/// takes episodes from the front of the queue and the laptop from the back
+/// until nothing is left, and more can be added while it runs. With no GPU
+/// in stock it waits for one. Anything the pod can't finish falls back to
+/// the laptop, and the pod is deleted as soon as it has nothing left to do.
 class CloudBakeSession {
   CloudBakeSession({
     required this.api,
     required this.connect,
-    required this.recordKey,
     required List<CloudJob> jobs,
     required this.includeLocal,
     required this.workerScript,
-    required this.capSec,
+    required int capSec,
     required this.pricePerHour,
     required this.shader,
     required this.targetHeight,
@@ -155,8 +194,10 @@ class CloudBakeSession {
     this.lostAfter = const Duration(minutes: 10),
     this.deleteTimeout = const Duration(minutes: 2),
     this.stallAfter = const Duration(minutes: 10),
+    this.offerInterval = const Duration(seconds: 30),
   }) : _pending = List.of(jobs),
-       total = jobs.length,
+       _total = jobs.length,
+       _capSec = capSec,
        token = newCloudToken(),
        _startedAt = DateTime.now();
 
@@ -165,10 +206,8 @@ class CloudBakeSession {
 
   final CloudPodApi api;
   final CloudWorker Function(Uri base, String token) connect;
-  final String recordKey;
   final bool includeLocal;
   final String workerScript;
-  final int capSec;
   final double pricePerHour;
   final String shader;
   final int targetHeight;
@@ -190,8 +229,12 @@ class CloudBakeSession {
 
   /// A bake whose progress hasn't moved for this long is given up on.
   final Duration stallAfter;
-  final int total;
+
+  /// How often to ask Runpod for stock while waiting for a GPU.
+  final Duration offerInterval;
   final String token;
+  int _total;
+  int _capSec;
 
   final List<CloudJob> _pending;
   final List<CloudJob> _fallback = [];
@@ -213,6 +256,9 @@ class CloudBakeSession {
   bool _lost = false;
   bool _cloudOver = false;
   bool _uploadsOver = false;
+
+  /// Set once the pod is done for; later episodes need a new session.
+  bool _closed = false;
   int _cloudDone = 0;
   int _localDone = 0;
   int _failed = 0;
@@ -224,7 +270,7 @@ class CloudBakeSession {
     cloudDone: _cloudDone,
     localDone: _localDone,
     failed: _failed,
-    total: total,
+    total: _total,
     startedAt: _startedAt,
     podStartedAt: _podStartedAt,
     podEndedAt: _podEndedAt,
@@ -232,14 +278,75 @@ class CloudBakeSession {
     message: _message,
   );
 
+  int get capSec => _capSec;
+
   /// True while the session still owes this episode a bake.
-  bool holds(int episodeNumber) =>
-      _pending.any((j) => j.episodeNumber == episodeNumber) ||
-      _fallback.any((j) => j.episodeNumber == episodeNumber) ||
-      _held.values.any((j) => j.episodeNumber == episodeNumber) ||
-      _local?.episodeNumber == episodeNumber;
+  bool holds(String recordKey, int episodeNumber) {
+    bool match(CloudJob? j) =>
+        j != null &&
+        j.recordKey == recordKey &&
+        j.episodeNumber == episodeNumber;
+    return _pending.any(match) ||
+        _fallback.any(match) ||
+        _held.values.any(match) ||
+        match(_local);
+  }
+
+  /// True while the episode waits in the queue and can still be taken back.
+  bool queued(String recordKey, int episodeNumber) => _pending.any(
+    (j) => j.recordKey == recordKey && j.episodeNumber == episodeNumber,
+  );
+
+  /// Queues more episodes for the pod. False once the pod is gone or going,
+  /// when the caller has to start a new session instead.
+  bool add(List<CloudJob> jobs, {required int extraCapSec}) {
+    if (_stopped || _closed || _cloudOver) return false;
+    final fresh = [
+      for (final job in jobs)
+        if (!holds(job.recordKey, job.episodeNumber)) job,
+    ];
+    if (fresh.isEmpty) return true;
+    _pending.addAll(fresh);
+    _total += fresh.length;
+    _capSec += extraCapSec;
+    for (final job in fresh) {
+      _setPhase(job, const CloudEpisodePhase(CloudEpisodeStage.queued));
+    }
+    final worker = _worker;
+    if (worker != null) {
+      unawaited(
+        worker.extendCap(_capSec).catchError((Object e) {
+          KazumiLogger().w(
+            'CloudBakeSession: raising the cap failed',
+            error: e,
+          );
+        }),
+      );
+    }
+    _wake();
+    _notify();
+    return true;
+  }
+
+  /// Takes a queued episode back before it is uploaded.
+  Future<bool> remove(String recordKey, int episodeNumber) async {
+    final index = _pending.indexWhere(
+      (j) => j.recordKey == recordKey && j.episodeNumber == episodeNumber,
+    );
+    if (index < 0) return false;
+    final job = _pending.removeAt(index);
+    _total--;
+    _setPhase(job, null);
+    await onReturned(job);
+    _wake();
+    _notify();
+    return true;
+  }
 
   Future<void> run() async {
+    for (final job in _pending) {
+      _setPhase(job, const CloudEpisodePhase(CloudEpisodeStage.queued));
+    }
     _notify();
     final local = _localLane();
     await _cloudLane();
@@ -258,6 +365,7 @@ class CloudBakeSession {
     _pending.clear();
     _fallback.clear();
     for (final job in unstarted) {
+      _setPhase(job, null);
       await onReturned(job);
     }
     _wake();
@@ -274,6 +382,7 @@ class CloudBakeSession {
         continue;
       }
       _local = job;
+      _setPhase(job, null);
       _notify();
       final outcome = await bakeLocally(job);
       _local = null;
@@ -286,23 +395,56 @@ class CloudBakeSession {
 
   CloudJob? _nextLocal() {
     if (_fallback.isNotEmpty) return _fallback.removeAt(0);
-    if ((includeLocal || _cloudOver) && _pending.isNotEmpty) {
-      return _pending.removeLast();
+    if (_cloudOver && _pending.isNotEmpty) return _pending.removeLast();
+    if (!includeLocal) return null;
+    for (var i = _pending.length - 1; i >= 0; i--) {
+      if (!_pending[i].cloudOnly) return _pending.removeAt(i);
+    }
+    return null;
+  }
+
+  /// Creates the pod, waiting for Sydney stock first if there is none. Null
+  /// when the queue ran dry or the run was stopped before a GPU turned up.
+  Future<CloudPodInfo?> _createPod() async {
+    while (!_stopped && _pending.isNotEmpty) {
+      var available = true;
+      if (_phase == CloudBakePhase.waiting) {
+        try {
+          available = (await api.sydneyOffer()).available;
+        } on RunpodException catch (e) {
+          KazumiLogger().w('CloudBakeSession: stock check failed: $e');
+          available = false;
+        }
+      }
+      if (available) {
+        try {
+          return await api.createPod(
+            name: _podName(),
+            diskGb: 50,
+            env: {
+              'KAZUMI_TOKEN': token,
+              'KAZUMI_CAP_SEC': '$_capSec',
+              'KAZUMI_WORKER': workerScript,
+            },
+          );
+        } on RunpodException catch (e) {
+          if (!e.noCapacity) rethrow;
+        }
+      }
+      if (_phase != CloudBakePhase.waiting) {
+        _phase = CloudBakePhase.waiting;
+        _notify();
+      }
+      await Future.any([_signal.future, Future.delayed(offerInterval)]);
     }
     return null;
   }
 
   Future<void> _cloudLane() async {
     try {
-      final pod = await api.createPod(
-        name: _podName(),
-        diskGb: 50,
-        env: {
-          'KAZUMI_TOKEN': token,
-          'KAZUMI_CAP_SEC': '$capSec',
-          'KAZUMI_WORKER': workerScript,
-        },
-      );
+      final pod = await _createPod();
+      if (pod == null) return;
+      _phase = CloudBakePhase.starting;
       _podId = pod.id;
       _podStartedAt = DateTime.now();
       if (pod.costPerHour > 0) _podPrice = pod.costPerHour;
@@ -331,6 +473,7 @@ class CloudBakeSession {
         KazumiLogger().w('CloudBakeSession: cloud lane ended', error: e);
       }
     } finally {
+      _closed = true;
       for (final job in _held.values.toList()) {
         _held.remove(job.id);
         onPhase?.call(job, null);
@@ -380,7 +523,17 @@ class CloudBakeSession {
 
   Future<void> _uploadLoop(CloudWorker worker) async {
     try {
-      while (!_stopped && !_lost && _pending.isNotEmpty) {
+      while (!_stopped && !_lost) {
+        if (_pending.isEmpty) {
+          // Nothing left anywhere, so the pod is done for; later additions
+          // go to a new session.
+          if (_held.isEmpty) {
+            _closed = true;
+            break;
+          }
+          await _waitWake();
+          continue;
+        }
         if (_held.length >= maxHanded) {
           await _waitWake();
           continue;

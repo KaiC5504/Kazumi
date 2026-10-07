@@ -364,12 +364,32 @@ class _DownloadPageState extends State<DownloadPage> {
 
   List<Widget> _upscaleActions(DownloadRecord record, DownloadEpisode episode) {
     if (!upscaleController.canBake || episode.preUpscaled) return const [];
-    // Cloud-held episodes are cancelled with the banner's stop button.
+    final colorScheme = Theme.of(context).colorScheme;
+    final cloudButton = IconButton(
+      icon: Icon(Icons.cloud_upload_outlined,
+          size: 20, color: colorScheme.tertiary),
+      onPressed: () => showCloudEpisodeFlow(
+          context, upscaleController, record, episode.episodeNumber),
+      tooltip: '云端烘焙 (加入云端队列)',
+      visualDensity: VisualDensity.compact,
+    );
+    // Once uploading, cloud episodes are cancelled with the banner's stop
+    // button.
     if (episode.upscaleStatus == UpscaleStatus.queued &&
         upscaleController.cloudHolds(record.key, episode.episodeNumber)) {
-      return const [];
+      if (!upscaleController.cloudQueued(record.key, episode.episodeNumber)) {
+        return const [];
+      }
+      return [
+        IconButton(
+          icon: const Icon(Icons.cloud_off_outlined, size: 20),
+          onPressed: () => upscaleController.removeFromCloud(
+              record.key, episode.episodeNumber),
+          tooltip: '移出云端队列',
+          visualDensity: VisualDensity.compact,
+        ),
+      ];
     }
-    final colorScheme = Theme.of(context).colorScheme;
     switch (episode.upscaleStatus) {
       case UpscaleStatus.queued:
       case UpscaleStatus.baking:
@@ -381,6 +401,7 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '取消烘焙',
             visualDensity: VisualDensity.compact,
           ),
+          if (episode.upscaleStatus == UpscaleStatus.queued) cloudButton,
         ];
       case UpscaleStatus.done:
         return [
@@ -402,6 +423,7 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '烘焙超分 (质量档)',
             visualDensity: VisualDensity.compact,
           ),
+          cloudButton,
         ];
     }
   }

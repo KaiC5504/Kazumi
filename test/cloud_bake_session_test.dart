@@ -16,10 +16,14 @@ class FakePodApi implements CloudPodApi {
   final deleted = <String>[];
   var exists = false;
   var polls = 0;
+  var inStock = true;
+  var offerChecks = 0;
 
   @override
-  Future<CloudOffer> sydneyOffer() async =>
-      const CloudOffer(available: true, pricePerHour: 1.09);
+  Future<CloudOffer> sydneyOffer() async {
+    offerChecks++;
+    return CloudOffer(available: inStock, pricePerHour: 1.09);
+  }
 
   @override
   Future<CloudPodInfo> createPod({
@@ -28,6 +32,9 @@ class FakePodApi implements CloudPodApi {
     required int diskGb,
   }) async {
     if (createError != null) throw createError!;
+    if (!inStock) {
+      throw const RunpodException('悉尼暂无可用 GPU', noCapacity: true);
+    }
     exists = true;
     created.add(env);
     names.add(name);
@@ -146,11 +153,17 @@ class FakeWorker implements CloudWorker {
 
   @override
   Future<void> shutdown() async => shutdowns++;
+
+  final caps = <int>[];
+
+  @override
+  Future<void> extendCap(int capSec) async => caps.add(capSec);
 }
 
 void main() {
   late Directory dir;
   late List<int> cloudBaked, localBaked, returned, failed;
+  late Map<int, CloudEpisodeStage?> stages;
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('cloud_session_');
@@ -158,8 +171,23 @@ void main() {
     localBaked = [];
     returned = [];
     failed = [];
+    stages = {};
   });
   tearDown(() => dir.deleteSync(recursive: true));
+
+  CloudJob job(int n, {bool cloudOnly = false, String recordKey = 'r'}) =>
+      CloudJob(
+        recordKey: recordKey,
+        episodeNumber: n,
+        durationSec: 1440,
+        outputPath: path.join(
+          dir.path,
+          '$recordKey$n',
+          'upscaled',
+          'video.mp4',
+        ),
+        cloudOnly: cloudOnly,
+      );
 
   CloudBakeSession make(
     FakePodApi api,
@@ -169,20 +197,12 @@ void main() {
     Duration localTime = Duration.zero,
     Duration readyTimeout = const Duration(seconds: 2),
     Duration stallAfter = const Duration(minutes: 10),
+    bool cloudOnly = false,
   }) {
     return CloudBakeSession(
       api: api,
       connect: (uri, token) => worker,
-      recordKey: 'r',
-      jobs: [
-        for (var i = 1; i <= count; i++)
-          CloudJob(
-            recordKey: 'r',
-            episodeNumber: i,
-            durationSec: 1440,
-            outputPath: path.join(dir.path, '$i', 'upscaled', 'video.mp4'),
-          ),
-      ],
+      jobs: [for (var i = 1; i <= count; i++) job(i, cloudOnly: cloudOnly)],
       includeLocal: includeLocal,
       workerScript: 'packed',
       capSec: 1800,
@@ -202,12 +222,24 @@ void main() {
       onCloudBaked: (job) async => cloudBaked.add(job.episodeNumber),
       onReturned: (job) async => returned.add(job.episodeNumber),
       onFailed: (job, error) async => failed.add(job.episodeNumber),
+      onPhase: (job, phase) => stages[job.episodeNumber] = phase?.stage,
       pollInterval: const Duration(milliseconds: 1),
+      offerInterval: const Duration(milliseconds: 2),
       readyTimeout: readyTimeout,
       lostAfter: const Duration(milliseconds: 30),
       deleteTimeout: const Duration(milliseconds: 50),
       stallAfter: stallAfter,
     );
+  }
+
+  String id(int n) => CloudJob.idFor('r', n);
+
+  Future<void> until(bool Function() condition) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) throw StateError('timed out');
+      await Future.delayed(const Duration(milliseconds: 1));
+    }
   }
 
   Future<void> runIt(CloudBakeSession s) =>
@@ -219,7 +251,7 @@ void main() {
       final api = FakePodApi();
       final worker = FakeWorker();
       final s = make(api, worker, includeLocal: false);
-      expect(s.holds(1), isTrue);
+      expect(s.holds('r', 1), isTrue);
       await runIt(s);
       expect(cloudBaked..sort(), [1, 2, 3, 4]);
       expect(localBaked, isEmpty);
@@ -234,7 +266,7 @@ void main() {
       expect(api.created.single['KAZUMI_CAP_SEC'], '1800');
       expect(api.created.single['KAZUMI_WORKER'], 'packed');
       expect(s.view.phase, CloudBakePhase.done);
-      expect(s.holds(1), isFalse);
+      expect(s.holds('r', 1), isFalse);
     },
   );
 
@@ -253,7 +285,7 @@ void main() {
   });
 
   test('a pod-side failure goes to the laptop when it is on', () async {
-    final worker = FakeWorker()..failIds.add('ep2');
+    final worker = FakeWorker()..failIds.add(id(2));
     final s = make(
       FakePodApi(),
       worker,
@@ -269,7 +301,7 @@ void main() {
   test(
     'without the laptop a pod-side failure marks the episode failed',
     () async {
-      final worker = FakeWorker()..failIds.add('ep2');
+      final worker = FakeWorker()..failIds.add(id(2));
       await runIt(make(FakePodApi(), worker, includeLocal: false));
       expect(failed, [2]);
       expect(cloudBaked..sort(), [1, 3, 4]);
@@ -278,7 +310,7 @@ void main() {
   );
 
   test('a failed upload goes to the laptop even when it is off', () async {
-    final worker = FakeWorker()..uploadFailIds.add('ep1');
+    final worker = FakeWorker()..uploadFailIds.add(id(1));
     await runIt(make(FakePodApi(), worker, includeLocal: false));
     expect(localBaked, [1]);
     expect(cloudBaked..sort(), [2, 3, 4]);
@@ -301,19 +333,144 @@ void main() {
     },
   );
 
+  test('with no stock it waits, then starts once a GPU frees up', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(api, FakeWorker(), includeLocal: false);
+    final running = runIt(s);
+    await until(() => s.view.phase == CloudBakePhase.waiting);
+    await until(() => api.offerChecks >= 3);
+    expect(api.created, isEmpty);
+    expect(localBaked, isEmpty);
+    expect(stages[1], CloudEpisodeStage.queued);
+    api.inStock = true;
+    await running;
+    expect(cloudBaked..sort(), [1, 2, 3, 4]);
+    expect(api.created, hasLength(1));
+    expect(api.deleted, ['pod1']);
+  });
+
+  test('stopping while waiting returns everything and rents nothing', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(api, FakeWorker(), includeLocal: false);
+    final running = runIt(s);
+    await until(() => s.view.phase == CloudBakePhase.waiting);
+    await s.stop();
+    await running;
+    expect(returned..sort(), [1, 2, 3, 4]);
+    expect(api.created, isEmpty);
+    expect(api.deleted, isEmpty);
+    expect(s.view.phase, CloudBakePhase.stopped);
+    expect(stages.values.whereType<CloudEpisodeStage>(), isEmpty);
+  });
+
+  test('while waiting the laptop can drain the queue and end it', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(api, FakeWorker(), includeLocal: true, count: 2);
+    await runIt(s);
+    expect(localBaked..sort(), [1, 2]);
+    expect(api.created, isEmpty);
+    expect(s.add([job(3)], extraCapSec: 0), isFalse);
+  });
+
   test(
-    'no stock at creation means the laptop bakes all and nothing is deleted',
+    'a hard error at creation still hands everything to the laptop',
     () async {
-      final api = FakePodApi(
-        createError: const RunpodException('悉尼暂无可用 GPU', noCapacity: true),
-      );
+      final api = FakePodApi(createError: const RunpodException('Runpod 余额不足'));
       final s = make(api, FakeWorker(), includeLocal: false);
       await runIt(s);
       expect(localBaked..sort(), [1, 2, 3, 4]);
       expect(api.deleted, isEmpty);
-      expect(s.view.message, '悉尼暂无可用 GPU');
+      expect(s.view.message, 'Runpod 余额不足');
     },
   );
+
+  test(
+    'episodes added while running go to the pod and raise the cap',
+    () async {
+      final api = FakePodApi();
+      final worker = FakeWorker()..bakeForever = true;
+      final s = make(api, worker, includeLocal: false, count: 1);
+      final running = runIt(s);
+      await until(() => worker.episodes.isNotEmpty);
+      expect(
+        s.add([job(7, recordKey: 'other', cloudOnly: true)], extraCapSec: 600),
+        isTrue,
+      );
+      expect(s.holds('other', 7), isTrue);
+      expect(s.view.total, 2);
+      expect(s.capSec, 1800 + 600);
+      await until(() => worker.caps.isNotEmpty);
+      expect(worker.caps.last, 2400);
+      await until(() => worker.episodes.length == 2);
+      worker.bakeForever = false;
+      for (final key in worker.episodes.keys.toList()) {
+        worker.episodes[key] = const WorkerEpisode(
+          state: 'done',
+          progress: 1,
+          outBytes: 3,
+        );
+      }
+      await running;
+      expect(cloudBaked..sort(), [1, 7]);
+      expect(api.created, hasLength(1));
+      expect(s.add([job(8)], extraCapSec: 0), isFalse);
+    },
+  );
+
+  test('adding an episode the session already holds is a no-op', () async {
+    final s = make(
+      FakePodApi()..inStock = false,
+      FakeWorker(),
+      includeLocal: false,
+      count: 1,
+    );
+    final running = runIt(s);
+    await until(() => s.view.phase == CloudBakePhase.waiting);
+    expect(s.add([job(1)], extraCapSec: 600), isTrue);
+    expect((s.view.total, s.capSec), (1, 1800));
+    await s.stop();
+    await running;
+  });
+
+  test('the laptop leaves episodes picked for the cloud alone', () async {
+    final api = FakePodApi(readyAfterPolls: 3);
+    final s = make(
+      api,
+      FakeWorker(),
+      includeLocal: true,
+      cloudOnly: true,
+      localTime: const Duration(milliseconds: 5),
+    );
+    await runIt(s);
+    expect(cloudBaked..sort(), [1, 2, 3, 4]);
+    expect(localBaked, isEmpty);
+  });
+
+  test('a queued episode can be taken back before it is uploaded', () async {
+    final api = FakePodApi()..inStock = false;
+    final s = make(api, FakeWorker(), includeLocal: false, count: 2);
+    final running = runIt(s);
+    await until(() => s.view.phase == CloudBakePhase.waiting);
+    expect(s.queued('r', 2), isTrue);
+    expect(await s.remove('r', 2), isTrue);
+    expect(await s.remove('r', 2), isFalse);
+    expect(returned, [2]);
+    expect((s.view.total, s.holds('r', 2)), (1, false));
+    expect(stages[2], isNull);
+    api.inStock = true;
+    await running;
+    expect(cloudBaked, [1]);
+  });
+
+  test('ids are unique across shows and safe for the worker', () {
+    final a = CloudJob.idFor('109375_xfdmnext', 1);
+    final b = CloudJob.idFor('175599_淘片动漫', 1);
+    expect(a, isNot(b));
+    expect(a, CloudJob.idFor('109375_xfdmnext', 1));
+    for (final id in [a, b]) {
+      expect(RegExp(r'^[A-Za-z0-9_-]{1,64}$').hasMatch(id), isTrue);
+    }
+  });
 
   test('losing the pod hands its episodes to the laptop', () async {
     final api = FakePodApi();
@@ -344,7 +501,7 @@ void main() {
   });
 
   test('an episode that vanishes from the pod goes to the laptop', () async {
-    final worker = FakeWorker()..vanishIds.add('ep2');
+    final worker = FakeWorker()..vanishIds.add(id(2));
     await runIt(make(FakePodApi(), worker, includeLocal: false));
     expect(localBaked, [2]);
     expect(cloudBaked..sort(), [1, 3, 4]);
@@ -398,7 +555,7 @@ void main() {
   });
 
   test('a partial download left by an earlier run is discarded', () async {
-    final stale = File(path.join(dir.path, '1', 'upscaled', 'video.mp4.part'))
+    final stale = File(path.join(dir.path, 'r1', 'upscaled', 'video.mp4.part'))
       ..createSync(recursive: true)
       ..writeAsStringSync('old');
     File('${path.withoutExtension(stale.path)}.parts').writeAsStringSync('0\n');
@@ -407,7 +564,9 @@ void main() {
     );
     expect(stale.existsSync(), isFalse);
     expect(
-      File(path.join(dir.path, '1', 'upscaled', 'video.mp4')).readAsBytesSync(),
+      File(
+        path.join(dir.path, 'r1', 'upscaled', 'video.mp4'),
+      ).readAsBytesSync(),
       [1, 2, 3],
     );
   });

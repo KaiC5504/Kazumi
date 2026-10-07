@@ -35,6 +35,30 @@ void main() {
     expect((e.cloudCount, e.localCount, e.cloudSec), (0, 1, 0));
   });
 
+  test('a film goes to the pod even with the laptop free', () {
+    final e = CloudBakeEstimate.forDurations([7200], includeLocal: true);
+    expect((e.cloudCount, e.localCount), (1, 0));
+    expect(e.finishSec, (300 + 7200 / 7.7 + 60).ceil());
+    expect(e.localOnlySec, (7200 / 2.7).ceil());
+  });
+
+  test('work the laptop already has pushes episodes to the pod', () {
+    final idle = CloudBakeEstimate.forDurations([1440], includeLocal: true);
+    final busy = CloudBakeEstimate.forDurations(
+      [1440],
+      includeLocal: true,
+      localBusySec: 2400,
+    );
+    expect(idle.cloudCount, 0);
+    expect(busy.cloudCount, 1);
+    expect(busy.localOnlySec, 2400 + (1440 / 2.7).ceil());
+  });
+
+  test('extra cap for added episodes is 1.5x their pod time', () {
+    expect(CloudBakeEstimate.extraCapSec([7700]), 1500);
+    expect(CloudBakeEstimate.extraCapSec([0]), (1440 / 7.7 * 1.5).ceil());
+  });
+
   test('the cap is 1.5x the cloud time once that passes 30 minutes', () {
     final durations = List.filled(25, 1440);
     final e = CloudBakeEstimate.forDurations(durations, includeLocal: false);

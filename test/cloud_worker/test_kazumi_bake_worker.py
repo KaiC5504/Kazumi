@@ -174,6 +174,19 @@ class WorkerTest(unittest.TestCase):
         self.clock.t += 3601
         self.assertEqual(w.expired(), 'cap')
 
+    def test_cap_is_only_raised_and_has_a_ceiling(self):
+        w = kbw.Worker(self.root, TOKEN, cap_sec=3600, idle_sec=600, clock=self.clock)
+        w.extend_cap(1800)
+        self.assertEqual(w.cap_sec, 3600)
+        w.extend_cap(7200)
+        self.clock.t += 3601
+        self.assertIsNone(w.expired())
+        w.extend_cap(10 ** 9)
+        self.assertEqual(w.cap_sec, kbw.MAX_CAP_SEC)
+        big = kbw.Worker(self.root, TOKEN, cap_sec=kbw.MAX_CAP_SEC * 2, clock=self.clock)
+        big.extend_cap(60)
+        self.assertEqual(big.cap_sec, kbw.MAX_CAP_SEC * 2)
+
     def test_watchdog_retries_until_terminate_succeeds(self):
         self.w.ready('ffmpeg', kbw.NVENC)
         self.clock.t += 601
@@ -265,6 +278,12 @@ class HttpTest(unittest.TestCase):
             pass
         conn.close()
         self.assertEqual(self.w.status()['episodes']['e1']['state'], 'receiving')
+
+    def test_cap_endpoint_raises_the_cap(self):
+        self.w.cap_sec = 3600
+        status, body, _ = self.call('POST', '/cap', json.dumps({'capSec': 7200}).encode())
+        self.assertEqual((status, json.loads(body)), (200, {'capSec': 7200}))
+        self.assertEqual(self.w.status()['capSec'], 7200)
 
     def test_shutdown_terminates(self):
         self.assertEqual(self.call('POST', '/shutdown', b'')[0], 200)

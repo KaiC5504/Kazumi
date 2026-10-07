@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 String cloudStatusText(CloudEpisodePhase phase) {
   final percent = '${(phase.progress * 100).toStringAsFixed(0)}%';
   return switch (phase.stage) {
+    CloudEpisodeStage.queued => '☁ 排队中',
     CloudEpisodeStage.uploading => '☁ 上传中 $percent',
     CloudEpisodeStage.waiting => '☁ 等待 GPU',
     CloudEpisodeStage.baking => '☁ 烘焙中 $percent',
@@ -25,60 +26,89 @@ String cloudStatusText(CloudEpisodePhase phase) {
 
 String _money(double value) => '\$${value.toStringAsFixed(2)}';
 
-Future<void> showCloudBakeFlow(
-  BuildContext context,
+String _minutes(int seconds) => '${(seconds / 60).ceil()} 分钟';
+
+bool _checkKey(BuildContext context, UpscaleController controller) {
+  if (controller.hasRunpodKey) return true;
+  KazumiDialog.showToast(
+    message: '请先在下载设置中填写 Runpod API Key',
+    showActionButton: true,
+    actionLabel: '去设置',
+    onActionPressed: () => context.pushNamed('/settings/download/'),
+  );
+  return false;
+}
+
+/// Joins the running session if there is one. True when the episodes were
+/// handled, either queued or refused with a toast.
+Future<bool> _joinRunning(
   UpscaleController controller,
-  DownloadRecord record, {
-  required Future<void> Function() bakeAllLocally,
+  String recordKey, {
+  int? episodeNumber,
 }) async {
-  if (!controller.hasRunpodKey) {
-    KazumiDialog.showToast(
-      message: '请先在下载设置中填写 Runpod API Key',
-      showActionButton: true,
-      actionLabel: '去设置',
-      onActionPressed: () => context.pushNamed('/settings/download/'),
-    );
-    return;
-  }
-  KazumiDialog.showToast(message: '正在查询悉尼 GPU…');
-  final CloudBakeQuote quote;
+  if (!controller.cloudRunning) return false;
   try {
-    quote = await controller.quoteCloudBake(record.key);
-  } on RunpodException catch (e) {
-    if (e.noCapacity) {
-      await _offerLocal(bakeAllLocally);
-    } else {
-      KazumiDialog.showToast(
-        message: e.message,
-        showActionButton: true,
-        actionLabel: '打开 Runpod',
-        onActionPressed: () => launchUrl(
-          Uri.parse('https://console.runpod.io/user/settings'),
-          mode: LaunchMode.externalApplication,
-        ),
-        duration: const Duration(seconds: 6),
-      );
-    }
-    return;
+    final added = await controller.addToCloud(
+      recordKey,
+      episodeNumber: episodeNumber,
+    );
+    if (added == null) return false;
+    KazumiDialog.showToast(
+      message: episodeNumber == null ? '已加入云端队列 · $added 集' : '已加入云端队列',
+    );
   } on CloudBakeException catch (e) {
     KazumiDialog.showToast(message: e.message);
-    return;
   }
-  if (!quote.offer.available) {
-    await _offerLocal(bakeAllLocally);
-    return;
+  return true;
+}
+
+Future<CloudBakeQuote?> _quote(
+  UpscaleController controller,
+  String recordKey, {
+  int? episodeNumber,
+}) async {
+  KazumiDialog.showToast(message: '正在查询悉尼 GPU…');
+  try {
+    return await controller.quoteCloudBake(
+      recordKey,
+      episodeNumber: episodeNumber,
+    );
+  } on RunpodException catch (e) {
+    KazumiDialog.showToast(
+      message: e.message,
+      showActionButton: true,
+      actionLabel: '打开 Runpod',
+      onActionPressed: () => launchUrl(
+        Uri.parse('https://console.runpod.io/user/settings'),
+        mode: LaunchMode.externalApplication,
+      ),
+      duration: const Duration(seconds: 6),
+    );
+  } on CloudBakeException catch (e) {
+    KazumiDialog.showToast(message: e.message);
   }
-  if (quote.estimate.cloudCount == 0) {
-    KazumiDialog.showToast(message: '集数太少，本机烘焙更快');
-    await bakeAllLocally();
-    return;
-  }
+  return null;
+}
+
+Future<void> _confirmAndStart(
+  BuildContext context,
+  UpscaleController controller,
+  CloudBakeQuote quote, {
+  Future<void> Function()? bakeAllLocally,
+}) async {
   if (!context.mounted) return;
-  final go = await showAdaptiveBottomSheet<bool>(
+  final choice = await showAdaptiveBottomSheet<CloudBakeChoice>(
     context: context,
-    builder: (_) => CloudBakeConfirmSheet(quote: quote),
+    builder: (_) => CloudBakeConfirmSheet(
+      quote: quote,
+      canBakeLocally: bakeAllLocally != null,
+    ),
   );
-  if (go != true) return;
+  if (choice == CloudBakeChoice.local) {
+    await bakeAllLocally?.call();
+    return;
+  }
+  if (choice != CloudBakeChoice.cloud) return;
   try {
     await controller.startCloudBake(quote);
   } on CloudBakeException catch (e) {
@@ -86,30 +116,98 @@ Future<void> showCloudBakeFlow(
   }
 }
 
-Future<void> _offerLocal(Future<void> Function() bakeAllLocally) async {
-  final local = await KazumiDialog.show<bool>(
+/// ☁ 云端烘焙全部 on a show's card.
+Future<void> showCloudBakeFlow(
+  BuildContext context,
+  UpscaleController controller,
+  DownloadRecord record, {
+  required Future<void> Function() bakeAllLocally,
+}) async {
+  if (!_checkKey(context, controller)) return;
+  if (await _joinRunning(controller, record.key)) return;
+  var quote = await _quote(controller, record.key);
+  if (quote == null) return;
+  if (quote.estimate.cloudCount == 0) {
+    final choice = await _askLocalFaster(quote);
+    if (choice == CloudBakeChoice.local) {
+      await bakeAllLocally();
+      return;
+    }
+    if (choice != CloudBakeChoice.cloud) return;
+    quote = quote.allCloud();
+  }
+  if (!context.mounted) return;
+  await _confirmAndStart(
+    context,
+    controller,
+    quote,
+    bakeAllLocally: bakeAllLocally,
+  );
+}
+
+/// The ☁ button on one episode: queues it for the pod, starting a session
+/// if none is running.
+Future<void> showCloudEpisodeFlow(
+  BuildContext context,
+  UpscaleController controller,
+  DownloadRecord record,
+  int episodeNumber,
+) async {
+  if (!_checkKey(context, controller)) return;
+  if (await _joinRunning(
+    controller,
+    record.key,
+    episodeNumber: episodeNumber,
+  )) {
+    return;
+  }
+  final quote = await _quote(
+    controller,
+    record.key,
+    episodeNumber: episodeNumber,
+  );
+  if (quote == null || !context.mounted) return;
+  await _confirmAndStart(context, controller, quote);
+}
+
+enum CloudBakeChoice { cloud, local }
+
+Future<CloudBakeChoice?> _askLocalFaster(CloudBakeQuote quote) {
+  final cloud = quote.allCloud().estimate.finishSec;
+  return KazumiDialog.show<CloudBakeChoice>(
     builder: (context) => AlertDialog(
-      title: const Text('悉尼暂无可用 GPU'),
-      content: const Text('现在租不到悉尼的 L40S。可以先用本机烘焙全部，或稍后再试。'),
+      title: const Text('本机烘焙更快'),
+      content: Text(
+        '本机约 ${_minutes(quote.estimate.localOnlySec)} 烘焙完，'
+        '云端约 ${_minutes(cloud)} (含启动 GPU)。',
+      ),
       actions: [
         TextButton(
-          onPressed: () => KazumiDialog.dismiss(popWith: false),
+          onPressed: () => KazumiDialog.dismiss(),
           child: const Text('取消'),
         ),
+        TextButton(
+          onPressed: () => KazumiDialog.dismiss(popWith: CloudBakeChoice.cloud),
+          child: const Text('仍用云端'),
+        ),
         FilledButton(
-          onPressed: () => KazumiDialog.dismiss(popWith: true),
-          child: const Text('本机烘焙全部'),
+          onPressed: () => KazumiDialog.dismiss(popWith: CloudBakeChoice.local),
+          child: const Text('本机烘焙'),
         ),
       ],
     ),
   );
-  if (local == true) await bakeAllLocally();
 }
 
 class CloudBakeConfirmSheet extends StatelessWidget {
-  const CloudBakeConfirmSheet({super.key, required this.quote});
+  const CloudBakeConfirmSheet({
+    super.key,
+    required this.quote,
+    this.canBakeLocally = false,
+  });
 
   final CloudBakeQuote quote;
+  final bool canBakeLocally;
 
   @override
   Widget build(BuildContext context) {
@@ -117,6 +215,10 @@ class CloudBakeConfirmSheet extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final estimate = quote.estimate;
     final price = quote.offer.pricePerHour;
+    final waiting = !quote.offer.available;
+    final note = textTheme.bodySmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+    );
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
@@ -142,6 +244,34 @@ class CloudBakeConfirmSheet extends StatelessWidget {
                 Expanded(child: Text('云端烘焙', style: textTheme.titleLarge)),
               ],
             ),
+            if (waiting) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.hourglass_top_rounded,
+                      color: colorScheme.onSecondaryContainer,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '悉尼暂时没有空闲的 L40S。开始后自动排队等待，'
+                        '一有空位就启动，等待期间不收费。',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               children: [
@@ -154,8 +284,8 @@ class CloudBakeConfirmSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 _Stat(
-                  label: '预计',
-                  value: '${(estimate.finishSec / 60).ceil()} 分钟',
+                  label: waiting ? '启动后约' : '预计',
+                  value: _minutes(estimate.finishSec),
                 ),
                 const SizedBox(width: 12),
                 _Stat(
@@ -166,34 +296,40 @@ class CloudBakeConfirmSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
-              'L40S 悉尼 ${_money(price)}/小时 · 按秒计费，做完自动删除 GPU',
-              style: textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
+            Text('L40S 悉尼 ${_money(price)}/小时 · 按秒计费，做完自动删除 GPU', style: note),
+            Text('运行中可在每集旁点 ☁ 继续加入云端队列', style: note),
             if (!quote.includeLocal)
-              Text(
-                '本机不参与烘焙 (可在下载设置中开启)',
-                style: textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
+              Text('本机不参与烘焙 (全部烘焙时可在下载设置中开启)', style: note),
             const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(false),
+                    onPressed: () => Navigator.of(context).pop(),
                     child: const Text('取消'),
                   ),
                 ),
+                if (waiting && canBakeLocally) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () =>
+                          Navigator.of(context).pop(CloudBakeChoice.local),
+                      child: const Text('本机烘焙全部'),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    icon: const Icon(Icons.rocket_launch_rounded),
-                    label: const Text('开始'),
+                    onPressed: () =>
+                        Navigator.of(context).pop(CloudBakeChoice.cloud),
+                    icon: Icon(
+                      waiting
+                          ? Icons.hourglass_top_rounded
+                          : Icons.rocket_launch_rounded,
+                    ),
+                    label: Text(waiting ? '排队等待' : '开始'),
                   ),
                 ),
               ],
@@ -341,6 +477,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     final clock =
         '${elapsed.inMinutes}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
     final title = switch (view.phase) {
+      CloudBakePhase.waiting => '等待悉尼 GPU · 有空位自动启动',
       CloudBakePhase.starting => '正在启动 GPU',
       CloudBakePhase.running => '云端烘焙中',
       CloudBakePhase.finishing => '正在收尾',
@@ -348,6 +485,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
       CloudBakePhase.stopped => '已停止',
     };
     final busy =
+        view.phase == CloudBakePhase.waiting ||
         view.phase == CloudBakePhase.starting ||
         view.phase == CloudBakePhase.running;
     // After a cloud failure the laptop may still have the whole season to

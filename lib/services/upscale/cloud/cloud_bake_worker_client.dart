@@ -92,6 +92,9 @@ abstract class CloudWorker {
 
   Future<void> drop(String id);
 
+  /// Raises the pod's lifetime cap, counted from when the worker started.
+  Future<void> extendCap(int capSec);
+
   Future<void> shutdown();
 }
 
@@ -314,6 +317,10 @@ class CloudBakeWorkerClient implements CloudWorker {
 
   @override
   Future<void> shutdown() => _json('POST', ['shutdown']);
+
+  @override
+  Future<void> extendCap(int capSec) =>
+      _json('POST', ['cap'], body: {'capSec': capSec});
 
   HttpClient _client() =>
       HttpClient()..connectionTimeout = const Duration(seconds: 10);

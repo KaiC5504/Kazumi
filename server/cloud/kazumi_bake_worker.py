@@ -15,6 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SLOTS = 2
+MAX_CAP_SEC = 12 * 3600
 ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 NVENC = (['-c:v', 'hevc_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '22', '-b:v', '0'], 'p010le')
 VULKAN = (['-c:v', 'hevc_vulkan', '-rc_mode', 'cqp', '-qp', '19', '-tune', 'hq'], 'p010')
@@ -77,6 +78,11 @@ class Worker:
         if self.last_contact is not None and now - self.last_contact > self.idle_sec:
             return 'idle'
         return None
+
+    def extend_cap(self, cap_sec):
+        # Only ever raised, and never past MAX_CAP_SEC, so a confused client
+        # can't keep a pod billing for days.
+        self.cap_sec = max(self.cap_sec, min(cap_sec, MAX_CAP_SEC))
 
     def parts(self, ep):
         d = self.part_dir(ep)
@@ -370,6 +376,9 @@ def make_handler(worker, terminate):
                     with open(os.path.join(worker.root, 'shader.glsl'), 'wb') as f:
                         f.write(self.body())
                     return self.reply(200)
+                if parts == ['cap'] and method == 'POST':
+                    worker.extend_cap(int(json.loads(self.body() or b'{}')['capSec']))
+                    return self.reply(200, {'capSec': worker.cap_sec})
                 if parts == ['shutdown'] and method == 'POST':
                     self.reply(200)
                     threading.Thread(target=terminate, daemon=True).start()

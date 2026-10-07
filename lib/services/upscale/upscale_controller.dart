@@ -66,6 +66,7 @@ class UpscaleController {
   bool _baking = false;
   UpscaleBaker? _activeBaker;
   String? _activeKey;
+  (String, int)? _activeItem;
   final List<(String, int)> _uploadQueue = [];
   bool _uploading = false;
   Completer<void>? _uploadCancel;
@@ -238,67 +239,115 @@ class UpscaleController {
   RunpodApi _runpod() =>
       RunpodApi(GStorage.getSetting(SettingsKeys.runpodApiKey));
 
-  bool cloudHolds(String recordKey, int episodeNumber) {
-    final session = _cloud;
-    return session != null &&
-        session.recordKey == recordKey &&
-        session.holds(episodeNumber);
-  }
+  bool cloudHolds(String recordKey, int episodeNumber) =>
+      _cloud?.holds(recordKey, episodeNumber) ?? false;
 
-  /// Prices a cloud bake of every episode of [recordKey] that still needs
-  /// one. Throws [CloudBakeException] or [RunpodException] with a message
-  /// for the user.
-  Future<CloudBakeQuote> quoteCloudBake(String recordKey) async {
+  /// Queued for the pod but not uploaded yet, so it can still be taken back.
+  bool cloudQueued(String recordKey, int episodeNumber) =>
+      _cloud?.queued(recordKey, episodeNumber) ?? false;
+
+  bool get cloudRunning => _cloud != null;
+
+  Future<FfmpegInfo> _requireCloud() async {
     if (!canBake) throw const CloudBakeException('仅支持在电脑端烘焙');
-    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
     if (!hasRunpodKey) {
       throw const CloudBakeException('请先在下载设置中填写 Runpod API Key');
     }
-    var ffmpeg = _ffmpeg;
-    if (ffmpeg == null) {
-      final (info, error) = await detectFfmpeg();
-      if (info == null) throw CloudBakeException(error ?? '未找到可用的 ffmpeg');
-      ffmpeg = info;
-    }
+    final ffmpeg = _ffmpeg;
+    if (ffmpeg != null) return ffmpeg;
+    final (info, error) = await detectFfmpeg();
+    if (info == null) throw CloudBakeException(error ?? '未找到可用的 ffmpeg');
+    return info;
+  }
+
+  /// What a cloud bake of [recordKey] would take: every episode that still
+  /// needs one, or only [episodeNumber]. A single episode may come out of
+  /// the local queue, as long as the laptop hasn't started it.
+  Future<List<CloudJob>> _cloudJobs(
+    FfmpegInfo ffmpeg,
+    String recordKey, {
+    int? episodeNumber,
+  }) async {
     final record = _repository.getRecord(recordKey);
     if (record == null) throw const CloudBakeException('找不到该番剧');
     final episodes =
         record.episodes.values
             .where(
               (e) =>
+                  (episodeNumber == null || e.episodeNumber == episodeNumber) &&
                   e.status == DownloadStatus.completed &&
                   !e.preUpscaled &&
                   e.upscaleStatus != UpscaleStatus.done &&
-                  !_bakeQueue.contains((recordKey, e.episodeNumber)) &&
-                  _activeKey != progressKey(recordKey, e.episodeNumber),
+                  (episodeNumber != null ||
+                      !_bakeQueue.contains((recordKey, e.episodeNumber))) &&
+                  _activeKey != progressKey(recordKey, e.episodeNumber) &&
+                  !cloudHolds(recordKey, e.episodeNumber),
             )
             .toList()
           ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
-    if (episodes.isEmpty) throw const CloudBakeException('没有可烘焙的剧集');
-
-    final int height = GStorage.getSetting(SettingsKeys.upscaleBakeHeight);
-    final jobs = <CloudJob>[];
-    for (final e in episodes) {
-      final us = await UpscaleBaker.probeDurationUs(
-        ffmpeg.executable,
-        e.localM3u8Path,
-      );
-      jobs.add(
+    if (episodes.isEmpty) {
+      throw CloudBakeException(episodeNumber == null ? '没有可烘焙的剧集' : '该集无法上云烘焙');
+    }
+    return [
+      for (final e in episodes)
         CloudJob(
           recordKey: recordKey,
           episodeNumber: e.episodeNumber,
-          durationSec: us ~/ 1000000,
+          durationSec: await _durationSec(ffmpeg, e),
           outputPath: path.join(
             e.downloadDirectory,
             'upscaled',
             upscaledVideoFileName,
           ),
+          cloudOnly: episodeNumber != null,
         ),
-      );
+    ];
+  }
+
+  Future<int> _durationSec(FfmpegInfo ffmpeg, DownloadEpisode episode) async =>
+      await UpscaleBaker.probeDurationUs(
+        ffmpeg.executable,
+        episode.localM3u8Path,
+      ) ~/
+      1000000;
+
+  /// Bake time the laptop already owes: the rest of the episode on the GPU
+  /// and everything queued behind it.
+  Future<int> _localBusySec(FfmpegInfo ffmpeg) async {
+    var media = 0.0;
+    final active = _activeItem;
+    for (final (recordKey, episodeNumber) in [?active, ..._bakeQueue]) {
+      final episode = _repository.getRecord(recordKey)?.episodes[episodeNumber];
+      if (episode == null) continue;
+      var sec = (await _durationSec(ffmpeg, episode)).toDouble();
+      if (sec <= 0) sec = CloudBakeRates.unknownDurationSec.toDouble();
+      if ((recordKey, episodeNumber) == active) {
+        sec *= 1 - (bakeProgress[progressKey(recordKey, episodeNumber)] ?? 0);
+      }
+      media += sec;
     }
-    final bool includeLocal = GStorage.getSetting(
-      SettingsKeys.cloudBakeIncludeLocal,
+    return (media / CloudBakeRates.localRealtime).ceil();
+  }
+
+  /// Prices a cloud bake of every episode of [recordKey] that still needs
+  /// one, or only [episodeNumber], which then goes to the pod whatever the
+  /// estimate says. Throws [CloudBakeException] or [RunpodException] with a
+  /// message for the user.
+  Future<CloudBakeQuote> quoteCloudBake(
+    String recordKey, {
+    int? episodeNumber,
+  }) async {
+    if (_cloud != null) throw const CloudBakeException('云端 GPU 正在收尾，请稍后再试');
+    final ffmpeg = await _requireCloud();
+    final jobs = await _cloudJobs(
+      ffmpeg,
+      recordKey,
+      episodeNumber: episodeNumber,
     );
+    final int height = GStorage.getSetting(SettingsKeys.upscaleBakeHeight);
+    final bool includeLocal =
+        episodeNumber == null &&
+        GStorage.getSetting(SettingsKeys.cloudBakeIncludeLocal);
     final offer = await _runpod().sydneyOffer();
     return CloudBakeQuote(
       recordKey: recordKey,
@@ -306,10 +355,51 @@ class UpscaleController {
       offer: offer,
       includeLocal: includeLocal,
       height: height,
-      estimate: CloudBakeEstimate.forDurations([
-        for (final j in jobs) j.durationSec,
-      ], includeLocal: includeLocal),
+      estimate: CloudBakeEstimate.forDurations(
+        [for (final j in jobs) j.durationSec],
+        includeLocal: includeLocal,
+        localBusySec: includeLocal ? await _localBusySec(ffmpeg) : 0,
+      ),
     );
+  }
+
+  /// Adds to the running cloud session: one episode, or every episode of the
+  /// show that still needs a bake. Returns how many were queued, or null
+  /// when there is no session taking more and a new one has to be quoted.
+  Future<int?> addToCloud(String recordKey, {int? episodeNumber}) async {
+    final session = _cloud;
+    if (session == null) return null;
+    final ffmpeg = await _requireCloud();
+    final jobs = await _cloudJobs(
+      ffmpeg,
+      recordKey,
+      episodeNumber: episodeNumber,
+    );
+    if (!identical(session, _cloud)) return null;
+    final added = session.add(
+      jobs,
+      extraCapSec: CloudBakeEstimate.extraCapSec([
+        for (final j in jobs) j.durationSec,
+      ]),
+    );
+    if (!added) {
+      throw const CloudBakeException('云端 GPU 正在收尾，请稍后再试');
+    }
+    await _takeFromLocalQueue(jobs);
+    return jobs.length;
+  }
+
+  /// Takes a cloud-queued episode back before its upload starts.
+  Future<void> removeFromCloud(String recordKey, int episodeNumber) async =>
+      _cloud?.remove(recordKey, episodeNumber);
+
+  Future<void> _takeFromLocalQueue(List<CloudJob> jobs) async {
+    for (final job in jobs) {
+      _bakeQueue.remove((job.recordKey, job.episodeNumber));
+      await _updateEpisode(job.recordKey, job.episodeNumber, (e) {
+        e.upscaleStatus = UpscaleStatus.queued;
+      });
+    }
   }
 
   Future<void> startCloudBake(CloudBakeQuote quote) async {
@@ -326,7 +416,6 @@ class UpscaleController {
     final session = CloudBakeSession(
       api: _runpod(),
       connect: (uri, token) => CloudBakeWorkerClient(uri, token),
-      recordKey: quote.recordKey,
       jobs: quote.jobs,
       includeLocal: quote.includeLocal,
       workerScript: script,
@@ -358,11 +447,7 @@ class UpscaleController {
       onChanged: (view) => runInAction(() => cloudSession.value = view),
     );
     _cloud = session;
-    for (final job in quote.jobs) {
-      await _updateEpisode(job.recordKey, job.episodeNumber, (e) {
-        e.upscaleStatus = UpscaleStatus.queued;
-      });
-    }
+    await _takeFromLocalQueue(quote.jobs);
     KeepAwake.instance.acquire();
     unawaited(() async {
       try {
@@ -509,6 +594,7 @@ class UpscaleController {
     final key = progressKey(recordKey, episodeNumber);
     final baker = UpscaleBaker();
     _activeKey = key;
+    _activeItem = (recordKey, episodeNumber);
     _activeBaker = baker;
     runInAction(() => bakeProgress[key] = 0);
     await _updateEpisode(recordKey, episodeNumber, (e) {
@@ -556,6 +642,7 @@ class UpscaleController {
     } finally {
       runInAction(() => bakeProgress.remove(key));
       _activeKey = null;
+      _activeItem = null;
       _activeBaker = null;
     }
   }

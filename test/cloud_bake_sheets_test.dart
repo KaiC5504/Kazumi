@@ -7,26 +7,29 @@ import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
 import 'package:mobx/mobx.dart';
 
 void main() {
-  CloudBakeQuote quote({bool includeLocal = true}) => CloudBakeQuote(
-    recordKey: 'r',
-    jobs: const [],
-    offer: const CloudOffer(available: true, pricePerHour: 1.2),
-    estimate: const CloudBakeEstimate(
-      cloudCount: 2,
-      localCount: 1,
-      cloudSec: 760,
-      finishSec: 760,
-    ),
-    includeLocal: includeLocal,
-    height: 1440,
-  );
+  CloudBakeQuote quote({bool includeLocal = true, bool available = true}) =>
+      CloudBakeQuote(
+        recordKey: 'r',
+        jobs: const [],
+        offer: CloudOffer(available: available, pricePerHour: 1.2),
+        estimate: const CloudBakeEstimate(
+          cloudCount: 2,
+          localCount: 1,
+          cloudSec: 760,
+          finishSec: 760,
+        ),
+        includeLocal: includeLocal,
+        height: 1440,
+      );
 
   Future<bool?> pump(WidgetTester tester, CloudBakeQuote q) async {
     bool? result;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
-          builder: (context) => Scaffold(body: CloudBakeConfirmSheet(quote: q)),
+          builder: (context) => Scaffold(
+            body: CloudBakeConfirmSheet(quote: q, canBakeLocally: true),
+          ),
         ),
       ),
     );
@@ -51,7 +54,26 @@ void main() {
     expect(find.textContaining('本机不参与'), findsOneWidget);
   });
 
+  testWidgets('with no stock the sheet offers to wait or bake locally', (
+    tester,
+  ) async {
+    await pump(tester, quote(available: false));
+    expect(find.textContaining('自动排队等待'), findsOneWidget);
+    expect(find.text('排队等待'), findsOneWidget);
+    expect(find.text('本机烘焙全部'), findsOneWidget);
+    expect(find.text('开始'), findsNothing);
+  });
+
+  testWidgets('in stock there is no local button', (tester) async {
+    await pump(tester, quote());
+    expect(find.text('本机烘焙全部'), findsNothing);
+  });
+
   test('cloud status text per stage', () {
+    expect(
+      cloudStatusText(const CloudEpisodePhase(CloudEpisodeStage.queued)),
+      '☁ 排队中',
+    );
     expect(
       cloudStatusText(
         const CloudEpisodePhase(CloudEpisodeStage.uploading, 0.42),
