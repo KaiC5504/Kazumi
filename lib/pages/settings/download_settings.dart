@@ -16,6 +16,7 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/utils/file_system.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DownloadSettingsPage extends StatefulWidget {
   const DownloadSettingsPage({super.key});
@@ -39,6 +40,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
   late String exportDirectory;
   late bool autoExport;
   late bool libraryAutoUpload;
+  late bool cloudIncludeLocal;
   List<String> lanAddresses = [];
 
   @override
@@ -48,6 +50,8 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     exportDirectory = GStorage.getSetting(SettingsKeys.upscaleExportDirectory);
     autoExport = GStorage.getSetting(SettingsKeys.upscaleAutoExport);
     libraryAutoUpload = GStorage.getSetting(SettingsKeys.libraryAutoUpload);
+    cloudIncludeLocal =
+        GStorage.getSetting(SettingsKeys.cloudBakeIncludeLocal);
     if (upscaleController.canBake) {
       _detectFfmpeg();
       _loadLanAddresses();
@@ -434,6 +438,44 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
               GStorage.putSetting<bool>(
                   SettingsKeys.libraryAutoUpload, libraryAutoUpload);
             },
+          ),
+        ],
+      ),
+      SettingsSection(
+        title: Text('云端烘焙 (Runpod)'),
+        tiles: [
+          SettingsTile(
+            leading: Icons.key_rounded,
+            title: Text('Runpod API Key'),
+            description: Text(
+                GStorage.getSetting(SettingsKeys.runpodApiKey).isEmpty
+                    ? '未设置 · 在 Runpod 控制台 Settings → API Keys 创建，权限选读写'
+                    : '已设置'),
+            onPressed: (_) => _editLibrarySetting(
+              SettingsKeys.runpodApiKey,
+              title: 'Runpod API Key',
+              hint: 'rpa_...',
+            ),
+          ),
+          SettingsTile.switchTile(
+            leading: Icons.computer_rounded,
+            title: Text('同时用本机烘焙'),
+            description: Text('云端从第一集往后烘焙，本机从最后一集往前，一起做完'),
+            initialValue: cloudIncludeLocal,
+            onToggle: (value) {
+              setState(() => cloudIncludeLocal = value ?? !cloudIncludeLocal);
+              GStorage.putSetting<bool>(
+                  SettingsKeys.cloudBakeIncludeLocal, cloudIncludeLocal);
+            },
+          ),
+          SettingsTile(
+            leading: Icons.open_in_new_rounded,
+            title: Text('打开 Runpod 控制台'),
+            description: Text('查看余额、充值，或确认 GPU 已删除'),
+            onPressed: (_) => launchUrl(
+              Uri.parse('https://console.runpod.io/pods'),
+              mode: LaunchMode.externalApplication,
+            ),
           ),
         ],
       ),

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
+import 'package:kazumi/pages/download/cloud_bake_sheets.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/services/sync/bangumi_sync_service.dart';
 import 'package:kazumi/services/sync/danmaku_shield_sync_service.dart';
@@ -112,6 +113,7 @@ class _InitPageState extends State<InitPage> {
       },
     ));
     _startDefaultPage();
+    unawaited(checkLeftoverCloudPods(widget.upscaleController));
   }
 
   void _setupBackgroundDownloadNavigation() {

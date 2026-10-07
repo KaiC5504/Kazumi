@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
@@ -17,6 +18,11 @@ import 'package:kazumi/services/skip/episode_fingerprint.dart';
 import 'package:kazumi/services/skip/skip_detector.dart';
 import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_bake_worker_client.dart';
+import 'package:kazumi/services/upscale/cloud/cloud_worker_script.dart';
+import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
 import 'package:kazumi/services/upscale/keep_awake.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
@@ -76,6 +82,17 @@ class UpscaleController {
 
   /// Record keys whose openings and endings are being analysed.
   final ObservableSet<String> analyzingSkips = ObservableSet<String>();
+
+  // One local bake at a time: one already saturates the GPU, and both the
+  // bake queue and a cloud session's laptop lane feed it.
+  Future<void> _gpu = Future.value();
+
+  CloudBakeSession? _cloud;
+  final Observable<CloudBakeSessionView?> cloudSession = Observable(null);
+
+  /// Keyed like [bakeProgress]; present while the cloud holds the episode.
+  final ObservableMap<String, CloudEpisodePhase> cloudPhases =
+      ObservableMap<String, CloudEpisodePhase>();
 
   bool get canBake => isDesktop();
 
@@ -187,6 +204,7 @@ class UpscaleController {
       return '请先完成下载';
     }
     if (episode.preUpscaled) return '该集已是超分版本';
+    if (cloudHolds(recordKey, episodeNumber)) return '该集正在云端烘焙';
     if (_ffmpeg == null) {
       final (info, error) = await detectFfmpeg();
       if (info == null) return error ?? '未找到可用的 ffmpeg';
@@ -215,26 +233,281 @@ class UpscaleController {
     });
   }
 
+  bool get hasRunpodKey =>
+      GStorage.getSetting(SettingsKeys.runpodApiKey).isNotEmpty;
+
+  RunpodApi _runpod() =>
+      RunpodApi(GStorage.getSetting(SettingsKeys.runpodApiKey));
+
+  bool cloudHolds(String recordKey, int episodeNumber) {
+    final session = _cloud;
+    return session != null &&
+        session.recordKey == recordKey &&
+        session.holds(episodeNumber);
+  }
+
+  /// Prices a cloud bake of every episode of [recordKey] that still needs
+  /// one. Throws [CloudBakeException] or [RunpodException] with a message
+  /// for the user.
+  Future<CloudBakeQuote> quoteCloudBake(String recordKey) async {
+    if (!canBake) throw const CloudBakeException('仅支持在电脑端烘焙');
+    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
+    if (!hasRunpodKey) {
+      throw const CloudBakeException('请先在下载设置中填写 Runpod API Key');
+    }
+    var ffmpeg = _ffmpeg;
+    if (ffmpeg == null) {
+      final (info, error) = await detectFfmpeg();
+      if (info == null) throw CloudBakeException(error ?? '未找到可用的 ffmpeg');
+      ffmpeg = info;
+    }
+    final record = _repository.getRecord(recordKey);
+    if (record == null) throw const CloudBakeException('找不到该番剧');
+    final episodes =
+        record.episodes.values
+            .where(
+              (e) =>
+                  e.status == DownloadStatus.completed &&
+                  !e.preUpscaled &&
+                  e.upscaleStatus != UpscaleStatus.done &&
+                  !_bakeQueue.contains((recordKey, e.episodeNumber)) &&
+                  _activeKey != progressKey(recordKey, e.episodeNumber),
+            )
+            .toList()
+          ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+    if (episodes.isEmpty) throw const CloudBakeException('没有可烘焙的剧集');
+
+    final int height = GStorage.getSetting(SettingsKeys.upscaleBakeHeight);
+    final jobs = <CloudJob>[];
+    for (final e in episodes) {
+      final us = await UpscaleBaker.probeDurationUs(
+        ffmpeg.executable,
+        e.localM3u8Path,
+      );
+      jobs.add(
+        CloudJob(
+          recordKey: recordKey,
+          episodeNumber: e.episodeNumber,
+          durationSec: us ~/ 1000000,
+          outputPath: path.join(
+            e.downloadDirectory,
+            'upscaled',
+            upscaledVideoFileName,
+          ),
+        ),
+      );
+    }
+    final bool includeLocal = GStorage.getSetting(
+      SettingsKeys.cloudBakeIncludeLocal,
+    );
+    final offer = await _runpod().sydneyOffer();
+    return CloudBakeQuote(
+      recordKey: recordKey,
+      jobs: jobs,
+      offer: offer,
+      includeLocal: includeLocal,
+      height: height,
+      estimate: CloudBakeEstimate.forDurations([
+        for (final j in jobs) j.durationSec,
+      ], includeLocal: includeLocal),
+    );
+  }
+
+  Future<void> startCloudBake(CloudBakeQuote quote) async {
+    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
+    final ffmpeg = _ffmpeg;
+    if (ffmpeg == null) throw const CloudBakeException('未找到可用的 ffmpeg');
+    final script = packWorkerScript(
+      await rootBundle.loadString(cloudWorkerAsset),
+    );
+    final shader = await File(
+      await UpscaleBaker.buildCombinedShader(
+        _shaderAssetService.shadersDirectory.path,
+      ),
+    ).readAsString();
+
+    final session = CloudBakeSession(
+      api: _runpod(),
+      connect: (uri, token) => CloudBakeWorkerClient(uri, token),
+      recordKey: quote.recordKey,
+      jobs: quote.jobs,
+      includeLocal: quote.includeLocal,
+      workerScript: script,
+      capSec: quote.estimate.capSec,
+      pricePerHour: quote.offer.pricePerHour,
+      shader: shader,
+      targetHeight: quote.height,
+      prepareInput: (job) => _cloudInput(ffmpeg, job),
+      bakeLocally: (job) =>
+          _onGpu(() => _bakeOne(job.recordKey, job.episodeNumber)),
+      onCloudBaked: (job) => _adoptCloudOutput(job, quote.height),
+      onReturned: (job) =>
+          _updateEpisode(job.recordKey, job.episodeNumber, (e) {
+            e.upscaleStatus = UpscaleStatus.none;
+          }),
+      onFailed: (job, error) =>
+          _updateEpisode(job.recordKey, job.episodeNumber, (e) {
+            e.upscaleStatus = UpscaleStatus.failed;
+            e.errorMessage = error;
+          }),
+      onPhase: (job, phase) => runInAction(() {
+        final key = progressKey(job.recordKey, job.episodeNumber);
+        if (phase == null) {
+          cloudPhases.remove(key);
+        } else {
+          cloudPhases[key] = phase;
+        }
+      }),
+      onChanged: (view) => runInAction(() => cloudSession.value = view),
+    );
+    _cloud = session;
+    for (final job in quote.jobs) {
+      await _updateEpisode(job.recordKey, job.episodeNumber, (e) {
+        e.upscaleStatus = UpscaleStatus.queued;
+      });
+    }
+    KeepAwake.instance.acquire();
+    unawaited(() async {
+      try {
+        await session.run();
+      } catch (e) {
+        KazumiLogger().e('UpscaleController: cloud bake failed', error: e);
+      } finally {
+        KeepAwake.instance.release();
+        _cloud = null;
+        KazumiLogger().i(
+          'UpscaleController: ${session.view.summary(DateTime.now())}',
+        );
+        KazumiDialog.showToast(
+          message: session.view.summary(DateTime.now()),
+          duration: const Duration(seconds: 6),
+        );
+        runInAction(() {
+          cloudSession.value = null;
+          cloudPhases.clear();
+        });
+      }
+    }());
+  }
+
+  Future<void> stopCloudBake() async => _cloud?.stop();
+
+  /// The pod needs one file; HLS downloads (playlist plus segments) are
+  /// remuxed into one without re-encoding.
+  Future<(File, bool)> _cloudInput(FfmpegInfo ffmpeg, CloudJob job) async {
+    final episode = _repository
+        .getRecord(job.recordKey)
+        ?.episodes[job.episodeNumber];
+    if (episode == null) throw const CloudBakeException('剧集已被删除');
+    final input = episode.localM3u8Path;
+    if (!input.toLowerCase().endsWith('.m3u8')) return (File(input), false);
+    final output = path.join(
+      episode.downloadDirectory,
+      'upscaled',
+      'cloud_input.mkv',
+    );
+    await Directory(path.dirname(output)).create(recursive: true);
+    final result = await Process.run(
+      ffmpeg.executable,
+      cloudRemuxArgs(input, output),
+    );
+    if (result.exitCode != 0) {
+      final lines = (result.stderr as String).trim().split('\n');
+      throw CloudBakeException('整理视频失败: ${lines.last}');
+    }
+    return (File(output), true);
+  }
+
+  @visibleForTesting
+  static List<String> cloudRemuxArgs(String input, String output) => [
+    '-hide_banner',
+    '-y',
+    '-loglevel',
+    'error',
+    '-allowed_extensions',
+    'ALL',
+    '-protocol_whitelist',
+    'file,crypto,data',
+    '-i',
+    input,
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
+    '-c',
+    'copy',
+    output,
+  ];
+
+  Future<void> _adoptCloudOutput(CloudJob job, int height) async {
+    // The marker lets init() adopt the file if the app dies before the
+    // record is updated.
+    await File(
+      path.join(path.dirname(job.outputPath), cloudBakeMarkerFileName),
+    ).writeAsString(jsonEncode({'height': height, 'source': 'runpod-l40s'}));
+    await _finishBake(job.recordKey, job.episodeNumber, job.outputPath, height);
+  }
+
+  /// Cloud bake pods still running with no session in this app, e.g. after
+  /// the app was killed mid-run.
+  Future<List<CloudPodInfo>> leftoverCloudPods() async {
+    if (!canBake || !hasRunpodKey || _cloud != null) return const [];
+    return leftoverPods(await _runpod().listPods());
+  }
+
+  @visibleForTesting
+  static List<CloudPodInfo> leftoverPods(List<CloudPodInfo> pods) => [
+    for (final pod in pods)
+      if (pod.name.startsWith(cloudPodNamePrefix) && !pod.gone) pod,
+  ];
+
+  Future<void> deleteCloudPod(String id) => _runpod().deletePod(id);
+
   Future<void> _pumpBakeQueue() async {
     if (_baking) return;
     _baking = true;
     KeepAwake.instance.acquire();
     try {
-      while (_bakeQueue.isNotEmpty) {
-        final (recordKey, episodeNumber) = _bakeQueue.removeAt(0);
-        await _bakeOne(recordKey, episodeNumber);
-      }
+      await drainOnGpu(
+        _bakeQueue,
+        _onGpu,
+        (item) => _bakeOne(item.$1, item.$2),
+      );
     } finally {
       _baking = false;
       KeepAwake.instance.release();
     }
   }
 
-  Future<void> _bakeOne(String recordKey, int episodeNumber) async {
+  @visibleForTesting
+  static Future<void> drainOnGpu<T>(
+    List<T> queue,
+    Future<void> Function(Future<void> Function() bake) onGpu,
+    Future<void> Function(T item) bake,
+  ) async {
+    // Dequeue only once the GPU is free: while waiting, the episode must
+    // still look queued so it can be cancelled and isn't queued twice.
+    while (queue.isNotEmpty) {
+      await onGpu(() async {
+        if (queue.isEmpty) return;
+        await bake(queue.removeAt(0));
+      });
+    }
+  }
+
+  Future<T> _onGpu<T>(Future<T> Function() bake) {
+    final run = _gpu.then((_) => bake());
+    _gpu = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  Future<LocalBakeOutcome> _bakeOne(String recordKey, int episodeNumber) async {
     final record = _repository.getRecord(recordKey);
     final episode = record?.episodes[episodeNumber];
     final ffmpeg = _ffmpeg;
-    if (record == null || episode == null || ffmpeg == null) return;
+    if (record == null || episode == null || ffmpeg == null) {
+      return LocalBakeOutcome.failed;
+    }
 
     final key = progressKey(recordKey, episodeNumber);
     final baker = UpscaleBaker();
@@ -269,41 +542,53 @@ class UpscaleController {
       KazumiLogger().i(
         'UpscaleController: baked $key in ${stopwatch.elapsed.inSeconds}s',
       );
-      await _updateEpisode(recordKey, episodeNumber, (e) {
-        e.upscaleStatus = UpscaleStatus.done;
-        e.upscaledVideoPath = output;
-        e.upscaledHeight = targetHeight;
-      });
-      try {
-        await analyzeSkips(recordKey);
-      } catch (e) {
-        KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
-      }
-      if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
-          canUploadToLibrary) {
-        enqueueUpload(recordKey, episodeNumber);
-      }
-      if (GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
-          GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty) {
-        final error = await export(recordKey, episodeNumber);
-        if (error != null) {
-          KazumiLogger().w('UpscaleController: auto export failed: $error');
-        }
-      }
+      await _finishBake(recordKey, episodeNumber, output, targetHeight);
+      return LocalBakeOutcome.done;
     } on UpscaleBakeCancelled {
       await _updateEpisode(recordKey, episodeNumber, (e) {
         e.upscaleStatus = UpscaleStatus.none;
       });
+      return LocalBakeOutcome.cancelled;
     } catch (e) {
       KazumiLogger().e('UpscaleController: bake failed for $key', error: e);
       await _updateEpisode(recordKey, episodeNumber, (ep) {
         ep.upscaleStatus = UpscaleStatus.failed;
         ep.errorMessage = '超分失败: $e';
       });
+      return LocalBakeOutcome.failed;
     } finally {
       runInAction(() => bakeProgress.remove(key));
       _activeKey = null;
       _activeBaker = null;
+    }
+  }
+
+  Future<void> _finishBake(
+    String recordKey,
+    int episodeNumber,
+    String output,
+    int height,
+  ) async {
+    await _updateEpisode(recordKey, episodeNumber, (e) {
+      e.upscaleStatus = UpscaleStatus.done;
+      e.upscaledVideoPath = output;
+      e.upscaledHeight = height;
+    });
+    try {
+      await analyzeSkips(recordKey);
+    } catch (e) {
+      KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
+    }
+    if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
+        canUploadToLibrary) {
+      enqueueUpload(recordKey, episodeNumber);
+    }
+    if (GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
+        GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty) {
+      final error = await export(recordKey, episodeNumber);
+      if (error != null) {
+        KazumiLogger().w('UpscaleController: auto export failed: $error');
+      }
     }
   }
 
@@ -591,8 +876,9 @@ class UpscaleController {
     runInAction(() => uploadProgress.remove(key));
   }
 
-  bool isInLibrary(String recordKey, int episodeNumber) => libraryIds
-      .contains(UpscaledEpisodeManifest.shareIdFor(recordKey, episodeNumber));
+  bool isInLibrary(String recordKey, int episodeNumber) => libraryIds.contains(
+    UpscaledEpisodeManifest.shareIdFor(recordKey, episodeNumber),
+  );
 
   /// Reloads [libraryIds]. A failed refresh keeps the last known list.
   Future<void> refreshLibrary() {
@@ -635,7 +921,10 @@ class UpscaleController {
         } on UploadCancelled {
           KazumiDialog.showToast(message: '已取消上传');
         } catch (e) {
-          KazumiLogger().e('UpscaleController: upload failed for $key', error: e);
+          KazumiLogger().e(
+            'UpscaleController: upload failed for $key',
+            error: e,
+          );
           KazumiDialog.showToast(message: '上传到片库失败: $e');
         } finally {
           _uploadCancel = null;
@@ -690,8 +979,13 @@ class UpscaleController {
           runInAction(() => uploadProgress[key] = sent / size),
     );
     if (hasDanmaku) {
-      await _uploadResumable(api, id, upscaledDanmakuFileName, danmaku,
-          cancel: cancel);
+      await _uploadResumable(
+        api,
+        id,
+        upscaledDanmakuFileName,
+        danmaku,
+        cancel: cancel,
+      );
     }
     if (cancel.isCompleted) throw const UploadCancelled();
     await api.commit(id, manifest);
@@ -711,8 +1005,14 @@ class UpscaleController {
   }) async {
     final done = await api.uploadedParts(id, file);
     if (done == null) {
-      return _uploadResumable(api, id, file, source,
-          onProgress: onProgress, cancel: cancel);
+      return _uploadResumable(
+        api,
+        id,
+        file,
+        source,
+        onProgress: onProgress,
+        cancel: cancel,
+      );
     }
     final size = await source.length();
     int lengthOf(int i) => partLength(i, size, partSize);
@@ -727,8 +1027,9 @@ class UpscaleController {
       }
     }
     final inFlight = <int, int>{};
-    void report() => onProgress
-        ?.call(sent + inFlight.values.fold<int>(0, (sum, n) => sum + n));
+    void report() => onProgress?.call(
+      sent + inFlight.values.fold<int>(0, (sum, n) => sum + n),
+    );
     report();
 
     await runParts(
@@ -782,10 +1083,14 @@ class UpscaleController {
         throw LibraryException('服务器上的 $file 比本地大，请在服务器上删除后重试');
       }
       try {
-        await api.upload(id, file, source,
-            offset: offset,
-            onProgress: onProgress,
-            cancelled: cancel?.future);
+        await api.upload(
+          id,
+          file,
+          source,
+          offset: offset,
+          onProgress: onProgress,
+          cancelled: cancel?.future,
+        );
         return;
       } on LibraryException catch (e) {
         if (cancel?.isCompleted ?? false) throw const UploadCancelled();
