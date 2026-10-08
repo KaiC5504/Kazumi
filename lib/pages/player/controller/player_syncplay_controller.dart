@@ -75,6 +75,12 @@ abstract class _PlayerSyncPlayController with Store {
   // Peers who rejoined while the server still held their old connection;
   // that connection's 'left' arrives later and must not remove them.
   final Map<String, int> _ghosts = {};
+  // Peers who said goodbye: already shown as gone, so the server's 'left'
+  // that follows is swallowed.
+  final Set<String> _departed = {};
+  // Completes when the server relays our goodbye back to us, which means it
+  // went out before the socket is torn down.
+  Completer<void>? _goodbyeEcho;
   int _reconnectAttempts = 0;
   // Reconnects the server answered with a Hello but no room state since.
   // A server that does that and then goes quiet would otherwise be redialled
@@ -94,6 +100,11 @@ abstract class _PlayerSyncPlayController with Store {
   // The backoff stops counting as running once its last attempt is spent,
   // but that attempt still needs time to land before giving up.
   bool get reconnecting => _backoff.running || _backoff.exhausted;
+  /// Sent as chat on a deliberate exit so the others show 离开了 at once;
+  /// a dropped connection still waits out the leave debounce. Builds that
+  /// don't know it show it as a chat line, hence the readable text.
+  static const _goodbye = '⁣离开了房间';
+
   @visibleForTesting
   int get reconnectAttempts => _reconnectAttempts;
   @visibleForTesting
@@ -318,6 +329,9 @@ abstract class _PlayerSyncPlayController with Store {
               // Our own dead connection timing out on the server.
               return;
             }
+            if (_departed.contains(name)) {
+              return;
+            }
             final ghosts = _ghosts[name] ?? 0;
             if (ghosts > 0) {
               // The old connection of a peer who already rejoined.
@@ -334,6 +348,7 @@ abstract class _PlayerSyncPlayController with Store {
             if (_isOwnGhost(name, client)) {
               return;
             }
+            _departed.removeWhere((d) => _baseName(d) == _baseName(name));
             final renamed = _renamedFrom(name);
             if (renamed != null) {
               // Syncplay gives a peer who rejoins while it still holds their
@@ -406,11 +421,23 @@ abstract class _PlayerSyncPlayController with Store {
       );
       client.onChatMessage.listen(
         (message) {
+          final String sender = (message['username'] ?? '').toString();
+          final String text = (message['message'] ?? '').toString();
+          if (text == _goodbye) {
+            // exitRoom closes the session before the echo comes back, so
+            // this is checked against the client alone.
+            if (sender == client.username) {
+              _goodbyeEcho?.complete();
+              _goodbyeEcho = null;
+            } else if (_isCurrentConnection(session, client) &&
+                !_isOwnGhost(sender, client)) {
+              _peerLeftOnPurpose(sender);
+            }
+            return;
+          }
           if (!_isCurrentConnection(session, client)) {
             return;
           }
-          final String sender = (message['username'] ?? '').toString();
-          final String text = (message['message'] ?? '').toString();
           final bool fromRemote = message['username'] != username;
 
           emitChatMessage(
@@ -721,6 +748,18 @@ abstract class _PlayerSyncPlayController with Store {
     return null;
   }
 
+  void _peerLeftOnPurpose(String name) {
+    _departed.add(name);
+    _pendingLeft.remove(name);
+    _leftFiles.remove(name);
+    _peerFiles.remove(name);
+    _ghosts.remove(name);
+    if (_waitingForPeers && _peersBehind().isEmpty) {
+      _stopWaiting();
+    }
+    GlassNotice.show('$name 离开了', icon: Icons.person_remove_rounded);
+  }
+
   List<String> _peersElsewhere() => [
         for (final entry in _peerFiles.entries)
           if (entry.value != null && entry.value != _currentFile()) entry.key
@@ -989,7 +1028,21 @@ abstract class _PlayerSyncPlayController with Store {
   @action
   Future<void> exitRoom() async {
     speedLocked = false;
+    await _sayGoodbye();
     await _closeRoom();
+  }
+
+  Future<void> _sayGoodbye() async {
+    final client = syncplayController;
+    if (client == null || !client.isConnected || _peerFiles.isEmpty) {
+      return;
+    }
+    final echo = _goodbyeEcho = Completer<void>();
+    await _runBestEffortSync(() => client.sendChatMessage(_goodbye));
+    // Closing the TLS socket straight after the write can drop what it
+    // still buffers; the server's echo means the goodbye got through.
+    await echo.future.timeout(const Duration(seconds: 1), onTimeout: () {});
+    _goodbyeEcho = null;
   }
 
   Future<void> _closeRoom() async {
@@ -999,6 +1052,7 @@ abstract class _PlayerSyncPlayController with Store {
     _pendingLeft.clear();
     _leftFiles.clear();
     _ghosts.clear();
+    _departed.clear();
     // The next room starts from whatever network it opens on.
     _watchdog.forgetNetwork();
     _reconnectNoticeAt = null;

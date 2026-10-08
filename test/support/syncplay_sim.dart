@@ -352,6 +352,16 @@ class SimSyncplayServer {
       }
       return;
     }
+    // Like syncplay.server's sendChat: everyone in the room, sender included.
+    if (message['Chat'] case final String text) {
+      for (final other in _watchers) {
+        if (other.name == null) continue;
+        _send(other, {
+          'Chat': {'message': text, 'username': watcher.name},
+        });
+      }
+      return;
+    }
     if (message['State'] case final Map state) {
       final ignoring = state['ignoringOnTheFly'];
       if (ignoring is Map) {

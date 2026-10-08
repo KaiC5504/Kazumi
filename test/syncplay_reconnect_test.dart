@@ -348,4 +348,64 @@ void main() {
       expect(simNotices, contains('her 离开了'));
     });
   });
+
+  test('leaving on purpose shows 离开了 at once, and only once', () {
+    return eachSeed(1, (seed) async {
+      await start(seed: seed);
+      await clock.wait(5);
+      final chat = <String>[];
+      final sub = me.sync.chatStream.listen((m) => chat.add(m.message));
+      await her.leave();
+      viewers.remove(her);
+      await clock.until(
+        () => simNotices.contains('her 离开了'),
+        timeout: 2,
+        what: 'the pill without the 15 s debounce',
+      );
+      expect(me.sync.peers, isNot(contains('her')));
+      await clock.wait(25);
+      expect(simNotices.where((n) => n == 'her 离开了'), hasLength(1));
+      expect(chat, isEmpty, reason: 'the goodbye is not a chat message');
+      await sub.cancel();
+    });
+  });
+
+  test('back after leaving on purpose shows 加入了', () {
+    return eachSeed(1, (seed) async {
+      await start(seed: seed);
+      await clock.wait(5);
+      await her.leave();
+      viewers.remove(her);
+      await clock.until(() => simNotices.contains('her 离开了'), timeout: 2);
+      final again = SimViewer(
+        'her',
+        clock,
+        network: NetworkProfile.nanningToHk,
+        episodeLength: 1440,
+      );
+      viewers.add(again);
+      await again.join(server, at: 60);
+      await clock.until(
+        () => simNotices.contains('her 加入了'),
+        timeout: 5,
+        what: 'her 加入了',
+      );
+      expect(me.sync.peers, contains('her'));
+    });
+  });
+
+  test('alone in the room, leaving sends no goodbye and does not wait', () {
+    return eachSeed(1, (seed) async {
+      await start(seed: seed);
+      await her.leave();
+      viewers.remove(her);
+      await clock.until(() => simNotices.contains('her 离开了'), timeout: 2);
+      final before = clock.seconds;
+      await me.leave();
+      viewers.remove(me);
+      await server.close();
+      // Waiting out the goodbye's echo would take 20 s at this clock speed.
+      expect(clock.seconds - before, lessThan(2));
+    });
+  });
 }
