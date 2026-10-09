@@ -66,9 +66,22 @@ jobs:
       actions: read
     outputs:
       build_number: ${{ steps.version.outputs.build_number }}
+      flutter_version: ${{ steps.flutter.outputs.version }}
       branded: ${{ steps.branding.outputs.branded }}
     steps:
       - uses: actions/checkout@v4
+
+      # flutter-action's flutter-version-file needs yq, which Windows gets from
+      # Chocolatey; its feed times out often enough to fail releases.
+      - id: flutter
+        name: Flutter version from pubspec.yaml
+        run: |
+          version=$(sed -n 's/^  flutter: *\([0-9][0-9.]*\) *$/\1/p' pubspec.yaml | head -1)
+          if [ -z "$version" ]; then
+            echo "::error file=pubspec.yaml::no 'flutter: X.Y.Z' under environment"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - id: version
         name: Version is X.Y.Z and not taken
@@ -164,7 +177,7 @@ jobs:
       - uses: subosito/flutter-action@v2.16.0
         with:
           channel: stable
-          flutter-version-file: pubspec.yaml
+          flutter-version: ${{ needs.check.outputs.flutter_version }}
           cache: true
 
       - run: flutter pub get
@@ -247,15 +260,12 @@ jobs:
           expect "$cpp" 'L"kazumi-fork.win.mutex"'
           reject "$cpp" 'kazumi\.win\.mutex'
 
-      # flutter-action reads flutter-version-file with yq, which this image lacks.
-      - run: choco install yq -y --no-progress
-
       - run: git config --system core.longpaths true
 
       - uses: subosito/flutter-action@v2.16.0
         with:
           channel: stable
-          flutter-version-file: pubspec.yaml
+          flutter-version: ${{ needs.check.outputs.flutter_version }}
           cache: true
 
       - run: flutter pub get
