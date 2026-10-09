@@ -14,10 +14,11 @@
 | 每部番剧单独记住播放倍速（一起看时固定 1.0×） | 全部 | [#2572](https://github.com/Predidit/Kazumi/issues/2572)、[#1599](https://github.com/Predidit/Kazumi/issues/1599) |
 | WebDAV 自动同步：除启动时外，切到后台、回到前台、退出播放器时也会同步历史记录；追番列表改动后立即上传 | 全部 | [#1952](https://github.com/Predidit/Kazumi/issues/1952)、[#2613](https://github.com/Predidit/Kazumi/issues/2613) |
 | Bangumi 同步：一集看到 90% 时自动标记为看过（需在设置中配置 Bangumi 令牌） | 全部 | [#2185](https://github.com/Predidit/Kazumi/issues/2185) |
-| 新集提醒：在看的番剧在日本首播次日 10:00 发送本地通知（界面设置 → 提醒） | Android | [#2370](https://github.com/Predidit/Kazumi/issues/2370)、[#1644](https://github.com/Predidit/Kazumi/issues/1644) |
+| 新集提醒：在看的番剧在日本首播次日 10:00 发送本地通知（界面设置 → 提醒） | Android、iOS | [#2370](https://github.com/Predidit/Kazumi/issues/2370)、[#1644](https://github.com/Predidit/Kazumi/issues/1644) |
 | 在线播放时从 [AniSkip](https://aniskip.com) 查询片头片尾时间并提示跳过（播放设置中可关闭） | 全部 | [#2420](https://github.com/Predidit/Kazumi/issues/2420)、[#218](https://github.com/Predidit/Kazumi/issues/218) |
 | 首次启动自动安装官方规则，之后官方新增的规则也会自动安装（删除过的不会再装回来） | 全部 | — |
 | 片源旁显示实测画质标记（分辨率、编码、码率） | 全部 | — |
+| 应用更新后已下载的剧集不再丢失（iOS 更新会改变应用目录，下载记录会自动指向新位置） | iOS | [#2243](https://github.com/Predidit/Kazumi/issues/2243) |
 | 本地超分预处理（实验性，需要带 libplacebo 的 ffmpeg，例如 gyan.dev 的 full 版本） | Windows | — |
 
 没有包含的功能：作者自用的「一起看」共享片库和云端超分，它们依赖作者自己的服务器，公开版中已隐藏。
@@ -28,14 +29,15 @@
 
 - **Android**（arm64）：`Kazumi_android_X.Y.Z.apk`
 - **Windows**（x64，免安装）：`Kazumi_windows_X.Y.Z.zip`，解压后运行 `kazumi.exe`
+- **iOS**（未签名）：`Kazumi_ios_X.Y.Z_no_sign.ipa`，需用 AltStore、SideStore 或 TrollStore 等工具自签安装
 
 说明：
 
-- 可以和官方 Kazumi 同时安装：Android 包名不同，Windows 使用单独的数据目录（`%APPDATA%\KazumiFork\kazumi`），两边的数据互不影响。
+- 可以和官方 Kazumi 同时安装：Android 包名和 iOS Bundle ID 不同，Windows 使用单独的数据目录（`%APPDATA%\KazumiFork\kazumi`），两边的数据互不影响。
 - 应用名和图标与官方版相同。区分方法：本版本的「我的 → 关于」里有一段标明来源的说明和本仓库的链接。
 - Windows 首次运行若提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（安装包没有代码签名）。
 - 如果电脑上也装了官方版，首次启动时建议在「创建桌面快捷方式」提示中选择不创建，否则会覆盖官方版的同名快捷方式。
-- 应用内检查更新只查询本仓库的 Releases。Android 可在应用内下载并安装；Windows 会打开下载页面。国内网络下载失败时，请用浏览器打开 Releases 页面下载。
+- 应用内检查更新只查询本仓库的 Releases。Android 可在应用内下载并安装；Windows 和 iOS 会打开下载页面。国内网络下载失败时，请用浏览器打开 Releases 页面下载。
 
 ## 从官方版迁移
 

@@ -100,7 +100,7 @@ group, never committed). Without them danmaku search returns nothing.
 
 ## Public release
 
-A public Android APK + Windows zip on this repo's Releases, separate from TestFlight (its
+A public Android APK + Windows zip + unsigned iOS IPA on this repo's Releases, separate from TestFlight (its
 own version line from 3.0.0). `KAZUMI_PUBLIC=true` (read once, as a const, in
 `lib/build_flavor.dart`) hides 一起看, cloud bake and library upload, and points updates,
 rules and About at public sources. Only `public-release.yaml` passes it; codemagic.yaml

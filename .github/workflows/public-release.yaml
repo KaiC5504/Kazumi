@@ -1,4 +1,4 @@
-# Fork-only public release: Android arm64 APK + Windows portable zip, published as a
+# Fork-only public release: Android arm64 APK + Windows portable zip + unsigned iOS IPA, published as a
 # GitHub Release on this repo. This is the only file that passes KAZUMI_PUBLIC; her
 # TestFlight build (codemagic.yaml) never does. Upstream's release.yaml is disabled on
 # the fork (gh workflow disable release.yaml), and scripts/public_check.py --static
@@ -293,8 +293,72 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Unsigned IPA for sideloading (AltStore, SideStore, TrollStore), packaged the way
+  # upstream's release.yaml does it.
+  ios:
+    needs: check
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Her TestFlight app is com.kaichuan.kazumi and upstream's IPA is com.example.kazumi;
+      # tools that keep the bundle id would otherwise replace one of them.
+      - name: Public identity (own bundle id)
+        run: |
+          pbx=ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.kazumi;/PRODUCT_BUNDLE_IDENTIFIER = com.kaichuan.kazumifork;/' "$pbx"
+          if [ "$(grep -c 'PRODUCT_BUNDLE_IDENTIFIER = com.kaichuan.kazumifork;' "$pbx")" != 3 ] ||
+             grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.example.kazumi;' "$pbx"; then
+            echo "::error file=$pbx::expected exactly 3 Runner bundle ids patched; did upstream change them?"
+            exit 1
+          fi
+
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version: ${{ needs.check.outputs.flutter_version }}
+          cache: true
+
+      - uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'pubspec.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - run: flutter pub get
+
+      - run: brew install cmake ninja
+
+      - name: Build
+        env:
+          BUILD_NUMBER: ${{ needs.check.outputs.build_number }}
+          DANDANAPI_APPID: ${{ secrets.PUBLIC_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.PUBLIC_DANDANAPI_KEY }}
+        run: >-
+          flutter build ios --release --no-codesign
+          --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          --dart-define=KAZUMI_PUBLIC=true
+          --dart-define=KAZUMI_LIBRARY_SERVER=
+          --dart-define=DANDANAPI_APPID="$DANDANAPI_APPID"
+          --dart-define=DANDANAPI_KEY="$DANDANAPI_KEY"
+
+      - name: Package
+        run: |
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
+          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+          zip -q -r "Kazumi_ios_${VERSION}_no_sign.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: Kazumi_ios_*_no_sign.ipa
+          if-no-files-found: error
+          retention-days: 7
+
   release:
-    needs: [check, android, windows]
+    needs: [check, android, windows, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -307,12 +371,13 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Exactly the two release files
+      - name: Exactly the three release files
         run: |
           ls -l dist
-          if [ "$(find dist -type f | wc -l)" != 2 ] ||
-             [ ! -f "dist/Kazumi_android_$VERSION.apk" ] || [ ! -f "dist/Kazumi_windows_$VERSION.zip" ]; then
-            echo "::error::dist/ must hold exactly Kazumi_android_$VERSION.apk and Kazumi_windows_$VERSION.zip"
+          if [ "$(find dist -type f | wc -l)" != 3 ] ||
+             [ ! -f "dist/Kazumi_android_$VERSION.apk" ] || [ ! -f "dist/Kazumi_windows_$VERSION.zip" ] ||
+             [ ! -f "dist/Kazumi_ios_${VERSION}_no_sign.ipa" ]; then
+            echo "::error::dist/ must hold exactly Kazumi_android_$VERSION.apk, Kazumi_windows_$VERSION.zip and Kazumi_ios_${VERSION}_no_sign.ipa"
             exit 1
           fi
 
@@ -340,6 +405,7 @@ jobs:
             echo
             echo '- 非官方修改版，与官方 Kazumi 无关，可与官方版同时安装'
             echo '- Windows 首次运行提示「已保护你的电脑」时：更多信息 → 仍要运行'
+            echo '- iOS 安装包未签名，需用 AltStore、SideStore 或 TrollStore 等工具自签安装'
             echo '- 国内下载失败时，点「查看详情」用浏览器下载'
             if [ "$HAS_DANMAKU" != true ]; then echo '- 弹幕搜索暂不可用'; fi
           } > "$RUNNER_TEMP/body.md"
@@ -358,4 +424,5 @@ jobs:
           files: |
             dist/Kazumi_android_${{ inputs.version }}.apk
             dist/Kazumi_windows_${{ inputs.version }}.zip
+            dist/Kazumi_ios_${{ inputs.version }}_no_sign.ipa
           fail_on_unmatched_files: true

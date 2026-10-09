@@ -9,8 +9,9 @@ XML and Windows version resources are UTF-16), case-insensitive. Plain
 public builds need.
 
 A scan that finds nothing proves nothing on its own, so each Dart AOT binary
-(`app.so` on Windows, `libapp.so` on Android) must also contain a control
-string every build carries, and at least one AOT binary must be found.
+(`app.so` on Windows, `libapp.so` on Android, `App.framework/App` on iOS) must
+also contain a control string every build carries, and at least one AOT binary
+must be found.
 
 Exit 0: no hits, control found in every AOT binary.
 """
@@ -26,7 +27,7 @@ from pathlib import Path, PurePosixPath
 
 NEEDLE = "kaic5504.com"
 CONTROL = "raw.githubusercontent.com/Predidit/KazumiRules"
-AOT_NAMES = {"app.so", "libapp.so"}
+AOT_NAMES = {"app.so", "libapp.so", "app.framework/app"}
 ARCHIVES = {".apk", ".zip", ".msix", ".aab", ".jar", ".ipa"}
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -48,7 +49,8 @@ def scan(name: str, data: bytes, hits: list[str], aot: dict[str, bool]) -> int:
             ctx = data[max(0, m.start() - 40): m.end() + 60].replace(b"\x00", b"")
             ctx = re.sub(rb"[^\x20-\x7e]", b".", ctx).decode("ascii")
             hits.append(f"{name}: ...{ctx}...")
-    if PurePosixPath(name.replace("\\", "/")).name.lower() in AOT_NAMES:
+    path = PurePosixPath(name.replace("\\", "/").lower())
+    if path.name in AOT_NAMES or "/".join(path.parts[-2:]) in AOT_NAMES:
         aot[name] = any(p.search(data) for p in CONTROL_RE)
     if Path(name).suffix == ".Z":  # flutter_assets/NOTICES.Z is zlib
         try:
@@ -88,7 +90,7 @@ def main(argv: list[str]) -> int:
     for name in missing:
         print(f"control string missing from {name}")
     if not aot:
-        print("no Dart AOT binary (app.so / libapp.so) found; nothing was really scanned")
+        print("no Dart AOT binary (app.so / libapp.so / App.framework/App) found; nothing was really scanned")
     ok = not hits and not missing and bool(aot)
     print(f"scan: {files} files, {len(hits)} hits; control found in "
           f"{len(aot) - len(missing)} of {len(aot)} binaries: {'PASS' if ok else 'FAIL'}")
