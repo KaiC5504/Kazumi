@@ -29,7 +29,8 @@ Local, on top:
   the gate. Each such file has a personal-mode test, and those tests pass
   without defines.
 - The whole test/ dir with both public defines fails only in the FROZEN
-  suites that pin her values, fails at least partner_check's
+  suites that pin her values (plus the named upstream tests in
+  PUBLIC_FAIL_TESTS), fails at least partner_check's
   PUBLIC_MUST_FAIL (proof the defines arrived), and nothing fails to load.
 
 Exit 0: all passed. Writes no stamp.
@@ -88,6 +89,13 @@ PERSONAL_TESTS = {
 # FROZEN suites that pin her built-in values; the public build is meant to
 # fail them. Anything failing elsewhere broke a kept feature.
 PUBLIC_FAIL_SUITES = {"test/partner_flow_test.dart", "test/testflight_update_test.dart"}
+
+# Single upstream tests that pin a default the public build changes on purpose.
+# Public builds have no mirror credentials, so an unset 番剧条目加速 means 直连.
+PUBLIC_FAIL_TESTS = {
+    ("test/bangumi_sync_service_test.dart",
+     "ECH image acceleration preserves Bangumi API mirror routing"),
+}
 
 LITERAL_RE = re.compile(r"'(?:[^'\\\n]|\\.)*'" r'|"(?:[^"\\\n]|\\.)*"')
 DIRECTIVE_RE = re.compile(r"^\s*(?:import|export|part)\b([^;]*);", re.M)
@@ -591,9 +599,9 @@ def public_sweep() -> bool:
         print(f"  DID NOT FAIL test/partner_flow_test.dart: {name}")
     ok &= not missing
     for suite in sorted(failed):
-        allowed = suite in PUBLIC_FAIL_SUITES
-        ok &= allowed
         for name in sorted(failed[suite]):
+            allowed = suite in PUBLIC_FAIL_SUITES or (suite, name) in PUBLIC_FAIL_TESTS
+            ok &= allowed
             print(f"  {'expected' if allowed else 'BROKE   '} {suite}: {name}")
     print(f"  {count} tests, {sum(map(len, failed.values()))} failed")
     return ok

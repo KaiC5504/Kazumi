@@ -109,8 +109,9 @@ never does, so her build keeps the personal defaults with zero configuration.
 - Code on her path changes only behind `kPublicBuild` / `showCloudUi`, and every commit on
   main still passes `partner_check.py` (never move `partner-baseline` for public work).
   Then `python scripts/public_check.py` (her-path rule, personal tests with no defines,
-  the whole suite with the public defines; only `partner_flow_test.dart` and
-  `testflight_update_test.dart` may fail there).
+  the whole suite with the public defines; only `partner_flow_test.dart`,
+  `testflight_update_test.dart` and the tests named in `PUBLIC_FAIL_TESTS` may
+  fail there).
 - Release: dispatch from main, `gh workflow run public-release.yaml -R KaiC5504/Kazumi
   --ref main -f version=X.Y.Z -F notes=@notes.txt` (a draft), check the draft with the
   owner (`docs/local/public-build-test-plan.md` §D), then `gh release edit X.Y.Z -R
