@@ -302,10 +302,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Her TestFlight app is com.kaichuan.kazumi and upstream's IPA is com.example.kazumi;
-      # tools that keep the bundle id would otherwise replace one of them.
-      - name: Public identity (own bundle id)
+      # iOS app icons aren't in ICON_PATHS yet: add AppIcon.appiconset before branding.
+      - name: Public icon
+        if: needs.check.outputs.branded == 'true'
         run: |
+          cp -R branding/public/. .
+          for p in $ICON_PATHS; do
+            if [ "$(git hash-object "$p")" = "$(git rev-parse "HEAD:$p")" ]; then
+              echo "::error file=$p::still upstream's icon after the copy"
+              exit 1
+            fi
+          done
+
+      # Her TestFlight app is com.kaichuan.kazumi and upstream's IPA is com.example.kazumi;
+      # tools that keep the bundle id would otherwise replace one of them. Invite links
+      # (kazumi-library://) belong to 一起看, which public builds hide, so the scheme goes.
+      - name: Public identity (own bundle id, no invite links)
+        run: |
+          plist=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$plist"
+          if grep -q 'kazumi-library' "$plist"; then
+            echo "::error file=$plist::kazumi-library scheme still registered"
+            exit 1
+          fi
+
           pbx=ios/Runner.xcodeproj/project.pbxproj
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.kazumi;/PRODUCT_BUNDLE_IDENTIFIER = com.kaichuan.kazumifork;/' "$pbx"
           if [ "$(grep -c 'PRODUCT_BUNDLE_IDENTIFIER = com.kaichuan.kazumifork;' "$pbx")" != 3 ] ||

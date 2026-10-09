@@ -268,19 +268,26 @@ def check_scanner() -> list[str]:
     control = scanner.CONTROL.encode()
     problems = []
     with tempfile.TemporaryDirectory() as tmp:
-        for name, body, want_hits in (("dirty", owner, 1), ("clean", b"", 0)):
-            apk = Path(tmp) / f"{name}.apk"
-            with zipfile.ZipFile(apk, "w", zipfile.ZIP_DEFLATED) as z:
-                z.writestr("lib/arm64-v8a/libapp.so", b"\0".join([body, fork, control]))
+        # A clean fixture only passes if its AOT binary was found, so the .ipa
+        # pair also proves App.framework/App is recognised.
+        apk_aot = "lib/arm64-v8a/libapp.so"
+        ipa_aot = "Payload/Runner.app/Frameworks/App.framework/App"
+        for name, aot, body, want_hits in (("dirty.apk", apk_aot, owner, 1),
+                                           ("clean.apk", apk_aot, b"", 0),
+                                           ("dirty.ipa", ipa_aot, owner, 1),
+                                           ("clean.ipa", ipa_aot, b"", 0)):
+            archive = Path(tmp) / name
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr(aot, b"\0".join([body, fork, control]))
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                code = scanner.main([str(apk)])
+                code = scanner.main([str(archive)])
             hits = len(re.findall(r"^HIT ", out.getvalue(), re.M))
             if hits != want_hits or (code == 0) != (want_hits == 0):
                 problems.append(f"scanner self-test ({name} fixture): exit {code}, {hits} "
                                 f"hits; expected {want_hits}")
     if not problems:
-        print("  scanner self-test: 1 hit in the dirty fixture, none in the clean one")
+        print("  scanner self-test: 1 hit in each dirty fixture, none in the clean ones (apk, ipa)")
     return problems
 
 
