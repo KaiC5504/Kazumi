@@ -21,6 +21,7 @@ import io
 import re
 import sys
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 NEEDLE = "kaic5504.com"
@@ -49,6 +50,11 @@ def scan(name: str, data: bytes, hits: list[str], aot: dict[str, bool]) -> int:
             hits.append(f"{name}: ...{ctx}...")
     if PurePosixPath(name.replace("\\", "/")).name.lower() in AOT_NAMES:
         aot[name] = any(p.search(data) for p in CONTROL_RE)
+    if Path(name).suffix == ".Z":  # flutter_assets/NOTICES.Z is zlib
+        try:
+            count += scan(f"{name}!/inflated", zlib.decompress(data), hits, aot)
+        except zlib.error:
+            pass
     if Path(name).suffix.lower() in ARCHIVES or data[:4] == b"PK\x03\x04":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:

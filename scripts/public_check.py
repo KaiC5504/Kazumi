@@ -12,8 +12,9 @@ Static:
 - Every `flutter build` in public-release.yaml passes
   --dart-define=KAZUMI_PUBLIC=true and --dart-define=KAZUMI_LIBRARY_SERVER=,
   and its DanDanPlay secrets are PUBLIC_ ones.
-- With GITHUB_TOKEN or GH_TOKEN set, every other workflow a tag push or a
-  release event starts is disabled_manually.
+- With GITHUB_TOKEN or GH_TOKEN set, every other workflow a tag push, tag
+  creation or release event starts is disabled_manually.
+- The packed cloud worker has no owner host (the binary scan can't read it).
 - scan_public_build.py finds exactly the owner's host in a generated APK that
   also holds the fork's GitHub link and the control string.
 
@@ -28,7 +29,8 @@ Local, on top:
   the gate. Each such file has a personal-mode test, and those tests pass
   without defines.
 - The whole test/ dir with both public defines fails only in the FROZEN
-  suites that pin her values, and nothing fails to load.
+  suites that pin her values, fails at least partner_check's
+  PUBLIC_MUST_FAIL (proof the defines arrived), and nothing fails to load.
 
 Exit 0: all passed. Writes no stamp.
 """
@@ -197,7 +199,7 @@ def starts_on_tag_or_release(text: str) -> bool:
             continue
         indent, inline = len(m.group(1)), m.group(2).split("#", 1)[0].strip()
         if inline:
-            return bool(re.search(r"\b(?:push|release)\b", inline))
+            return bool(re.search(r"\b(?:push|release|create)\b", inline))
         block = []
         for l in lines[i + 1:]:
             if l.strip() and len(l) - len(l.lstrip()) <= indent:
@@ -209,7 +211,7 @@ def starts_on_tag_or_release(text: str) -> bool:
         top = min(len(l) - len(l.lstrip()) for l in body)
         events = {re.sub(r"^-\s*", "", l.strip()).split(":", 1)[0].strip()
                   for l in body if len(l) - len(l.lstrip()) == top}
-        if "release" in events:
+        if events & {"release", "create"}:
             return True
         for j, l in enumerate(block):
             p = re.match(r"^(\s*)(?:-\s*)?push:\s*(.*)$", l)
@@ -282,9 +284,21 @@ def check_scanner() -> list[str]:
     return problems
 
 
+def check_packed_worker() -> list[str]:
+    """The cloud worker ships gzipped and base64'd, which the binary scan
+    can't read."""
+    import pack_cloud_worker as worker
+    data = worker.unpack(worker.TARGET.read_text(encoding="utf-8"))
+    if data is None:
+        return [f"couldn't unpack {worker.TARGET.relative_to(ROOT).as_posix()}"]
+    if scanner.NEEDLE.encode() in data.lower():
+        return [f"the packed cloud worker contains {scanner.NEEDLE}"]
+    return []
+
+
 def static_checks() -> list[str]:
     return (check_flag_reads() + check_personal_workflows() + check_public_workflow()
-            + check_tag_workflows() + check_scanner())
+            + check_tag_workflows() + check_scanner() + check_packed_worker())
 
 
 # ---------------------------------------------------------------- local
@@ -376,11 +390,15 @@ def literals(line: str) -> list[str]:
 
 
 def code_only(lines: list[str]) -> tuple[str, str]:
-    """[lines] joined without `//` lines, plus a copy with string contents
-    and trailing comments masked at the same offsets."""
-    text = "\n".join("" if l.strip().startswith("//") else l for l in lines)
+    """[lines] joined with every comment blanked, plus a copy with string
+    contents masked too, both at the same offsets."""
+    text = "\n".join(lines)
     masked = LITERAL_RE.sub(lambda m: m[0][0] + "x" * (len(m[0]) - 2) + m[0][-1], text)
-    return text, re.sub(r"//[^\n]*", lambda m: " " * len(m[0]), masked)
+    for m in re.finditer(r"/\*.*?(?:\*/|$)|//[^\n]*", masked, re.S):
+        blank = re.sub(r"[^\n]", " ", m[0])
+        text = text[:m.start()] + blank + text[m.end():]
+        masked = masked[:m.start()] + blank + masked[m.end():]
+    return text, masked
 
 
 def expression_end(masked: str, start: int) -> int:
@@ -398,12 +416,45 @@ def expression_end(masked: str, start: int) -> int:
     return len(masked)
 
 
+def branch_end(masked: str, start: int) -> int:
+    """End of the `if` branch starting at [start]: a `{}` block, or up to a
+    top-level `,`, `;`, `else` or closing bracket."""
+    i = start
+    while i < len(masked) and masked[i].isspace():
+        i += 1
+    depth = 0
+    for j in range(i, len(masked)):
+        c = masked[j]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return j
+            depth -= 1
+            if depth == 0 and c == "}" and masked[i] == "{":
+                return j + 1
+        elif depth == 0 and (c in ",;" or re.match(r"else\b", masked[j:])
+                             and (j == 0 or not masked[j - 1].isalnum())):
+            return j
+    return len(masked)
+
+
 def personal_side(added: list[str]) -> str:
     """The hunk's added code with the public branch of every
-    `kPublicBuild ? a : b` cut out. A collection-if or a gated call has no
-    branch to cut, so all of it counts."""
+    `kPublicBuild ? a : b` and `if (kPublicBuild) a else b` cut out. A gated
+    call (showCloudUi) has no branch to cut, so all of it counts."""
     text, masked = code_only(added)
     keep = [True] * len(text)
+    for m in re.finditer(r"\bif\s*\(\s*(!?)\s*kPublicBuild\s*\)", masked):
+        then_end = branch_end(masked, m.end())
+        if not m[1]:
+            cut = range(m.end(), then_end)
+        else:
+            other = re.match(r"\s*else\b", masked[then_end:])
+            start = then_end + other.end() if other else then_end
+            cut = range(start, branch_end(masked, start) if other else start)
+        for i in cut:
+            keep[i] = False
     for m in re.finditer(r"(!?)\bkPublicBuild\s*\?", masked):
         depth, colon = 0, None
         for i in range(m.end(), len(masked)):
@@ -438,13 +489,18 @@ def check_removed_lines(rel: str, before: Counter, now: Counter) -> list[str]:
     problems = []
     for removed, added in hunks(rel):
         back = {norm(l) for l in added}
-        gone = [l for l in removed if norm(l) and norm(l) in ours and norm(l) not in back]
-        if not gone:
-            continue
-        if not any(g in code_only(added)[1] for g in GATES):
+        mine = [l for l in removed if norm(l) and norm(l) in ours]
+        gone = [l for l in mine if norm(l) not in back]
+        gated = any(g in code_only(added)[1] for g in GATES)
+        if not gated:
             problems += [f"{rel}: removes `{l.strip()}` outside a public gate" for l in gone]
             continue
         personal = personal_side(added)
+        # Back unchanged but moved into the public branch is still gone for her.
+        for line in mine:
+            if (norm(line) in back and not line.strip().startswith("//")
+                    and norm(line) not in norm(personal)):
+                problems.append(f"{rel}: `{line.strip()}` is now only in the public branch")
         for line in gone:
             for lit in literals(line):
                 if lit not in personal:
@@ -521,6 +577,11 @@ def test_events(args: list[str]) -> tuple[dict[str, set[str]], bool, int]:
 def public_sweep() -> bool:
     failed, broken, count = test_events(["test", *PUBLIC_DEFINES])
     ok = not broken and count > 0
+    # Without these failures the defines didn't reach the tests at all.
+    missing = pc.PUBLIC_MUST_FAIL - failed.get("test/partner_flow_test.dart", set())
+    for name in sorted(missing):
+        print(f"  DID NOT FAIL test/partner_flow_test.dart: {name}")
+    ok &= not missing
     for suite in sorted(failed):
         allowed = suite in PUBLIC_FAIL_SUITES
         ok &= allowed
