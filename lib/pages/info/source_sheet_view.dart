@@ -265,12 +265,18 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
                           child: Row(
                             children: [
                               Expanded(
-                                  child: Text(
-                                group.name,
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              )),
+                                  child: Row(children: [
+                                Flexible(
+                                    child: Text(
+                                  group.name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                )),
+                                const SizedBox(width: 10),
+                                SourceQualityBadge(pluginName: group.name),
+                              ])),
                               const SizedBox(width: 8),
                               Text(
                                 group.statusLabel,
