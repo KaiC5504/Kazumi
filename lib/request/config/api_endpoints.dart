@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart' show appBuildName;
+import 'package:kazumi/build_flavor.dart';
 
 class ApiEndpoints {
   /// 当前版本
@@ -23,18 +24,24 @@ class ApiEndpoints {
   /// 规则仓库镜像
   // Fork: GitCode's WAF rejects the app, so mirror via our HK box instead
   // (server/deploy/kazumi-rules-sync.*).
-  static const String pluginShopMirror = 'https://hk.kaic5504.com/rules/';
+  // Public builds can't use our HK box; gh-proxy answers the app where
+  // upstream's GitCode mirror returns 418.
+  static const String pluginShopMirror = kPublicBuild
+      ? 'https://cdn.gh-proxy.org/https://raw.githubusercontent.com/Predidit/KazumiRules/main/'
+      : 'https://hk.kaic5504.com/rules/';
 
   /// 在线升级
-  static const String latestApp =
-      'https://api.github.com/repos/Predidit/Kazumi/releases/latest';
+  static const String latestApp = kPublicBuild
+      ? 'https://github.com/KaiC5504/Kazumi/releases/latest'
+      : 'https://api.github.com/repos/Predidit/Kazumi/releases/latest';
 
   /// Bangumi 镜像测试后端
   static const String bangumiMirrorDomain = 'https://api.kazumi.fyi';
 
   /// Kazumi 镜像后端应用更新
-  static const String latestAppMirror =
-      '$bangumiMirrorDomain/kazumi/v1/app/latest';
+  static const String latestAppMirror = kPublicBuild
+      ? 'https://api.github.com/repos/KaiC5504/Kazumi/releases/latest'
+      : '$bangumiMirrorDomain/kazumi/v1/app/latest';
 
   /// 弹弹官网
   static const String dandanIndex = 'https://www.dandanplay.com/';

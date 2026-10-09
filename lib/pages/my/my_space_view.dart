@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/content_section.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
+import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/modules/my/watch_stats.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 
@@ -101,15 +102,17 @@ class _WideSpaceLayout extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        _ToolTile(
-          icon: Icons.favorite_rounded,
-          title: '一起看',
-          caption: '和对方同步观看超分片库',
-          color: colors.primaryContainer,
-          foreground: colors.onPrimaryContainer,
-          onTap: () => onOpen(MyDestination.together),
-        ),
+        if (!kPublicBuild) ...[
+          const SizedBox(height: 12),
+          _ToolTile(
+            icon: Icons.favorite_rounded,
+            title: '一起看',
+            caption: '和对方同步观看超分片库',
+            color: colors.primaryContainer,
+            foreground: colors.onPrimaryContainer,
+            onTap: () => onOpen(MyDestination.together),
+          ),
+        ],
         const SizedBox(height: 12),
         _AdaptivePair(
           first: _PreferencesPanel(onOpen: onOpen),
@@ -203,16 +206,18 @@ class _CompactSpaceLayout extends StatelessWidget {
             onTap: () => onOpen(MyDestination.downloads),
           ),
         ),
-        const SizedBox(height: 12),
-        _ToolTile(
-          icon: Icons.favorite_rounded,
-          title: '一起看',
-          caption: '和对方同步观看超分片库',
-          color: colors.primaryContainer,
-          foreground: colors.onPrimaryContainer,
-          compact: true,
-          onTap: () => onOpen(MyDestination.together),
-        ),
+        if (!kPublicBuild) ...[
+          const SizedBox(height: 12),
+          _ToolTile(
+            icon: Icons.favorite_rounded,
+            title: '一起看',
+            caption: '和对方同步观看超分片库',
+            color: colors.primaryContainer,
+            foreground: colors.onPrimaryContainer,
+            compact: true,
+            onTap: () => onOpen(MyDestination.together),
+          ),
+        ],
         const SizedBox(height: 24),
         ContentSection.group(
           title: '内容与偏好',

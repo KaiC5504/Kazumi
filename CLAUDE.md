@@ -21,6 +21,10 @@ Fork-only code (dart format is fine here): `lib/services/upscale/`, `lib/service
 `lib/services/update/testflight_update.dart`,
 `lib/services/plugin/official_rules_sync.dart` (auto-installs official rules), `lib/services/player/syncplay_drift.dart`,
 `lib/bean/dialog/glass_notice.dart`, `lib/bean/widget/source_quality_badge.dart`, and `server/` (library server, HK relay, netprobe).
+Public build (fork-only too): `lib/build_flavor.dart`, `lib/services/update/public_update.dart`,
+`lib/pages/download/public_gates.dart`, `lib/pages/about/fork_about_section.dart`,
+`test/public_build_test.dart`, `scripts/public_check.py`, `scripts/scan_public_build.py`,
+`.github/workflows/public-release.yaml`, `.github/README.md`, `branding/`.
 For any other file, `git log --oneline upstream/main -- <file>` printing nothing means
 the fork added it.
 
@@ -93,6 +97,35 @@ The fork's own version is the `--build-name` in `codemagic.yaml` (3.0.0 from bui
 
 DanDanPlay danmaku needs our own `DANDANAPI_APPID` / `DANDANAPI_KEY` (Codemagic env
 group, never committed). Without them danmaku search returns nothing.
+
+## Public release
+
+A public Android APK + Windows zip on this repo's Releases, separate from TestFlight (its
+own version line from 3.0.0). `KAZUMI_PUBLIC=true` (read once, as a const, in
+`lib/build_flavor.dart`) hides 一起看, cloud bake and library upload, and points updates,
+rules and About at public sources. Only `public-release.yaml` passes it; codemagic.yaml
+never does, so her build keeps the personal defaults with zero configuration.
+
+- Code on her path changes only behind `kPublicBuild` / `showCloudUi`, and every commit on
+  main still passes `partner_check.py` (never move `partner-baseline` for public work).
+  Then `python scripts/public_check.py` (her-path rule, personal tests with no defines,
+  the whole suite with the public defines; only `partner_flow_test.dart` and
+  `testflight_update_test.dart` may fail there).
+- Release: dispatch from main, `gh workflow run public-release.yaml -R KaiC5504/Kazumi
+  --ref main -f version=X.Y.Z -F notes=@notes.txt` (a draft), check the draft with the
+  owner (`docs/local/public-build-test-plan.md` §D), then `gh release edit X.Y.Z -R
+  KaiC5504/Kazumi --draft=false --latest` and check `gh api
+  repos/KaiC5504/Kazumi/releases/latest` lists both assets with `sha256:` digests.
+  Rollback: mark a bad release `--prerelease` and ship the next version; never delete a
+  published tag.
+- Upstream's `release.yaml` is disabled on the fork (it fires on every tag push). After
+  every upstream merge, `gh workflow list -R KaiC5504/Kazumi` must still show it
+  `disabled_manually`; `public_check.py --static` fails the release otherwise.
+- Never run a public build on the PC without the CI identity patches (it would open the
+  owner's Hive). Keep the fork quiet: no upstream issue references (`Predidit/Kazumi#N`,
+  issue URLs) in commits or release notes.
+- `library_test.dart` "a cancelled upload stops, keeps its parts and resumes" is flaky
+  under load: rerun once before blaming a change.
 
 The owner has authorised commit, push, Actions and Codemagic runs without asking.
 Codemagic minutes are limited (500 a month across all apps; a Flutter iOS build is

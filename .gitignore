@@ -58,3 +58,5 @@ android/build/reports/problems/
 
 # Fork-only local notes (handbook, specs, plans); never committed
 docs/local/
+docs/plans/
+docs/superpowers/

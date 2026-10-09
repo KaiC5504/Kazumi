@@ -1,0 +1,351 @@
+# Fork-only public release: Android arm64 APK + Windows portable zip, published as a
+# GitHub Release on this repo. This is the only file that passes KAZUMI_PUBLIC; her
+# TestFlight build (codemagic.yaml) never does. Upstream's release.yaml is disabled on
+# the fork (gh workflow disable release.yaml), and scripts/public_check.py --static
+# fails the run if it, or any other push/release-triggered workflow, is enabled.
+#
+#   gh workflow run public-release.yaml -R KaiC5504/Kazumi --ref main \
+#     -f version=3.0.0 -F notes=@notes.txt -f draft=true
+name: public-release
+run-name: public-release ${{ inputs.version }}${{ inputs.draft && ' (draft)' || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Public version X.Y.Z (the in-app updater int-parses the tag)"
+        required: true
+        type: string
+      notes:
+        description: "Release notes, short Chinese bullets one per line (shown in the update dialog)"
+        required: true
+        type: string
+      draft:
+        description: "Create a draft; publish later with gh release edit"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: public-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  # branding/public/ mirrors these repo paths; CI copies it over the checkout only.
+  # Android 8+ draws drawable-*/ic_launcher_foreground.png (adaptive icon); mipmap-* is
+  # the legacy launcher and the reminder notification icon.
+  ICON_PATHS: >-
+    android/app/src/main/res/drawable-mdpi/ic_launcher_foreground.png
+    android/app/src/main/res/drawable-hdpi/ic_launcher_foreground.png
+    android/app/src/main/res/drawable-xhdpi/ic_launcher_foreground.png
+    android/app/src/main/res/drawable-xxhdpi/ic_launcher_foreground.png
+    android/app/src/main/res/drawable-xxxhdpi/ic_launcher_foreground.png
+    android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+    android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+    android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+    android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+    android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+    windows/runner/resources/app_icon.ico
+    assets/images/logo/logo_lanczos.ico
+    assets/images/logo/logo_rounded.png
+    assets/images/logo/logo_android.png
+    assets/images/logo/logo_ios.png
+    assets/images/logo/logo_linux.png
+    assets/images/logo/logo_windows.ico
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      build_number: ${{ steps.version.outputs.build_number }}
+      branded: ${{ steps.branding.outputs.branded }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        name: Version is X.Y.Z and not taken
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$ ]]; then
+            echo "::error::version must be X.Y.Z with Y and Z below 100, got '$VERSION'"
+            exit 1
+          fi
+          build_number=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
+          # The fork carries all of upstream's tags; never publish onto one of them.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::tag $VERSION already exists"
+            exit 1
+          fi
+          # A read token can't see drafts; the release job re-checks with a write token.
+          if gh release view "$VERSION" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::release $VERSION already exists"
+            exit 1
+          fi
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+
+      - name: A published release comes from main
+        if: ${{ !inputs.draft }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::dispatch a non-draft release from main (partner_check gates main), got $GITHUB_REF"
+            exit 1
+          fi
+
+      - name: Static guards
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/public_check.py --static
+
+      - id: branding
+        name: Branding is only icons, and all or none of them
+        run: |
+          allowed=" $ICON_PATHS android/app/src/main/res/values/colors.xml "
+          if [ -d branding/public ]; then
+            while IFS= read -r f; do
+              case "$allowed" in
+                *" ${f#branding/public/} "*) ;;
+                *) echo "::error file=$f::not an icon path; branding/public/ may only replace icons"; exit 1 ;;
+              esac
+            done < <(find branding/public -type f)
+          fi
+          missing=0
+          for p in $ICON_PATHS; do
+            [ -f "branding/public/$p" ] || { echo "missing branding/public/$p"; missing=$((missing + 1)); }
+          done
+          if [ "$missing" = 0 ]; then
+            echo "branded=true" >> "$GITHUB_OUTPUT"
+          elif [ "$missing" = 17 ]; then
+            echo "no branding/public/: ships upstream's icon"
+            echo "branded=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::branding/public/ is missing $missing of 17 icons; add all of them or none"
+            exit 1
+          fi
+
+  android:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Public icon
+        if: needs.check.outputs.branded == 'true'
+        run: |
+          cp -r branding/public/. .
+          # The binary scan can't see images; this is the only proof the swap happened.
+          for p in $ICON_PATHS; do
+            if [ "$(git hash-object "$p")" = "$(git rev-parse "HEAD:$p")" ]; then
+              echo "::error file=$p::still upstream's icon after the copy"
+              exit 1
+            fi
+          done
+
+      - name: Public identity (installs beside upstream Kazumi)
+        run: |
+          expect() { grep -qF -- "$2" "$1" || { echo "::error file=$1::'$2' not found after patching; did upstream change this line?"; exit 1; }; }
+          sed -i 's/applicationId "com\.predidit\.kazumi"/applicationId "com.kaichuan.kazumi"/' android/app/build.gradle
+          expect android/app/build.gradle 'applicationId "com.kaichuan.kazumi"'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build
+        env:
+          BUILD_NUMBER: ${{ needs.check.outputs.build_number }}
+          # A separate DanDanPlay app from her TestFlight build, so abuse can't get hers disabled.
+          DANDANAPI_APPID: ${{ secrets.PUBLIC_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.PUBLIC_DANDANAPI_KEY }}
+        run: >-
+          flutter build apk --release --split-per-abi --target-platform android-arm64
+          --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          --dart-define=KAZUMI_PUBLIC=true
+          --dart-define=KAZUMI_LIBRARY_SERVER=
+          --dart-define=DANDANAPI_APPID="$DANDANAPI_APPID"
+          --dart-define=DANDANAPI_KEY="$DANDANAPI_KEY"
+
+      - name: Sign with the public keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.PUBLIC_KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.PUBLIC_KEY_ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.PUBLIC_KEY_STORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_STORE_PASSWORD" ]; then
+            echo "::error::PUBLIC_KEYSTORE_B64, PUBLIC_KEY_ALIAS and PUBLIC_KEY_STORE_PASSWORD must be set"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/public.jks"
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          # Gradle signs release builds with the debug key; apksigner replaces it.
+          "$bt/apksigner" sign --ks "$RUNNER_TEMP/public.jks" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEY_STORE_PASSWORD --key-pass env:KEY_STORE_PASSWORD \
+            --out "Kazumi_android_$VERSION.apk" build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          rm -f "$RUNNER_TEMP/public.jks"
+          # Compared with the SHA-256 of the keystore backup.
+          "$bt/apksigner" verify --print-certs "Kazumi_android_$VERSION.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Kazumi_android_*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    needs: check
+    runs-on: windows-latest   # image windows-2025-vs2026: ech_http needs MSVC from VS 2026
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Public icon
+        if: needs.check.outputs.branded == 'true'
+        shell: bash
+        run: |
+          cp -r branding/public/. .
+          for p in $ICON_PATHS; do
+            if [ "$(git hash-object "$p")" = "$(git rev-parse "HEAD:$p")" ]; then
+              echo "::error file=$p::still upstream's icon after the copy"
+              exit 1
+            fi
+          done
+
+      # path_provider_windows builds the data dir from the exe's CompanyName/ProductName,
+      # so this moves everything to %APPDATA%\KazumiFork\kazumi. Never change the mutex
+      # without the data dir: two apps would open the same Hive boxes.
+      - name: Public identity (own data dir and mutex)
+        shell: bash
+        run: |
+          expect() { grep -qF -- "$2" "$1" || { echo "::error file=$1::'$2' not found after patching; did upstream change this line?"; exit 1; }; }
+          reject() { if grep -qE -- "$2" "$1"; then echo "::error file=$1::'$2' still present after patching"; exit 1; fi; }
+
+          rc=windows/runner/Runner.rc
+          sed -i 's/"CompanyName", "com\.example"/"CompanyName", "KazumiFork"/' "$rc"
+          expect "$rc" '"CompanyName", "KazumiFork"'
+
+          cpp=windows/runner/main.cpp
+          sed -i 's/L"kazumi\.win\.mutex"/L"kazumi-fork.win.mutex"/' "$cpp"
+          expect "$cpp" 'L"kazumi-fork.win.mutex"'
+          reject "$cpp" 'kazumi\.win\.mutex'
+
+      # flutter-action reads flutter-version-file with yq, which this image lacks.
+      - run: choco install yq -y --no-progress
+
+      - run: git config --system core.longpaths true
+
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build
+        env:
+          BUILD_NUMBER: ${{ needs.check.outputs.build_number }}
+          DANDANAPI_APPID: ${{ secrets.PUBLIC_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.PUBLIC_DANDANAPI_KEY }}
+        run: >-
+          flutter build windows --release
+          --build-name=$env:VERSION --build-number=$env:BUILD_NUMBER
+          --dart-define=KAZUMI_PUBLIC=true
+          --dart-define=KAZUMI_LIBRARY_SERVER=
+          "--dart-define=DANDANAPI_APPID=$env:DANDANAPI_APPID"
+          "--dart-define=DANDANAPI_KEY=$env:DANDANAPI_KEY"
+
+      - name: Package
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "Kazumi_windows_$env:VERSION.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Kazumi_windows_*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [check, android, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Exactly the two release files
+        run: |
+          ls -l dist
+          if [ "$(find dist -type f | wc -l)" != 2 ] ||
+             [ ! -f "dist/Kazumi_android_$VERSION.apk" ] || [ ! -f "dist/Kazumi_windows_$VERSION.zip" ]; then
+            echo "::error::dist/ must hold exactly Kazumi_android_$VERSION.apk and Kazumi_windows_$VERSION.zip"
+            exit 1
+          fi
+
+      # Fails on any owner host, and when the control string or the AOT binaries are
+      # missing, so a scan that read nothing can't pass.
+      - name: No owner host in the exact files being published
+        run: python3 scripts/scan_public_build.py dist
+
+      - name: No release or draft with this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --json tagName --jq '.[].tagName' | grep -Fxq -- "$VERSION"; then
+            echo "::error::a release or draft for $VERSION already exists; delete the old draft first"
+            exit 1
+          fi
+
+      - name: Release notes
+        env:
+          NOTES: ${{ inputs.notes }}
+          HAS_DANMAKU: ${{ secrets.PUBLIC_DANDANAPI_APPID != '' }}
+        run: |
+          {
+            printf '%s\n' "$NOTES"
+            echo
+            echo '- 非官方修改版，与官方 Kazumi 无关，可与官方版同时安装'
+            echo '- Windows 首次运行提示「已保护你的电脑」时：更多信息 → 仍要运行'
+            echo '- 国内下载失败时，点「查看详情」用浏览器下载'
+            if [ "$HAS_DANMAKU" != true ]; then echo '- 弹幕搜索暂不可用'; fi
+          } > "$RUNNER_TEMP/body.md"
+          cat "$RUNNER_TEMP/body.md"
+
+      # Drafts get their tag only when published, at target_commitish, so the tag always
+      # names the exact source these binaries came from (GPL corresponding source).
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Kazumi ${{ inputs.version }}
+          body_path: ${{ runner.temp }}/body.md
+          draft: ${{ inputs.draft }}
+          make_latest: ${{ !inputs.draft }}
+          files: |
+            dist/Kazumi_android_${{ inputs.version }}.apk
+            dist/Kazumi_windows_${{ inputs.version }}.zip
+          fail_on_unmatched_files: true

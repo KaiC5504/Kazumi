@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show appBuildName, appBuildNumber;
 import 'package:kazumi/bean/dialog/dialog.dart';
+import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/services/logging/logger.dart';
+import 'package:kazumi/services/update/public_update.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// What `latest.json` on the HK box says about the newest TestFlight build.
@@ -89,7 +91,9 @@ class TestflightUpdate {
 
   static final TestflightUpdate instance = TestflightUpdate();
 
-  static final latestUri = Uri.parse('https://hk.kaic5504.com/app/latest.json');
+  static final latestUri = Uri.parse(
+    kPublicBuild ? '' : 'https://hk.kaic5504.com/app/latest.json',
+  );
   static final testflightUri = Uri.parse(
     'itms-beta://beta.itunes.apple.com/v1/app/6818711929',
   );
@@ -105,7 +109,8 @@ class TestflightUpdate {
     return buildNumber > 0 ? '$name ($buildNumber)' : name;
   }
 
-  static bool get replacesUpstream => true;
+  // Public Windows ships a zip that AutoUpdater can't install.
+  static bool get replacesUpstream => !kPublicBuild || Platform.isWindows;
 
   static const _recheckAfter = Duration(minutes: 30);
 
@@ -138,6 +143,7 @@ class TestflightUpdate {
 
   /// Returns false when the server couldn't be reached.
   Future<bool> check({bool manual = false}) async {
+    if (kPublicBuild) return PublicUpdate.instance.check(manual: manual);
     if (_isIOS) _lifecycle ??= AppLifecycleListener(onResume: _onResume);
     _lastCheck = _clock();
     final release = await fetch();

@@ -10,6 +10,7 @@ import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/download/cloud_bake_sheets.dart';
 import 'package:kazumi/pages/download/download_widgets.dart';
+import 'package:kazumi/pages/download/public_gates.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/pages/download/upscaled_transfer_sheets.dart';
 import 'package:kazumi/services/download/offline_launch.dart';
@@ -109,7 +110,7 @@ class _DownloadPageState extends State<DownloadPage> {
   }
 
   Widget _withCloudBanner(Widget list) {
-    if (!upscaleController.canBake) return list;
+    if (!showCloudUi(upscaleController.canBake)) return list;
     return Column(
       children: [
         CloudBakeBanner(
@@ -160,7 +161,7 @@ class _DownloadPageState extends State<DownloadPage> {
               label: '全部烘焙超分',
               onPressed: () => _bakeAll(record),
             ),
-          if (upscaleController.canBake)
+          if (showCloudUi(upscaleController.canBake))
             KazumiMenuItem(
               label: '☁ 云端烘焙全部',
               onPressed: () => showCloudBakeFlow(
@@ -170,7 +171,7 @@ class _DownloadPageState extends State<DownloadPage> {
                 bakeAllLocally: () => _bakeAll(record),
               ),
             ),
-          if (upscaleController.canBake)
+          if (showCloudUi(upscaleController.canBake))
             KazumiMenuItem(
               label: '全部上传到片库',
               onPressed: () => _uploadAll(record),
@@ -401,7 +402,9 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '取消烘焙',
             visualDensity: VisualDensity.compact,
           ),
-          if (episode.upscaleStatus == UpscaleStatus.queued) cloudButton,
+          if (episode.upscaleStatus == UpscaleStatus.queued &&
+              showCloudUi(upscaleController.canBake))
+            cloudButton,
         ];
       case UpscaleStatus.done:
         return [
@@ -412,7 +415,8 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '导出超分版本',
             visualDensity: VisualDensity.compact,
           ),
-          _uploadAction(record, episode),
+          if (showCloudUi(upscaleController.canBake))
+            _uploadAction(record, episode),
         ];
       default:
         return [
@@ -423,7 +427,7 @@ class _DownloadPageState extends State<DownloadPage> {
             tooltip: '烘焙超分 (质量档)',
             visualDensity: VisualDensity.compact,
           ),
-          cloudButton,
+          if (showCloudUi(upscaleController.canBake)) cloudButton,
         ];
     }
   }
