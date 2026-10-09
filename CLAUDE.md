@@ -72,8 +72,11 @@ build time from upstream's `com.example.kazumi`; extensions: none). Repo
    be built: the girlfriend's 一起看 and update path, with guards that fail if her
    build config, the files on her path (since the `partner-baseline` tag) or her tests
    changed. `codemagic.py start` refuses a commit it hasn't passed. If a guard fails,
-   the change needs partner tests first; move the tag only after a release she has
-   used on her phone.
+   the change needs partner tests first. A deliberate change to her path (e.g. a
+   一起看 fix) is signed off by moving the tag to that commit once its tests are in
+   (`git tag -f partner-baseline <commit>`, `git push -f origin partner-baseline`);
+   then test the build on the owner's iPhone before she gets it. Work that must not
+   touch her path (the public build) never moves the tag.
 3. Merge to `main` and push. Re-check `git rev-list --count main..upstream/main` is 0;
    if upstream moved during the check, merge again and re-run the precheck.
 4. `python scripts/codemagic.py status`, then `start main`, then `watch`.
