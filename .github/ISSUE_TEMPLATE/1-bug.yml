@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        请填写以下内容，以方便我们进行问题定位和修复。
-        填写前，请先查看 [Issues 列表](https://github.com/Predidit/Kazumi/issues) 查看是否已经有和你主题重复的 Issue。重复 Issue 会被关闭。
+        本仓库为非官方修改版，请勿将本版本的问题反馈到上游。请填写以下内容，以方便我们进行问题定位和修复。
+        填写前，请先查看 [Issues 列表](https://github.com/KaiC5504/Kazumi/issues) 查看是否已经有和你主题重复的 Issue。重复 Issue 会被关闭。
         如果你的 Kazumi 版本不为最新版，请先更新再重试查看问题是否仍然存在。旧版本的 Issue 可能不会被处理，因为新版可能已经修复了问题。 
 
   - type: textarea
@@ -99,7 +99,7 @@ body:
     attributes:
       label: 提交前确认
       options:
-        - label: 我已经查看了 [Issues 列表](https://github.com/Predidit/Kazumi/issues) ，没有发现重复问题。
+        - label: 我已经查看了 [Issues 列表](https://github.com/KaiC5504/Kazumi/issues) ，没有发现重复问题。
           required: true
         - label: 我已经提交了日志信息，并说明了问题和复现步骤。
           required: true
