@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/request/config/api_endpoints.dart';
 import 'package:kazumi/request/core/dio_factory.dart';
 import 'package:kazumi/request/core/network_error_mapper.dart';
@@ -9,6 +11,14 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/utils/bangumi_mirror_credentials.dart';
 import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/utils/crypto.dart';
+
+/// Public builds ship without upstream's mirror credentials, so the mirror
+/// rejects search; until the user picks a mode they use 直连.
+void applyPublicBangumiDefault() {
+  if (!kPublicBuild) return;
+  if (GStorage.getSetting(SettingsKeys.bangumiAcceleration).isNotEmpty) return;
+  unawaited(GStorage.putSetting(SettingsKeys.bangumiAcceleration, 'direct'));
+}
 
 class BangumiClient {
   BangumiClient._();
@@ -105,6 +115,7 @@ class BangumiClient {
     required String method,
     Object? data,
   }) {
+    if (kPublicBuild) applyPublicBangumiDefault();
     final headers = <String, dynamic>{...bangumiHTTPHeader};
     final bangumiSyncEnable = GStorage.getSetting(
       SettingsKeys.bangumiSyncEnable,

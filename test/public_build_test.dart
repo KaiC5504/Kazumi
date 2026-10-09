@@ -20,10 +20,12 @@ import 'package:kazumi/pages/download/public_gates.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
+import 'package:kazumi/request/clients/bangumi_client.dart';
 import 'package:kazumi/request/config/api_endpoints.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
+import 'package:kazumi/services/network/bangumi_acceleration.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/auto_updater.dart';
 import 'package:kazumi/services/update/public_update.dart';
@@ -206,6 +208,26 @@ void main() {
       ]) {
         expect(value, isNot(contains('kaic5504')));
       }
+    });
+  });
+
+  group('Bangumi acceleration', () {
+    setUp(() => GStorage.putSetting(SettingsKeys.bangumiAcceleration, ''));
+
+    test('an unset mode becomes 直连 only in the public build', () async {
+      applyPublicBangumiDefault();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        BangumiAcceleration.current,
+        kPublicBuild ? BangumiAcceleration.direct : BangumiAcceleration.mirror,
+      );
+    });
+
+    test('a mode the user picked is kept', () async {
+      await GStorage.putSetting(SettingsKeys.bangumiAcceleration, 'mirror');
+      applyPublicBangumiDefault();
+      await Future<void>.delayed(Duration.zero);
+      expect(BangumiAcceleration.current, BangumiAcceleration.mirror);
     });
   });
 
