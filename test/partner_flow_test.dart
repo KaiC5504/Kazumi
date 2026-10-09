@@ -13,8 +13,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:kazumi/bean/dialog/dialog.dart';
 import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/modules/my/watch_stats.dart';
+import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
@@ -67,7 +69,7 @@ void main() {
   late HttpServer fake;
   final seen = <Seen>[];
   final bodies = <String, List<Map<String, dynamic>>>{};
-  var latestBuild = 28;
+  var latest = <String, dynamic>{};
 
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -98,11 +100,7 @@ void main() {
         },
         '/api/room/heartbeat' || '/api/room/select' => {'members': []},
         '/api/room/leave' => <String, dynamic>{},
-        '/app/latest.json' => {
-          'build': latestBuild,
-          'version': '3.2.0',
-          'notes': '',
-        },
+        '/app/latest.json' => latest,
         _ => null,
       };
       request.response.statusCode = body == null ? 404 : 200;
@@ -114,7 +112,7 @@ void main() {
   setUp(() async {
     seen.clear();
     bodies.clear();
-    latestBuild = 28;
+    latest = {'build': 28, 'version': '3.2.0', 'notes': ''};
     await GStorage.resetSettings(SettingsKeys.all);
   });
 
@@ -335,18 +333,22 @@ void main() {
 
     test('the stored route check is not run again', () async {
       await seedBuild27();
+      final c = library();
       await recorded(() async {
-        library().scheduleRouteCheckOnce();
-        await Future.delayed(const Duration(milliseconds: 500));
+        c.scheduleRouteCheckOnce();
+        await Future.delayed(const Duration(seconds: 1));
       });
       expect(seen, isEmpty);
+      expect(c.routeVersion.value, 0);
     });
 
     test('without a stored check it does run (so the test above can fail)', () {
       return recorded(() async {
         await seedBuild27(routeCheck: false);
-        library().scheduleRouteCheckOnce();
-        await Future.delayed(const Duration(milliseconds: 500));
+        final c = library();
+        c.scheduleRouteCheckOnce();
+        // Waits for the check to finish, so it can't leak into later tests.
+        await until(() => c.routeVersion.value > 0, 'the route check');
         expect(seen, isNotEmpty);
       });
     });
@@ -502,6 +504,75 @@ void main() {
       );
       expect(await recorded(() => my.checkUpdate(type: 'auto')), isTrue);
       expect(urls(), ['GET $hkSite/app/latest.json']);
+    });
+
+    Future<void> pumpApp(WidgetTester tester) => tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: rootNavigatorKey,
+        scaffoldMessengerKey: rootScaffoldMessengerKey,
+        navigatorObservers: [KazumiDialog.observer],
+        home: const Scaffold(body: Text('home')),
+      ),
+    );
+
+    testWidgets('build 27 sees 有新版本, and 去更新 opens Kazumi in TestFlight', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      final launched = <Uri>[];
+      final update = TestflightUpdate(
+        launch: (uri) async {
+          launched.add(uri);
+          return true;
+        },
+        currentBuild: 27,
+        isIOS: true,
+      );
+      addTearDown(update.dispose);
+      await tester.runAsync(() => recorded(update.check));
+      await tester.pumpAndSettle();
+      expect(urls(), ['GET $hkSite/app/latest.json']);
+      expect(find.text('有新版本 3.2.0 (28)'), findsOneWidget);
+      expect(find.text('稍后'), findsOneWidget);
+
+      await tester.tap(find.text('去更新'));
+      await tester.pumpAndSettle();
+      expect(launched, [TestflightUpdate.testflightUri]);
+    });
+
+    testWidgets('a required update gives build 27 no 稍后', (tester) async {
+      latest = {
+        'build': 28,
+        'version': '3.2.0',
+        'minBuild': 28,
+        'requiredSince': DateTime.now()
+            .toUtc()
+            .subtract(const Duration(hours: 1))
+            .toIso8601String(),
+        'notes': '',
+      };
+      await pumpApp(tester);
+      final update = TestflightUpdate(
+        launch: (_) async => true,
+        currentBuild: 27,
+        isIOS: true,
+      );
+      addTearDown(update.dispose);
+      await tester.runAsync(() => recorded(update.check));
+      await tester.pumpAndSettle();
+      expect(update.shownNeed, UpdateNeed.required);
+      expect(find.text('去更新'), findsOneWidget);
+      expect(find.text('稍后'), findsNothing);
+    });
+
+    testWidgets('build 28 itself is not prompted', (tester) async {
+      await pumpApp(tester);
+      final update = TestflightUpdate(currentBuild: 28, isIOS: true);
+      addTearDown(update.dispose);
+      await tester.runAsync(() => recorded(update.check));
+      await tester.pumpAndSettle();
+      expect(update.shownNeed, UpdateNeed.none);
+      expect(find.text('去更新'), findsNothing);
     });
 
     testWidgets('coming back after 30 min checks again, sooner does not', (

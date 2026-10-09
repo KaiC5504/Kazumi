@@ -68,6 +68,12 @@ build time from upstream's `com.example.kazumi`; extensions: none). Repo
    ios-check.yaml --limit 1` and watch it in the background with `gh run watch <id> -R
    KaiC5504/Kazumi --exit-status`. Without `-R`, `gh` lists upstream's runs.
    Upstream's `pr.yaml` (tests, then a sequential build, ~13 min) is no longer used.
+   Then `python scripts/partner_check.py` (about 3 min) on the exact commit that will
+   be built: the girlfriend's 一起看 and update path, with guards that fail if her
+   build config, the files on her path (since the `partner-baseline` tag) or her tests
+   changed. `codemagic.py start` refuses a commit it hasn't passed. If a guard fails,
+   the change needs partner tests first; move the tag only after a release she has
+   used on her phone.
 3. Merge to `main` and push. Re-check `git rev-list --count main..upstream/main` is 0;
    if upstream moved during the check, merge again and re-run the precheck.
 4. `python scripts/codemagic.py status`, then `start main`, then `watch`.

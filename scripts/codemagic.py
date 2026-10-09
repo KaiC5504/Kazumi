@@ -9,7 +9,8 @@ this repository. Nothing here writes a token anywhere.
 
     python scripts/codemagic.py status         # latest build
     python scripts/codemagic.py watch          # poll until it finishes, then report
-    python scripts/codemagic.py start [branch] # trigger one by hand
+    python scripts/codemagic.py start [branch] # trigger one by hand; the pushed commit must
+        # have passed scripts/partner_check.py (--skip-partner-check overrides)
     python scripts/codemagic.py publish-latest [--required] [--notes TEXT]
         # after a build passes: tell installed apps about it (HK latest.json)
 """
@@ -164,7 +165,30 @@ def cmd_watch() -> int:
         time.sleep(20)
 
 
-def cmd_start(branch: str) -> int:
+def partner_check_passed(branch: str) -> bool:
+    """Whether scripts/partner_check.py passed on the tree Codemagic will build."""
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], capture_output=True, text=True,
+                              encoding="utf-8", check=True).stdout.strip()
+
+    git("fetch", "-q", "origin", branch)
+    tree = git("rev-parse", f"origin/{branch}^{{tree}}")
+    stamp = Path(git("rev-parse", "--git-common-dir")) / "partner-check-pass"
+    try:
+        passed = {line.split()[0] for line in stamp.read_text(encoding="utf-8").splitlines()
+                  if line.strip()}
+    except FileNotFoundError:
+        passed = set()
+    return tree in passed
+
+
+def cmd_start(branch: str, skip_partner_check: bool = False) -> int:
+    if skip_partner_check:
+        print("WARNING: skipping the partner check; her build may change untested")
+    elif not partner_check_passed(branch):
+        print(f"origin/{branch} hasn't passed scripts/partner_check.py. Check out that exact "
+              "commit, run it, and start again.")
+        return 1
     result = call("/builds", {"appId": app_id(), "workflowId": WORKFLOW_ID, "branch": branch})
     print(f"started {result.get('buildId')} on {branch}")
     return 0
@@ -234,7 +258,9 @@ def main() -> int:
     if command == "watch":
         return cmd_watch()
     if command == "start":
-        return cmd_start(sys.argv[2] if len(sys.argv) > 2 else "main")
+        rest = [a for a in sys.argv[2:] if a != "--skip-partner-check"]
+        return cmd_start(rest[0] if rest else "main",
+                         skip_partner_check="--skip-partner-check" in sys.argv)
     if command == "publish-latest":
         return cmd_publish_latest(sys.argv[2:])
     print(__doc__)
