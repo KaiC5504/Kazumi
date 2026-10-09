@@ -138,7 +138,21 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
                 ? '检索中 ${widget.groups.length - pending}/${widget.groups.length} · $resultCount 个结果'
                 : '${widget.groups.length} 个来源 · $resultCount 个结果',
             compact: true,
-            onClose: widget.onClose,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  onPressed: () => context.pushNamed('/settings/plugin/'),
+                  tooltip: '调整来源顺序',
+                  icon: const Icon(Icons.swap_vert_rounded),
+                ),
+                IconButton(
+                  onPressed: widget.onClose,
+                  tooltip: '关闭',
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: Scrollbar(
@@ -251,12 +265,18 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
                           child: Row(
                             children: [
                               Expanded(
-                                  child: Text(
-                                group.name,
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: colors.onSurfaceVariant,
-                                ),
-                              )),
+                                  child: Row(children: [
+                                Flexible(
+                                    child: Text(
+                                  group.name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                )),
+                                const SizedBox(width: 10),
+                                SourceQualityBadge(pluginName: group.name),
+                              ])),
                               const SizedBox(width: 8),
                               Text(
                                 group.statusLabel,

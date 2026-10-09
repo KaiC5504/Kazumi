@@ -12,6 +12,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
+import 'package:kazumi/bean/widget/source_quality_badge.dart';
 import 'package:kazumi/bean/widget/empty_state_widget.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
 import 'package:kazumi/pages/plugin_editor/plugin_update_actions.dart';
@@ -391,6 +392,7 @@ class _PluginViewPageState extends State<PluginViewPage> {
                           _selected.add(plugin.name);
                         }),
                         tags: [
+                          SourceQualityBadge(pluginName: plugin.name),
                           RuleTag(
                               label: plugin.version,
                               background: colors.surfaceContainerHighest,
