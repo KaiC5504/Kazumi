@@ -105,9 +105,10 @@ void main() {
         what: 'watchdog to fire',
       );
       // Checked on 1 s ticks: the probe lands 6-7 s after her last State
-      // and the reconnect 3-4 s after that. Under load the last tick can
-      // slip just past 11.
-      expect(clock.seconds - t0, inInclusiveRange(8.5, 11.5));
+      // and the reconnect 3-4 s after that, so 9-10 s. At 20x a virtual
+      // second is 50 ms real, about three Windows timer slices, so under
+      // load one tick can land a whole virtual second late.
+      expect(clock.seconds - t0, inInclusiveRange(8.5, 12.5));
     });
   });
 

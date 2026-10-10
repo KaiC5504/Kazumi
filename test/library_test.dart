@@ -321,7 +321,12 @@ void main() {
           cancel: cancel,
           onProgress: (n) {
             sent = n;
-            if (n >= 8 * partSize && !cancel.isCompleted) cancel.complete();
+            // Progress counts bytes not yet acknowledged, and a whole wave
+            // of parts can be in flight; past that, 8 parts are on the server.
+            if (n >= (transferConnections + 8) * partSize &&
+                !cancel.isCompleted) {
+              cancel.complete();
+            }
           },
         ),
         throwsA(isA<UploadCancelled>()),
