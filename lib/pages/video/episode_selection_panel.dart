@@ -262,9 +262,11 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                   sliver: SliverGrid.builder(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: shape.columns,
+                      // Padding and gap take 20; fallback CJK glyphs run a
+                      // little past the nominal line height, hence 24.
                       mainAxisExtent: shape.lines * textScaler.scale(24) +
                           textScaler.scale(16) +
-                          20,
+                          24,
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),
