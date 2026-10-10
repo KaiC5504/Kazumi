@@ -9,6 +9,7 @@ import 'package:kazumi/modules/collect/collect_module.dart';
 import 'package:kazumi/modules/collect/collect_change_module.dart';
 import 'package:kazumi/services/sync/history_sync_service.dart';
 import 'package:kazumi/services/sync/webdav_remote_file_commit.dart';
+import 'package:kazumi/services/sync/webdav_upload.dart';
 import 'package:kazumi/utils/async_serial_queue.dart';
 import 'package:kazumi/utils/async_single_flight.dart';
 
@@ -585,7 +586,7 @@ class WebDav {
       destinationPath: destinationPath,
       remove: (path) => client.remove(path),
       uploadFromFile: (sourceFilePath, remotePath) =>
-          client.writeFromFile(sourceFilePath, remotePath),
+          uploadFileToWebDav(client, sourceFilePath, remotePath),
       rename: (sourcePath, targetPath) =>
           client.rename(sourcePath, targetPath, true),
       exists: _remoteEntryExists,
