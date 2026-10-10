@@ -965,7 +965,9 @@ class DownloadManager implements IDownloadManager {
 
     for (final parentDir in parentDirs) {
       try {
-        await Directory(parentDir).delete();
+        // Only the show's own folder goes with everything left in it.
+        await Directory(parentDir).delete(
+            recursive: path.basename(parentDir) == '${bangumiId}_$pluginName');
       } on FileSystemException {
         // Parent is missing or still holds other files; leave it.
       }

@@ -48,8 +48,7 @@ abstract class _DownloadController with Store {
   Future<void> init() async {
     try {
       await _relocateMovedDownloads();
-      await sweepOrphanedDownloads(
-          await getDefaultDownloadDirectory(), _repository.getAllRecords());
+      await clearInterruptedImports(await getDefaultDownloadDirectory());
     } catch (e) {
       KazumiLogger().e('DownloadController: relocating downloads failed',
           error: e);

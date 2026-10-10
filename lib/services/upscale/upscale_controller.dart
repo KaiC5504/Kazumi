@@ -1257,12 +1257,19 @@ class UpscaleController {
     final stagingDir = '$targetDir.importing';
 
     await _deleteIfExists(stagingDir);
-    await importService.copy(
-      candidate.videoPath,
-      path.join(stagingDir, upscaledVideoFileName),
-      expectedBytes: manifest.sizeBytes,
-      onProgress: onProgress,
-    );
+    try {
+      await importService.copy(
+        candidate.videoPath,
+        path.join(stagingDir, upscaledVideoFileName),
+        expectedBytes: manifest.sizeBytes,
+        onProgress: onProgress,
+      );
+    } catch (_) {
+      // A cancelled or failed copy would otherwise keep gigabytes of
+      // partial video until this episode is imported again.
+      await _deleteIfExists(stagingDir);
+      rethrow;
+    }
     if (candidate.danmakuPath != null) {
       try {
         await importService.copy(

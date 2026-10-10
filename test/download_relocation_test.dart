@@ -1,9 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/download/download_relocation.dart';
+import 'package:kazumi/services/storage/storage.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 DownloadEpisode _episode({
   String dir = '',
@@ -26,6 +30,14 @@ DownloadEpisode _episode({
   '',
   upscaledVideoPath: upscaled,
 );
+
+class _TestPaths extends PathProviderPlatform {
+  _TestPaths(this.path);
+  final String path;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
+}
 
 void main() {
   final oldDir = p.join(
@@ -129,10 +141,21 @@ void main() {
     });
   });
 
-  group('sweepOrphanedDownloads', () {
+  group('cleanup', () {
     late Directory tmp;
+    late Directory hive;
+    setUpAll(() async {
+      hive = await Directory.systemTemp.createTemp('kazumi_cleanup_hive');
+      PathProviderPlatform.instance = _TestPaths(hive.path);
+      Hive.init(hive.path);
+      await GStorage.init();
+    });
+    tearDownAll(() async {
+      await Hive.close();
+      await hive.delete(recursive: true);
+    });
     setUp(() async {
-      tmp = await Directory.systemTemp.createTemp('kazumi_sweep_test');
+      tmp = await Directory.systemTemp.createTemp('kazumi_cleanup_test');
     });
     tearDown(() => tmp.delete(recursive: true));
 
@@ -142,47 +165,62 @@ void main() {
     bool exists(String relative) =>
         FileSystemEntity.typeSync(p.join(tmp.path, relative)) !=
         FileSystemEntityType.notFound;
-    DownloadRecord record(int id, String plugin, List<int> episodes) =>
-        DownloadRecord(id, '', '', plugin, {
-          for (final n in episodes) n: _episode(),
-        }, DateTime(2026));
 
-    test('frees episodes and imports no record owns', () async {
+    test('startup removes only interrupted imports', () async {
       write(p.join('10639_aafun', '3', 'video.mp4'));
-      write(p.join('10639_aafun', '4', 'video.mp4'));
       write(p.join('10639_aafun', '5.importing', 'video.mp4'));
-      write(p.join('2_b', '1', 'seg_0.ts'));
-      await sweepOrphanedDownloads(tmp.path, [
-        record(10639, 'aafun', [3]),
-      ]);
-      expect(exists(p.join('10639_aafun', '3', 'video.mp4')), isTrue);
-      expect(exists(p.join('10639_aafun', '4')), isFalse);
+      write(p.join('10639_aafun', '7', 'video.mp4'));
+      write(p.join('10639_aafun', 'notes.importing', 'a.txt'));
+      write(p.join('my files', '2.importing', 'a.mp4'));
+      await clearInterruptedImports(tmp.path);
       expect(exists(p.join('10639_aafun', '5.importing')), isFalse);
-      expect(exists('2_b'), isFalse);
-    });
-
-    test('leaves files the app did not name alone', () async {
-      write(p.join('my notes', 'a.txt'));
-      write(p.join('2_b', 'cover.jpg'));
-      write(p.join('2_b', 'extras', 'a.mp4'));
-      await sweepOrphanedDownloads(tmp.path, [
-        record(1, 'a', [1]),
-      ]);
-      expect(exists(p.join('my notes', 'a.txt')), isTrue);
-      expect(exists(p.join('2_b', 'cover.jpg')), isTrue);
-      expect(exists(p.join('2_b', 'extras', 'a.mp4')), isTrue);
-    });
-
-    test('does nothing when no records loaded', () async {
-      write(p.join('10639_aafun', '3', 'video.mp4'));
-      await sweepOrphanedDownloads(tmp.path, const []);
+      expect(
+        exists(p.join('10639_aafun', '7', 'video.mp4')),
+        isTrue,
+        reason: 'no record is needed to keep a video',
+      );
       expect(exists(p.join('10639_aafun', '3', 'video.mp4')), isTrue);
+      expect(exists(p.join('10639_aafun', 'notes.importing', 'a.txt')), isTrue);
+      expect(exists(p.join('my files', '2.importing', 'a.mp4')), isTrue);
     });
 
     test('a missing download folder is fine', () async {
-      await sweepOrphanedDownloads(p.join(tmp.path, 'none'), [
-        record(1, 'a', [1]),
-      ]);
+      await clearInterruptedImports(p.join(tmp.path, 'none'));
+    });
+
+    DownloadRecord show(String folder) => DownloadRecord(
+      10639,
+      '',
+      '',
+      'aafun',
+      {3: _episode(dir: p.join(tmp.path, folder, '3'))},
+      DateTime(2026),
+    );
+
+    test('deleting a show takes what its folder still holds', () async {
+      write(p.join('10639_aafun', '3', 'video.mp4'));
+      write(p.join('10639_aafun', '4', 'seg_0.ts'));
+      write(p.join('10639_aafun', '5.importing', 'video.mp4'));
+      write(p.join('2_b', '1', 'video.mp4'));
+      await DownloadManager().deleteRecordFiles(
+        10639,
+        'aafun',
+        record: show('10639_aafun'),
+      );
+      expect(exists('10639_aafun'), isFalse);
+      expect(exists(p.join('2_b', '1', 'video.mp4')), isTrue);
+    });
+
+    test('a saved folder outside the show layout is never emptied', () async {
+      write(p.join('Movies', '3', 'video.mp4'));
+      write(p.join('Movies', 'holiday.mp4'));
+      await DownloadManager().deleteRecordFiles(
+        10639,
+        'aafun',
+        record: show('Movies'),
+      );
+      expect(exists(p.join('Movies', '3')), isFalse);
+      expect(exists(p.join('Movies', 'holiday.mp4')), isTrue);
     });
   });
 }
