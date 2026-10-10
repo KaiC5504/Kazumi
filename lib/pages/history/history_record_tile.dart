@@ -58,6 +58,13 @@ class HistoryRecordTile extends StatelessWidget {
         TimeOfDay.fromDateTime(history.lastWatchTime.toLocal()).format(context);
     final image = history.bangumiItem.images['large'] ?? '';
     final position = _position;
+    // Large text can't share one line, so it keeps the roomy layout.
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
+    final meta = [
+      source,
+      if (history.adapterName.isNotEmpty) history.adapterName,
+      time
+    ].join(' · ');
 
     return Dismissible(
       key: ValueKey(history.key),
@@ -98,49 +105,41 @@ class HistoryRecordTile extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(largeText ? 16 : 10),
               child: LayoutBuilder(builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 600;
-                final largeText =
-                    MediaQuery.textScalerOf(context).scale(14) > 21;
-                final coverWidth = wide ? 72.0 : 60.0;
-                final content = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    Text(episode,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: colors.onSurfaceVariant)),
-                    if (position.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(position,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                              color: colors.primary,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                    const SizedBox(height: 8),
-                    Text(
-                      [
-                        source,
-                        if (history.adapterName.isNotEmpty) history.adapterName,
-                        time
-                      ].join(' · '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: colors.onSurfaceVariant),
-                    ),
-                  ],
-                );
-                final actions = _actions(context, wide: wide || largeText);
+                final coverWidth = largeText ? (wide ? 72.0 : 60.0) : 44.0;
+                final content = largeText
+                    ? _roomyContent(theme, title, episode, position, meta)
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 4),
+                          Text.rich(
+                            TextSpan(children: [
+                              TextSpan(text: episode),
+                              if (position.isNotEmpty)
+                                TextSpan(
+                                    text: '  $position',
+                                    style: TextStyle(
+                                        color: colors.primary,
+                                        fontWeight: FontWeight.w600)),
+                              TextSpan(text: '  ·  $meta'),
+                            ]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ],
+                      );
+                final actions = _actions(context, wide: true);
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -168,7 +167,7 @@ class HistoryRecordTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: largeText ? 16 : 12),
                         Expanded(
                           child: ExcludeSemantics(
                             child: IgnorePointer(child: content),
@@ -191,6 +190,42 @@ class HistoryRecordTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _roomyContent(ThemeData theme, String title, String episode,
+      String position, String meta) {
+    final colors = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        Text(episode,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: colors.onSurfaceVariant)),
+        if (position.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(position,
+              style: theme.textTheme.labelMedium?.copyWith(
+                  color: colors.primary, fontWeight: FontWeight.w600)),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          meta,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: colors.onSurfaceVariant),
+        ),
+      ],
     );
   }
 
