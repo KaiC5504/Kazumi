@@ -1,27 +1,24 @@
-# Kazumi（非官方修改版）
+# Kazumi
 
-这是 [Predidit/Kazumi](https://github.com/Predidit/Kazumi) 的一个非官方修改版，**与官方 Kazumi 无关**。
-应用本身、规则体系和绝大部分代码都来自上游项目，功劳属于 Kazumi 的作者和贡献者。
-本仓库只在上游基础上修了一些上游 issue 里提到、但暂未合入的问题，并持续合并上游的新版本。
+[Predidit/Kazumi](https://github.com/Predidit/Kazumi) 的**非官方修改版**，与官方无关。应用和绝大部分代码来自上游，功劳属于 Kazumi 的作者和贡献者。
+本版本修复了一些上游 issue 中提到但尚未合入的问题，并持续同步上游更新。
 
-请不要把这个版本的问题反馈到上游仓库。遇到问题请在 [本仓库的 Issues](https://github.com/KaiC5504/Kazumi/issues) 里提。
+问题请在 [本仓库的 Issues](https://github.com/KaiC5504/Kazumi/issues) 反馈，不要提到上游。
 
 ## 和官方版的区别
 
 | 改动 | 平台 | 相关上游 issue |
 |---|---|---|
-| SyncPlay 一起看：缓和同步漂移，不再频繁跳跃式追帧；可搭配任意 SyncPlay 服务器 | 全部 | [#1588](https://github.com/Predidit/Kazumi/issues/1588)、[#2441](https://github.com/Predidit/Kazumi/issues/2441)、[#1646](https://github.com/Predidit/Kazumi/issues/1646) |
+| 在线播放时从 [AniSkip](https://aniskip.com) 查询片头片尾时间并提示跳过（播放设置中可关闭） | 全部 | [#2420](https://github.com/Predidit/Kazumi/issues/2420)、[#218](https://github.com/Predidit/Kazumi/issues/218) |
 | 每部番剧单独记住播放倍速（一起看时固定 1.0×） | 全部 | [#2572](https://github.com/Predidit/Kazumi/issues/2572)、[#1599](https://github.com/Predidit/Kazumi/issues/1599) |
+| 首次启动自动安装官方规则，之后官方新增的规则也会自动安装（删除过的不会再装回来） | 全部 | — |
+| 片源旁显示实测画质标记（分辨率、编码、码率） | 全部 | — |
 | WebDAV 自动同步：除启动时外，切到后台、回到前台、退出播放器时也会同步历史记录；追番列表改动后立即上传 | 全部 | [#1952](https://github.com/Predidit/Kazumi/issues/1952)、[#2613](https://github.com/Predidit/Kazumi/issues/2613) |
 | Bangumi 同步：一集看到 90% 时自动标记为看过（需在设置中配置 Bangumi 令牌） | 全部 | [#2185](https://github.com/Predidit/Kazumi/issues/2185) |
 | 新集提醒：在看的番剧在日本首播次日 10:00 发送本地通知（界面设置 → 提醒） | Android、iOS | [#2370](https://github.com/Predidit/Kazumi/issues/2370)、[#1644](https://github.com/Predidit/Kazumi/issues/1644) |
-| 在线播放时从 [AniSkip](https://aniskip.com) 查询片头片尾时间并提示跳过（播放设置中可关闭） | 全部 | [#2420](https://github.com/Predidit/Kazumi/issues/2420)、[#218](https://github.com/Predidit/Kazumi/issues/218) |
-| 首次启动自动安装官方规则，之后官方新增的规则也会自动安装（删除过的不会再装回来） | 全部 | — |
-| 片源旁显示实测画质标记（分辨率、编码、码率） | 全部 | — |
 | 应用更新后已下载的剧集不再丢失（iOS 更新会改变应用目录，下载记录会自动指向新位置） | iOS | [#2243](https://github.com/Predidit/Kazumi/issues/2243) |
+| SyncPlay 一起看：缓和同步漂移，不再频繁跳跃式追帧；可搭配任意 SyncPlay 服务器 | 全部 | [#1588](https://github.com/Predidit/Kazumi/issues/1588)、[#2441](https://github.com/Predidit/Kazumi/issues/2441)、[#1646](https://github.com/Predidit/Kazumi/issues/1646) |
 | 本地超分预处理（实验性，需要带 libplacebo 的 ffmpeg，例如 gyan.dev 的 full 版本） | Windows | — |
-
-没有包含的功能：作者自用的「一起看」共享片库和云端超分，它们依赖作者自己的服务器，公开版中已隐藏。
 
 ## 下载与安装
 
@@ -46,7 +43,7 @@
 
 ## 隐私
 
-本版本不连接作者自己的任何服务器。它会访问的地址：
+本版本会访问的地址：
 
 - 你安装的规则对应的视频站点；
 - Bangumi（`api.bgm.tv`、`next.bgm.tv`，以及官方版同样使用的镜像 `api.kazumi.fyi`、`api.bgmapi.com`）；
@@ -67,7 +64,7 @@ fvm flutter build windows --release \
   --dart-define=KAZUMI_PUBLIC=true --dart-define=KAZUMI_LIBRARY_SERVER=
 ```
 
-不加 `KAZUMI_PUBLIC=true` 构建出来的是作者自用版本，会连接作者的服务器，请不要这样分发。
+分发时请务必加上 `KAZUMI_PUBLIC=true`。
 Flutter 版本见 `pubspec.yaml`；Windows 需要 Visual Studio 2026 生成工具。
 
 ## 许可与致谢
