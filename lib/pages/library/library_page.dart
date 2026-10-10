@@ -530,7 +530,7 @@ class _RoomCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '点一集，两边一起播放',
+                '点一集，双方同时播放',
                 style: text.bodyMedium?.copyWith(
                   color: colors.onPrimaryContainer.withValues(alpha: 0.8),
                 ),
@@ -915,7 +915,7 @@ class _EmptyLibrary extends StatelessWidget {
           Icon(Icons.movie_filter_outlined, size: 56, color: colors.outline),
           const SizedBox(height: 12),
           Text(
-            '片库还是空的',
+            '空空的',
             textAlign: TextAlign.center,
             style: TextStyle(color: colors.onSurfaceVariant),
           ),
