@@ -98,7 +98,7 @@ class _SearchResultGrid extends StatelessWidget {
       return height;
     }
 
-    final titleHeight = textHeight('番剧\n番剧', titleStyle);
+    final titleHeight = textHeight('番剧\n番剧\n番剧', titleStyle);
     final metadataHeight = math.max(_SearchResultCard.ratingIconSize,
         textHeight('0.0 0000', textTheme.labelMedium!));
     final columns = math.max(2, (width / 180).floor());
@@ -174,7 +174,7 @@ class _SearchResultCard extends StatelessWidget {
                 height: titleHeight,
                 child: Text(
                   title,
-                  maxLines: 2,
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: titleStyle,
                 )),
