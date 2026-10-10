@@ -12,8 +12,8 @@ import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/pages/library/route_sheet.dart';
 import 'package:kazumi/services/library/library_api.dart';
+import 'package:kazumi/services/download/download_directory_service.dart';
 import 'package:kazumi/services/library/library_controller.dart';
-import 'package:kazumi/services/platform/secure_bookmark_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
@@ -28,6 +28,7 @@ class DownloadSettingsPage extends StatefulWidget {
 }
 
 class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
+  final _directoryService = DownloadDirectoryService();
   late int parallelEpisodes;
   late int parallelSegments;
   late bool downloadDanmaku;
@@ -63,15 +64,11 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     parallelSegments =
         GStorage.getSetting(SettingsKeys.downloadParallelSegments);
     downloadDanmaku = GStorage.getSetting(SettingsKeys.downloadDanmaku);
-    downloadDirectory =
-        GStorage.getSetting(SettingsKeys.downloadDirectory).trim();
+    downloadDirectory = _directoryService.customDirectory;
     _loadDefaultDownloadDirectory();
   }
 
-  bool get _canPickDirectory => supportsCustomDownloadDirectory;
-
-  bool get _hasCustomDirectory =>
-      _canPickDirectory && downloadDirectory.isNotEmpty;
+  bool get _hasCustomDirectory => downloadDirectory.isNotEmpty;
 
   String get _effectiveDownloadDirectory =>
       _hasCustomDirectory ? downloadDirectory : defaultDownloadDirectory;
@@ -85,38 +82,18 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
   }
 
   Future<void> _selectDownloadDirectory() async {
-    if (!_canPickDirectory) {
-      KazumiDialog.showToast(message: '当前平台不支持手动选择目录');
-      return;
-    }
     if (isSelectingDirectory) return;
 
     setState(() => isSelectingDirectory = true);
     try {
-      final effectiveDirectory = _effectiveDownloadDirectory;
-      final initialDirectory = effectiveDirectory.isNotEmpty &&
-              await Directory(effectiveDirectory).exists()
-          ? effectiveDirectory
-          : null;
-      final selectedPath = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '选择下载位置',
-        initialDirectory: initialDirectory,
-      );
-      if (selectedPath == null || selectedPath.isEmpty) return;
-
-      await ensureDirectoryWritable(selectedPath);
-      if (!await SecureBookmarkService.persist(selectedPath)) {
-        KazumiDialog.showToast(message: '无法获得该目录的持久访问权限，请更换目录');
-        return;
-      }
-      await GStorage.putSetting(
-        SettingsKeys.downloadDirectory,
-        selectedPath,
-      );
+      final selectedPath = await _directoryService.selectDirectory();
+      if (selectedPath == null) return;
       if (mounted) {
         setState(() => downloadDirectory = selectedPath);
       }
       KazumiDialog.showToast(message: '下载位置已更新，仅对新下载生效');
+    } on DownloadDirectoryException catch (e) {
+      KazumiDialog.showToast(message: e.message);
     } on FileSystemException catch (e) {
       KazumiDialog.showToast(message: '无法写入该目录: ${e.message}');
     } catch (e) {
@@ -286,8 +263,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
   }
 
   Future<void> _resetDownloadDirectory() async {
-    await SecureBookmarkService.clear();
-    await GStorage.putSetting(SettingsKeys.downloadDirectory, '');
+    await _directoryService.resetDirectory();
     if (mounted) {
       setState(() => downloadDirectory = '');
     }

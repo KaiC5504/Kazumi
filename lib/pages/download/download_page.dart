@@ -625,13 +625,15 @@ class _DownloadPageState extends State<DownloadPage> {
             ),
           ),
           TextButton(
-            onPressed: () {
-              downloadController.deleteEpisode(
-                record.bangumiId,
-                record.pluginName,
-                episode.episodeNumber,
-              );
+            onPressed: () async {
               KazumiDialog.dismiss();
+              await _deleteDownload(
+                () => downloadController.deleteEpisode(
+                  record.bangumiId,
+                  record.pluginName,
+                  episode.episodeNumber,
+                ),
+              );
             },
             child: Text(
               '删除',
@@ -657,12 +659,14 @@ class _DownloadPageState extends State<DownloadPage> {
             ),
           ),
           TextButton(
-            onPressed: () {
-              downloadController.deleteRecord(
-                record.bangumiId,
-                record.pluginName,
-              );
+            onPressed: () async {
               KazumiDialog.dismiss();
+              await _deleteDownload(
+                () => downloadController.deleteRecord(
+                  record.bangumiId,
+                  record.pluginName,
+                ),
+              );
             },
             child: Text(
               '删除',
@@ -672,5 +676,27 @@ class _DownloadPageState extends State<DownloadPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _deleteDownload(Future<void> Function() delete) async {
+    try {
+      await delete();
+    } catch (e) {
+      KazumiLogger().w('DownloadPage: failed to delete download', error: e);
+      if (!mounted) return;
+      KazumiDialog.show(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('删除失败'),
+          content: const Text('删除下载文件失败，请稍后重试'),
+          actions: [
+            TextButton(
+              onPressed: () => KazumiDialog.dismiss(context: context),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
