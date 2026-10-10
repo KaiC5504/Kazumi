@@ -76,6 +76,20 @@ void main() {
     expect(storedEpisodeDir(_episode()), '');
   });
 
+  // Upstream's rebaseIosDownloadPaths runs before the relocation above and
+  // doesn't know upscaledVideoPath, so baked episodes would lose their video.
+  test('nothing in lib calls upstream\'s iOS path rebase', () {
+    final callers = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => !f.path.endsWith('download_path_migration.dart'))
+        .where((f) => f.readAsStringSync().contains('rebaseIosDownloadPaths('))
+        .map((f) => f.path)
+        .toList();
+    expect(callers, isEmpty);
+  });
+
   group('moveDownloads', () {
     late Directory tmp;
     setUp(() async {
