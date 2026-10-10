@@ -109,7 +109,7 @@ class _WideSpaceLayout extends StatelessWidget {
     final together = _ToolTile(
       icon: Icons.favorite_rounded,
       title: '一起看',
-      caption: '和对方同步观看超分片库',
+      caption: '同步播放',
       color: colors.primaryContainer,
       foreground: colors.onPrimaryContainer,
       onTap: () => onOpen(MyDestination.together),
@@ -143,7 +143,7 @@ class _WideSpaceLayout extends StatelessWidget {
           _ToolTile(
             icon: Icons.favorite_rounded,
             title: '一起看',
-            caption: '和对方同步观看超分片库',
+            caption: '同步播放',
             color: colors.primaryContainer,
             foreground: colors.onPrimaryContainer,
             onTap: () => onOpen(MyDestination.together),
@@ -226,7 +226,7 @@ class _CompactSpaceLayout extends StatelessWidget {
     final together = _ToolTile(
       icon: Icons.favorite_rounded,
       title: '一起看',
-      caption: '和对方同步观看超分片库',
+      caption: '同步播放',
       color: colors.primaryContainer,
       foreground: colors.onPrimaryContainer,
       compact: true,

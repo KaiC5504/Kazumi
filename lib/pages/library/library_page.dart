@@ -63,7 +63,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final invite = LibraryInvite.parse(data?.text ?? '');
     if (invite == null) {
-      KazumiDialog.showToast(message: '剪贴板里没有邀请链接，请先复制对方发来的链接');
+      KazumiDialog.showToast(message: '剪贴板里没有邀请链接');
       return;
     }
     controller.showInvite(invite);
@@ -80,7 +80,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final leave = await KazumiDialog.show<bool>(
       builder: (context) => AlertDialog(
         title: const Text('退出片库'),
-        content: const Text('退出后需要重新打开邀请链接才能加入。已下载的剧集会保留。'),
+        content: const Text('重新加入需要邀请链接，已下载的剧集会保留。'),
         actions: [
           TextButton(
             onPressed: () => KazumiDialog.dismiss(popWith: false),
@@ -168,7 +168,6 @@ Future<String?> _askName(BuildContext context, {String initial = ''}) {
         autofocus: true,
         maxLength: 16,
         decoration: const InputDecoration(
-          hintText: '对方会看到这个名字',
           border: OutlineInputBorder(),
         ),
       ),
@@ -244,18 +243,10 @@ class _InviteViewState extends State<_InviteView> {
                 const Center(child: _GlowingHeart(size: 88)),
                 const SizedBox(height: 28),
                 Text(
-                  '有人邀请你一起看番',
+                  '邀请你一起看',
                   textAlign: TextAlign.center,
                   style: text.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '加入后，你们任何一个人点开一集，两边会同时开始播放',
-                  textAlign: TextAlign.center,
-                  style: text.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -266,7 +257,6 @@ class _InviteViewState extends State<_InviteView> {
                   onSubmitted: (_) => _join(),
                   decoration: const InputDecoration(
                     labelText: '你的名字',
-                    hintText: '对方会看到这个名字',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -283,7 +273,7 @@ class _InviteViewState extends State<_InviteView> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.favorite_rounded),
-                  label: Text(_joining ? '正在加入…' : '加入一起看'),
+                  label: Text(_joining ? '正在加入…' : '加入'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(56),
                     textStyle: text.titleMedium,
@@ -339,7 +329,6 @@ class _NotJoinedViewState extends State<_NotJoinedView> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Center(
       child: SingleChildScrollView(
@@ -357,14 +346,6 @@ class _NotJoinedViewState extends State<_NotJoinedView> {
                   textAlign: TextAlign.center,
                   style: text.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '对方发给你的 8 位邀请码，例如 KZ7M-4QPA',
-                  textAlign: TextAlign.center,
-                  style: text.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -402,7 +383,7 @@ class _NotJoinedViewState extends State<_NotJoinedView> {
                 TextButton.icon(
                   onPressed: widget.onPaste,
                   icon: const Icon(Icons.link_rounded),
-                  label: const Text('收到的是链接？复制后点这里'),
+                  label: const Text('粘贴邀请链接'),
                 ),
               ],
             ),
@@ -549,9 +530,7 @@ class _RoomCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                others.isEmpty
-                    ? '对方打开「一起看」后会出现在这里。谁先点一集，两边就一起开始。'
-                    : '点任意一集，对方那边会同时打开',
+                '点一集，两边一起播放',
                 style: text.bodyMedium?.copyWith(
                   color: colors.onPrimaryContainer.withValues(alpha: 0.8),
                 ),
@@ -936,7 +915,7 @@ class _EmptyLibrary extends StatelessWidget {
           Icon(Icons.movie_filter_outlined, size: 56, color: colors.outline),
           const SizedBox(height: 12),
           Text(
-            '片库还是空的\n电脑上烘焙好的剧集上传后会出现在这里',
+            '片库还是空的',
             textAlign: TextAlign.center,
             style: TextStyle(color: colors.onSurfaceVariant),
           ),
