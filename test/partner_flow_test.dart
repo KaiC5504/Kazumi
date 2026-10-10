@@ -15,6 +15,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/dialog.dart';
 import 'package:kazumi/bean/dialog/glass_notice.dart';
+import 'package:kazumi/modules/bangumi/bangumi_item.dart';
+import 'package:kazumi/modules/bangumi/bangumi_tag.dart';
+import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/modules/my/watch_stats.dart';
 import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
@@ -666,6 +669,58 @@ void main() {
             ),
           ),
         );
+        expect(find.text('一起看'), findsOneWidget);
+        await tester.tap(find.text('一起看'));
+        expect(opened, MyDestination.together);
+      });
+    }
+  });
+
+  group('我的 page with watch history', () {
+    final watched = History(
+      BangumiItem(
+        id: bangumiId,
+        type: 2,
+        name: 'Fate/Zero',
+        nameCn: 'Fate/Zero',
+        summary: '',
+        airDate: '2011-10-01',
+        airWeekday: 6,
+        rank: 0,
+        images: const {'large': ''},
+        tags: const <BangumiTag>[],
+        alias: const [],
+        ratingScore: 0,
+        votes: 0,
+        votesCount: const [],
+        info: '',
+      ),
+      2,
+      'aafun',
+      DateTime(2026, 10, 9, 21),
+      '',
+      '第2话',
+    );
+    for (final width in [400.0, 1200.0]) {
+      testWidgets('still shows 一起看 and opens it (${width.toInt()} px)', (
+        tester,
+      ) async {
+        tester.view.physicalSize = Size(width, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        MyDestination? opened;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: MySpaceView(
+                stats: const WatchStats(),
+                onOpen: (d) => opened = d,
+                recent: [watched],
+              ),
+            ),
+          ),
+        );
+        expect(find.text('继续观看'), findsOneWidget);
         expect(find.text('一起看'), findsOneWidget);
         await tester.tap(find.text('一起看'));
         expect(opened, MyDestination.together);

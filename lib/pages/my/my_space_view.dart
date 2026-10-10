@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:flutter_modular/flutter_modular.dart';
+import 'package:kazumi/bean/card/network_img_layer.dart';
+import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/content_section.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
 import 'package:kazumi/build_flavor.dart';
+import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/modules/my/watch_stats.dart';
+import 'package:kazumi/pages/history/history_controller.dart';
+import 'package:kazumi/services/player/history_playback_service.dart';
+import 'package:kazumi/services/plugin/rule_engine_models.dart'
+    show RuleCancelToken;
+import 'package:kazumi/utils/device.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 
 enum MyDestination {
@@ -26,14 +36,21 @@ class MySpaceView extends StatelessWidget {
     super.key,
     required this.stats,
     required this.onOpen,
+    this.recent,
   });
 
   final WatchStats stats;
   final ValueChanged<MyDestination> onOpen;
 
+  /// Recent histories to show; null reads them from the app.
+  final List<History>? recent;
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
+    return _RecentHistory(
+        recent: recent,
+        builder: (context, recent) =>
+            LayoutBuilder(builder: (context, constraints) {
       final inset = constraints.maxWidth < 600 ? 16.0 : 32.0;
       final width = constraints.maxWidth - inset * 2;
       final largeText = MediaQuery.textScalerOf(context).scale(16) > 24;
@@ -45,64 +62,83 @@ class MySpaceView extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
             child: wide
-                ? _WideSpaceLayout(stats: stats, onOpen: onOpen)
+                ? _WideSpaceLayout(
+                    stats: stats, onOpen: onOpen, recent: recent)
                 : _CompactSpaceLayout(
                     stats: stats,
                     onOpen: onOpen,
+                    recent: recent,
                     stackTools: width < 280 || largeText,
                   ),
           ),
         ),
       );
-    });
+    }));
   }
 }
 
 class _WideSpaceLayout extends StatelessWidget {
-  const _WideSpaceLayout({required this.stats, required this.onOpen});
+  const _WideSpaceLayout(
+      {required this.stats, required this.onOpen, required this.recent});
 
   final WatchStats stats;
   final ValueChanged<MyDestination> onOpen;
+  final List<History> recent;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final history = _ToolTile(
+      icon: Icons.history_rounded,
+      title: '历史记录',
+      caption: stats.watchedBangumiCount == 0 ? '暂无观看记录' : '查看观看记录',
+      color: colors.secondaryContainer,
+      foreground: colors.onSecondaryContainer,
+      onTap: () => onOpen(MyDestination.history),
+    );
+    final downloads = _ToolTile(
+      icon: Icons.download_rounded,
+      title: '离线下载',
+      caption: stats.downloadTaskCount == 0
+          ? '管理离线内容'
+          : '${stats.downloadTaskCount} 集下载任务',
+      color: colors.tertiaryContainer,
+      foreground: colors.onTertiaryContainer,
+      onTap: () => onOpen(MyDestination.downloads),
+    );
+    final together = _ToolTile(
+      icon: Icons.favorite_rounded,
+      title: '一起看',
+      caption: '和对方同步观看超分片库',
+      color: colors.primaryContainer,
+      foreground: colors.onPrimaryContainer,
+      onTap: () => onOpen(MyDestination.together),
+    );
+    // With history to resume, the row replaces the heading, stats and the
+    // history tile, and 一起看 moves up next to downloads.
+    final continueRow = recent.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _AdaptivePair(
-          gap: 20,
-          first: const _SpaceHeading(),
-          second: _WatchStatsPanel(
-            bangumiCount: stats.watchedBangumiCount,
-            episodeCount: stats.watchedEpisodeCount,
+        if (continueRow)
+          _ContinueWatching(recent: recent, stats: stats, onOpen: onOpen)
+        else
+          _AdaptivePair(
+            gap: 20,
+            first: const _SpaceHeading(),
+            second: _WatchStatsPanel(
+              bangumiCount: stats.watchedBangumiCount,
+              episodeCount: stats.watchedEpisodeCount,
+            ),
           ),
-        ),
         const SizedBox(height: 28),
         _AdaptivePair(
           first: _RulesTile(onTap: () => onOpen(MyDestination.rules)),
-          second: _AdaptivePair(
-            first: _ToolTile(
-              icon: Icons.history_rounded,
-              title: '历史记录',
-              caption: stats.watchedBangumiCount == 0 ? '暂无观看记录' : '查看观看记录',
-              color: colors.secondaryContainer,
-              foreground: colors.onSecondaryContainer,
-              onTap: () => onOpen(MyDestination.history),
-            ),
-            second: _ToolTile(
-              icon: Icons.download_rounded,
-              title: '离线下载',
-              caption: stats.downloadTaskCount == 0
-                  ? '管理离线内容'
-                  : '${stats.downloadTaskCount} 集下载任务',
-              color: colors.tertiaryContainer,
-              foreground: colors.onTertiaryContainer,
-              onTap: () => onOpen(MyDestination.downloads),
-            ),
-          ),
+          second: continueRow && !kPublicBuild
+              ? _AdaptivePair(first: downloads, second: together)
+              : _AdaptivePair(first: history, second: downloads),
         ),
-        if (!kPublicBuild) ...[
+        if (!kPublicBuild && !continueRow) ...[
           const SizedBox(height: 12),
           _ToolTile(
             icon: Icons.favorite_rounded,
@@ -164,59 +200,73 @@ class _CompactSpaceLayout extends StatelessWidget {
   const _CompactSpaceLayout({
     required this.stats,
     required this.onOpen,
+    required this.recent,
     required this.stackTools,
   });
 
   final WatchStats stats;
   final ValueChanged<MyDestination> onOpen;
+  final List<History> recent;
   final bool stackTools;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final downloads = _ToolTile(
+      icon: Icons.download_rounded,
+      title: '离线下载',
+      caption: stats.downloadTaskCount == 0
+          ? '管理离线内容'
+          : '${stats.downloadTaskCount} 集下载任务',
+      color: colors.secondaryContainer,
+      foreground: colors.onSecondaryContainer,
+      compact: true,
+      onTap: () => onOpen(MyDestination.downloads),
+    );
+    final together = _ToolTile(
+      icon: Icons.favorite_rounded,
+      title: '一起看',
+      caption: '和对方同步观看超分片库',
+      color: colors.primaryContainer,
+      foreground: colors.onPrimaryContainer,
+      compact: true,
+      onTap: () => onOpen(MyDestination.together),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _WatchStatsPanel(
-          bangumiCount: stats.watchedBangumiCount,
-          episodeCount: stats.watchedEpisodeCount,
-          compact: true,
-        ),
-        const SizedBox(height: 12),
-        _AdaptivePair(
-          stack: stackTools,
-          first: _ToolTile(
-            icon: Icons.history_rounded,
-            title: '历史记录',
-            caption: stats.watchedBangumiCount == 0 ? '暂无观看记录' : '查看观看记录',
-            color: colors.secondaryContainer,
-            foreground: colors.onSecondaryContainer,
+        if (recent.isNotEmpty) ...[
+          _ContinueWatching(recent: recent, stats: stats, onOpen: onOpen),
+          const SizedBox(height: 16),
+          if (kPublicBuild)
+            downloads
+          else
+            _AdaptivePair(
+                stack: stackTools, first: downloads, second: together),
+        ] else ...[
+          _WatchStatsPanel(
+            bangumiCount: stats.watchedBangumiCount,
+            episodeCount: stats.watchedEpisodeCount,
             compact: true,
-            onTap: () => onOpen(MyDestination.history),
           ),
-          second: _ToolTile(
-            icon: Icons.download_rounded,
-            title: '离线下载',
-            caption: stats.downloadTaskCount == 0
-                ? '管理离线内容'
-                : '${stats.downloadTaskCount} 集下载任务',
-            color: colors.secondaryContainer,
-            foreground: colors.onSecondaryContainer,
-            compact: true,
-            onTap: () => onOpen(MyDestination.downloads),
-          ),
-        ),
-        if (!kPublicBuild) ...[
           const SizedBox(height: 12),
-          _ToolTile(
-            icon: Icons.favorite_rounded,
-            title: '一起看',
-            caption: '和对方同步观看超分片库',
-            color: colors.primaryContainer,
-            foreground: colors.onPrimaryContainer,
-            compact: true,
-            onTap: () => onOpen(MyDestination.together),
+          _AdaptivePair(
+            stack: stackTools,
+            first: _ToolTile(
+              icon: Icons.history_rounded,
+              title: '历史记录',
+              caption: stats.watchedBangumiCount == 0 ? '暂无观看记录' : '查看观看记录',
+              color: colors.secondaryContainer,
+              foreground: colors.onSecondaryContainer,
+              compact: true,
+              onTap: () => onOpen(MyDestination.history),
+            ),
+            second: downloads,
           ),
+          if (!kPublicBuild) ...[
+            const SizedBox(height: 12),
+            together,
+          ],
         ],
         const SizedBox(height: 24),
         ContentSection.group(
@@ -820,6 +870,189 @@ class _AdaptivePair extends StatelessWidget {
           SizedBox(width: gap),
           Expanded(child: second),
         ],
+      ),
+    );
+  }
+}
+
+/// Builds with the most recent histories, or none when the app's history
+/// controller isn't available (widget tests build this view on its own).
+class _RecentHistory extends StatefulWidget {
+  const _RecentHistory({required this.recent, required this.builder});
+
+  final List<History>? recent;
+  final Widget Function(BuildContext context, List<History> recent) builder;
+
+  @override
+  State<_RecentHistory> createState() => _RecentHistoryState();
+}
+
+class _RecentHistoryState extends State<_RecentHistory> {
+  HistoryController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.recent != null) return;
+    try {
+      _controller = inject<HistoryController>();
+    } on StateError {
+      _controller = null;
+    }
+    final controller = _controller;
+    if (controller != null && controller.histories.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.histories.isEmpty) controller.init();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final given = widget.recent;
+    if (given != null) return widget.builder(context, given);
+    final controller = _controller;
+    if (controller == null) return widget.builder(context, const []);
+    return Observer(builder: (context) {
+      final recent = controller.histories.toList()
+        ..sort((a, b) => b.lastWatchTime.compareTo(a.lastWatchTime));
+      return widget.builder(context, recent.take(10).toList());
+    });
+  }
+}
+
+class _ContinueWatching extends StatelessWidget {
+  const _ContinueWatching({
+    required this.recent,
+    required this.stats,
+    required this.onOpen,
+  });
+
+  static const coverHeight = 146.0;
+
+  final List<History> recent;
+  final WatchStats stats;
+  final ValueChanged<MyDestination> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final labels = MediaQuery.textScalerOf(context).scale(40);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('继续观看',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                    '看过 ${stats.watchedBangumiCount} 部 · '
+                    '${stats.watchedEpisodeCount} 集',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: colors.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          TextButton(
+              onPressed: () => onOpen(MyDestination.history),
+              child: const Text('全部历史')),
+        ]),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: coverHeight + 8 + labels,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: recent.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (context, index) =>
+                _ContinueCard(history: recent[index]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ContinueCard extends StatefulWidget {
+  const _ContinueCard({required this.history});
+
+  final History history;
+
+  @override
+  State<_ContinueCard> createState() => _ContinueCardState();
+}
+
+class _ContinueCardState extends State<_ContinueCard> with KazumiDialogOwner {
+  Future<void> _resume() async {
+    if (dialogs.isRunning) return;
+    await dialogs.run((task) async {
+      final cancelToken = RuleCancelToken();
+      final result = await task.loading(
+        message: '获取中',
+        barrierDismissible: isDesktop(),
+        onCancel: cancelToken.cancel,
+        action: () => inject<HistoryPlaybackService>()
+            .open(widget.history, cancelToken: cancelToken),
+      );
+      switch (result) {
+        case HistoryPlaybackReady(:final args):
+          task.withContext(
+              (context) => context.pushNamed('/video/', arguments: args));
+        case HistoryPlaybackUnavailable(:final reason):
+          KazumiDialog.showToast(message: reason);
+      }
+    }, errorMessage: '暂时无法继续播放，请稍后重试');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final item = widget.history.bangumiItem;
+    final title = item.nameCn.isEmpty ? item.name : item.nameCn;
+    final episode = widget.history.lastWatchEpisodeName.isEmpty
+        ? '第 ${widget.history.lastWatchEpisode} 话'
+        : widget.history.lastWatchEpisodeName;
+    const height = _ContinueWatching.coverHeight;
+    const width = height / 1.4;
+    return Semantics(
+      button: true,
+      label: '继续观看 $title，$episode',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _resume,
+        child: SizedBox(
+          width: width,
+          child: ExcludeSemantics(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: NetworkImgLayer(
+                    src: item.images['large'] ?? '',
+                    width: width,
+                    height: height,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge),
+                Text(episode,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: theme.colorScheme.primary)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
