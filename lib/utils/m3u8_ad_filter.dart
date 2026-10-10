@@ -1,12 +1,20 @@
 import 'package:kazumi/utils/m3u8_parser.dart';
 
 class M3u8AdFilter {
+  /// Groups shorter than this, served from outside the main content's
+  /// directory, are treated as inserted ads.
+  static const double maxAdGroupDuration = 120.0;
+
   /// Filter ad segments from a media playlist.
-  /// Mimics FFmpeg hls_ad_filter behavior using discontinuity groups.
+  ///
+  /// The player's FFmpeg hls_ad_filter drops a discontinuity group only when
+  /// its PTS jumps backwards, which a playlist alone can't show. Duration
+  /// alone isn't a signal: some sources cut a whole episode into 20 s
+  /// discontinuity groups. Inserted ads come from a different path than the
+  /// episode, so only short groups from a foreign directory are dropped.
   static List<M3u8Segment> filterAds(List<M3u8Segment> segments) {
     if (segments.isEmpty) return segments;
 
-    // Group segments by discontinuityGroup
     final groups = <int, List<M3u8Segment>>{};
     for (final seg in segments) {
       groups.putIfAbsent(seg.discontinuityGroup, () => []);
@@ -16,53 +24,33 @@ class M3u8AdFilter {
     // Only one group means no ads detected
     if (groups.length <= 1) return segments;
 
-    // Calculate total duration per group
-    final groupDurations = <int, double>{};
-    for (final entry in groups.entries) {
-      groupDurations[entry.key] = entry.value.fold<double>(
-        0.0,
-        (sum, seg) => sum + seg.duration,
-      );
-    }
+    double durationOf(List<M3u8Segment> segs) =>
+        segs.fold<double>(0.0, (sum, seg) => sum + seg.duration);
 
-    // Find the longest group as the "main content" reference
-    double maxDuration = 0;
-    for (final d in groupDurations.values) {
-      if (d > maxDuration) maxDuration = d;
+    final directoryDurations = <String, double>{};
+    for (final seg in segments) {
+      final dir = _directoryOf(seg.uri);
+      directoryDurations[dir] = (directoryDurations[dir] ?? 0) + seg.duration;
     }
+    final mainDirectory = directoryDurations.entries
+        .reduce((a, b) => b.value > a.value ? b : a)
+        .key;
 
-    // Identify ad groups
     final adGroups = <int>{};
-    final sortedKeys = groups.keys.toList()..sort();
-
-    for (final groupId in sortedKeys) {
-      final groupDuration = groupDurations[groupId]!;
-
-      // Skip the main content group
-      if (groupDuration == maxDuration) continue;
-
-      bool isAd = false;
-
-      // Short segments relative to main content (< 30%)
-      if (groupDuration < maxDuration * 0.3) {
-        isAd = true;
-      }
-
-      // First or last group with short duration (< 30s)
-      if ((groupId == sortedKeys.first || groupId == sortedKeys.last) &&
-          groupDuration < 30.0) {
-        isAd = true;
-      }
-
-      // Very short segments (< 10s) are almost certainly ads
-      if (groupDuration < 10.0) {
-        isAd = true;
-      }
-
-      if (isAd) {
-        adGroups.add(groupId);
+    for (final entry in groups.entries) {
+      final segs = entry.value;
+      final foreign =
+          segs.every((seg) => _directoryOf(seg.uri) != mainDirectory);
+      if (foreign && durationOf(segs) < maxAdGroupDuration) {
+        adGroups.add(entry.key);
       }
     }
+
+    // Losing this much is a misdetection, not ads; a kept ad beats a short
+    // episode.
+    final adDuration = adGroups.fold<double>(
+        0.0, (sum, id) => sum + durationOf(groups[id]!));
+    if (adDuration > durationOf(segments) * 0.3) return segments;
 
     if (adGroups.isEmpty) return segments;
 
@@ -70,6 +58,13 @@ class M3u8AdFilter {
     return segments
         .where((seg) => !adGroups.contains(seg.discontinuityGroup))
         .toList();
+  }
+
+  // Host is ignored: some CDNs spread one episode's segments across mirrors.
+  static String _directoryOf(String uri) {
+    final path = Uri.tryParse(uri)?.path ?? uri;
+    final slash = path.lastIndexOf('/');
+    return slash < 0 ? '' : path.substring(0, slash);
   }
 
   /// Calculate the new target duration after filtering
