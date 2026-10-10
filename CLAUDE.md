@@ -62,12 +62,10 @@ build time from upstream's `com.example.kazumi`; extensions: none). Repo
    branch up to latest upstream: `git fetch upstream`, `git merge upstream/main`
    (resolve conflicts in favour of keeping both sides). The owner wants every
    TestFlight build to carry the newest upstream Kazumi, not only fork changes.
-   Exception (owner, 2026-10-10): don't take upstream 4e821e48 (`rebaseIosDownloadPaths`
-   in `storage.dart`). It rewrites iOS download paths without the fork's
-   `upscaledVideoPath`, so baked episodes stop playing after a container move; the
-   fork's `download_relocation.dart` already covers it. Until that call is neutralised
-   (her path: partner tests, then move `partner-baseline`), build without merging
-   upstream past it, and ask the owner.
+   Upstream's iOS download path migration (`rebaseIosDownloadPaths`) is merged but
+   never called: `storage.dart` stays without the call, because it drops the fork's
+   `upscaledVideoPath` and `download_relocation.dart` already covers the case. If a
+   merge brings the call back, `download_relocation_test.dart` fails; delete it again.
 2. `python scripts/precheck.py` (about 30 s). It diffs against the last Codemagic
    build that passed, then runs analyze (CI flags), the tests that import changed
    files, and an asset scan (App Store Connect rejects bundled files starting with
