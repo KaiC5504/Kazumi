@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from conftest import ADMIN, VIEW, heartbeat, publish
 from kazumi_library.app import create_app
+from kazumi_library.config import Settings
 
 VIDEO = b"x" * 100
 
@@ -201,3 +202,28 @@ def test_housekeeping_runs_in_background(settings, clock):
         while (fast.data_dir / "uploads/stale").exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert not (fast.data_dir / "uploads/stale").exists()
+
+
+def test_only_listed_watchers_mark_episodes(settings):
+    with TestClient(create_app(replace(settings, watchers=frozenset({"alice", "bob"})))) as client:
+        heartbeat(client, "phone", "alice")
+        heartbeat(client, "ipad", "bob")
+        heartbeat(client, "test-phone", "tester")
+        publish(client, "ep1", VIDEO)
+
+        r = client.post("/api/episodes/ep1/watched", json={"name": "tester"}, headers=VIEW)
+        assert r.json() == {"deleted": False}
+        meta = json.loads((settings.data_dir / "episodes/ep1/meta.json").read_text("utf-8"))
+        assert meta["watchedBy"] == []
+        assert meta["firstWatchedAt"] is None
+
+        client.post("/api/episodes/ep1/watched", json={"name": "alice"}, headers=VIEW)
+        # tester is active but not a watcher, so it doesn't hold the episode back.
+        r = client.post("/api/episodes/ep1/watched", json={"name": "bob"}, headers=VIEW)
+        assert r.json() == {"deleted": True}
+
+
+def test_watchers_come_from_env():
+    s = Settings.from_env({"KAZUMI_WATCHERS": " KaiC, 梨 ,,"})
+    assert s.watchers == frozenset({"KaiC", "梨"})
+    assert Settings.from_env({}).watchers == frozenset()

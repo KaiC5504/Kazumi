@@ -74,8 +74,9 @@ class SizeMismatch(Exception):
 class Library:
     """Episodes, partial uploads and the member list, all as plain files under one directory."""
 
-    def __init__(self, root: Path, clock: Callable[[], datetime]) -> None:
+    def __init__(self, root: Path, clock: Callable[[], datetime], watchers: frozenset[str] = frozenset()) -> None:
         self.root = root
+        self.watchers = watchers
         self.episodes_dir = root / "episodes"
         self.uploads_dir = root / "uploads"
         self.state_path = root / "state.json"
@@ -180,6 +181,8 @@ class Library:
         with self._lock:
             if not (d / MANIFEST).is_file():
                 raise EpisodeNotFound(episode_id)
+            if self.watchers and name not in self.watchers:
+                return False
             now = self._clock()
             meta = _normalise_meta(read_json(d / META))
             if name not in meta["watchedBy"]:
@@ -192,6 +195,8 @@ class Library:
             # from being empty (which would make "everyone has watched" vacuously true).
             self.touch_member(name, force=True)
             active = self.active_members(now)
+            if self.watchers:
+                active &= self.watchers
             if active and active.issubset(meta["watchedBy"]):
                 shutil.rmtree(d)
                 return True

@@ -130,7 +130,7 @@ async def _housekeeping_loop(library: Library, interval: float) -> None:
 
 def create_app(settings: Settings) -> FastAPI:
     settings.validate()
-    library = Library(settings.data_dir, settings.clock)
+    library = Library(settings.data_dir, settings.clock, settings.watchers)
     room = Room(settings.clock)
     invites = Invites(settings.data_dir / "invites.json", settings.clock)
     redeem_limit = RateLimiter(settings.clock)

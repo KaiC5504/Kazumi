@@ -44,6 +44,9 @@ class Settings:
     # Relays that serve the same /episodes/* files (e.g. a Hong Kong box with a
     # better route into mainland China); clients pick whichever is fastest.
     download_mirrors: tuple[str, ...] = ()
+    # When set, only these display names mark episodes watched, so a test
+    # device can't mark or delete an episode.
+    watchers: frozenset[str] = frozenset()
     clock: Callable[[], datetime] = field(default=utc_now, compare=False)
     # None disables the background loop; tests drive housekeeping directly.
     housekeeping_interval: float | None = 3600.0
@@ -59,6 +62,7 @@ class Settings:
             syncplay_room=env.get("KAZUMI_SYNCPLAY_ROOM", "").strip(),
             syncplay_tls=env.get("KAZUMI_SYNCPLAY_TLS", "").strip() == "1",
             download_mirrors=_mirrors(env.get("KAZUMI_DOWNLOAD_MIRRORS", "")),
+            watchers=frozenset(n.strip() for n in env.get("KAZUMI_WATCHERS", "").split(",") if n.strip()),
         )
 
     def validate(self) -> None:
