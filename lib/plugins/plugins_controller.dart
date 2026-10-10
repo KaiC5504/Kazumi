@@ -276,15 +276,6 @@ abstract class _PluginsController with Store {
     );
   }
 
-  Future<void> applyOrder(List<Plugin> ordered) {
-    return _mutateAndPersist(
-      () => pluginList
-        ..clear()
-        ..addAll(ordered),
-      errorMessage: 'Plugin: failed to persist rule order',
-    );
-  }
-
   Future<void> onReorder(int oldIndex, int newIndex) {
     final previous = List<Plugin>.from(pluginList);
     final plugin = pluginList.removeAt(oldIndex);

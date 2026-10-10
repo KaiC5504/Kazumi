@@ -168,11 +168,20 @@ class _PluginViewPageState extends State<PluginViewPage> {
     }
   }
 
+  // One rule at a time through onReorder: plugins_controller.dart stays as
+  // upstream has it.
+  Future<void> _applyOrder(List<Plugin> target) async {
+    for (var i = 0; i < target.length; i++) {
+      final from = _controller.pluginList
+          .indexWhere((p) => p.name == target[i].name);
+      if (from > i) await _controller.onReorder(from, i);
+    }
+  }
+
   Future<void> _sortByQuality() async {
     final previous = _controller.pluginList.toList();
-    final sorted = sortByQuality(previous, (p) => p.name);
     try {
-      await _controller.applyOrder(sorted);
+      await _applyOrder(sortByQuality(previous, (p) => p.name));
     } catch (_) {
       KazumiDialog.showToast(message: '保存规则顺序失败');
       return;
@@ -180,8 +189,7 @@ class _PluginViewPageState extends State<PluginViewPage> {
     GlassNotice.show('已按画质排序',
         icon: Icons.high_quality_rounded,
         actionLabel: '撤销',
-        onAction: () => unawaited(_controller
-            .applyOrder(previous)
+        onAction: () => unawaited(_applyOrder(previous)
             .catchError((_) => KazumiDialog.showToast(message: '撤销失败'))));
   }
 
