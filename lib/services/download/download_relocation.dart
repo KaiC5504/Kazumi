@@ -48,3 +48,40 @@ Future<void> moveDownloads(Directory from, String to) async {
   }
   if (await from.list().isEmpty) await from.delete();
 }
+
+/// Deletes episode folders under [base] that no record owns: ones a delete
+/// missed while their saved path was stale, and imports that never finished
+/// (`<episode>.importing`). Only names the download manager writes are
+/// touched, since on iOS the folder is also open to the Files app.
+Future<void> sweepOrphanedDownloads(
+  String base,
+  Iterable<DownloadRecord> records,
+) async {
+  final owned = <String, Set<String>>{};
+  for (final record in records) {
+    owned
+        .putIfAbsent('${record.bangumiId}_${record.pluginName}', () => {})
+        .addAll(record.episodes.keys.map((n) => '$n'));
+  }
+  // No records more likely means they failed to load than that nothing is
+  // downloaded, and baked episodes are too big to lose on a guess.
+  if (owned.isEmpty) return;
+  final root = Directory(base);
+  if (!await root.exists()) return;
+  final showFolder = RegExp(r'^\d+_.+$');
+  final episodeFolder = RegExp(r'^\d+(\.importing)?$');
+  await for (final show in root.list(followLinks: false)) {
+    final name = p.basename(show.path);
+    if (show is! Directory || !showFolder.hasMatch(name)) continue;
+    final episodes = owned[name] ?? const <String>{};
+    await for (final entry in show.list(followLinks: false)) {
+      final episode = p.basename(entry.path);
+      if (entry is Directory &&
+          episodeFolder.hasMatch(episode) &&
+          !episodes.contains(episode)) {
+        await entry.delete(recursive: true);
+      }
+    }
+    if (await show.list().isEmpty) await show.delete();
+  }
+}
