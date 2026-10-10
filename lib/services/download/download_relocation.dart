@@ -56,16 +56,44 @@ Future<void> moveDownloads(Directory from, String to) async {
 Future<void> clearInterruptedImports(String base) async {
   final root = Directory(base);
   if (!await root.exists()) return;
-  final showFolder = RegExp(r'^\d+_.+$');
-  final staging = RegExp(r'^\d+\.importing$');
   await for (final show in root.list(followLinks: false)) {
-    if (show is! Directory || !showFolder.hasMatch(p.basename(show.path))) {
+    if (show is! Directory || !_showFolder.hasMatch(p.basename(show.path))) {
       continue;
     }
     await for (final entry in show.list(followLinks: false)) {
-      if (entry is Directory && staging.hasMatch(p.basename(entry.path))) {
+      if (entry is Directory &&
+          _stagingFolder.hasMatch(p.basename(entry.path))) {
         await entry.delete(recursive: true);
       }
     }
   }
+}
+
+final _showFolder = RegExp(r'^\d+_.+$');
+final _number = RegExp(r'^\d+$');
+final _stagingFolder = RegExp(r'^\d+\.importing$');
+
+/// Whether [dir] is an episode folder the app creates,
+/// `<bangumiId>_<plugin>/<episode>`, or its `<episode>.importing` staging.
+/// Recursive deletes check this first, so a bad stored path or source name
+/// can never empty anything else.
+bool isEpisodeFolder(String dir) {
+  final parts = _plainParts(dir);
+  return parts != null &&
+      parts.length >= 3 &&
+      (_number.hasMatch(parts.last) || _stagingFolder.hasMatch(parts.last)) &&
+      _showFolder.hasMatch(parts[parts.length - 2]);
+}
+
+/// Whether [dir] is a show folder the app creates, `<bangumiId>_<plugin>`.
+bool isShowFolder(String dir) {
+  final parts = _plainParts(dir);
+  return parts != null && parts.length >= 2 && _showFolder.hasMatch(parts.last);
+}
+
+/// The segments of an absolute path without `.` or `..`, else null.
+List<String>? _plainParts(String dir) {
+  if (!p.isAbsolute(dir)) return null;
+  final parts = p.split(dir);
+  return parts.any((s) => s == '.' || s == '..') ? null : parts;
 }

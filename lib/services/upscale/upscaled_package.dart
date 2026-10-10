@@ -86,13 +86,26 @@ class UpscaledEpisodeManifest {
     if (version < 1 || version > currentVersion) {
       throw FormatException('不支持的超分剧集版本: $version');
     }
+    final bangumiId = json['bangumiId'] as int;
+    final pluginName = json['pluginName'] as String;
+    final episodeNumber = json['episodeNumber'] as int;
+    // These name the folder the episode is saved in, and later deleted
+    // from, so a package or LAN peer must not be able to point outside it.
+    if (bangumiId < 0 ||
+        episodeNumber < 0 ||
+        pluginName.trim().isEmpty ||
+        pluginName == '.' ||
+        pluginName == '..' ||
+        pluginName.contains(RegExp(r'[/\\:\x00]'))) {
+      throw FormatException('超分剧集信息无效: $pluginName');
+    }
     return UpscaledEpisodeManifest(
       version: version,
-      bangumiId: json['bangumiId'] as int,
-      pluginName: json['pluginName'] as String,
+      bangumiId: bangumiId,
+      pluginName: pluginName,
       bangumiName: json['bangumiName'] as String? ?? '',
       bangumiCover: json['bangumiCover'] as String? ?? '',
-      episodeNumber: json['episodeNumber'] as int,
+      episodeNumber: episodeNumber,
       episodeName: json['episodeName'] as String? ?? '',
       road: json['road'] as int? ?? 0,
       episodePageUrl: json['episodePageUrl'] as String? ?? '',

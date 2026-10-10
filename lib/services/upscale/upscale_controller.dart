@@ -9,6 +9,7 @@ import 'package:kazumi/pages/download/cloud_bake_report.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/download/download_relocation.dart';
 import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -1416,6 +1417,9 @@ class UpscaleController {
   }
 
   static Future<void> _deleteIfExists(String dirPath) async {
+    if (!isEpisodeFolder(dirPath)) {
+      throw StateError('不是下载文件夹，拒绝删除: $dirPath');
+    }
     final dir = Directory(dirPath);
     if (await dir.exists()) await dir.delete(recursive: true);
   }

@@ -188,39 +188,91 @@ void main() {
       await clearInterruptedImports(p.join(tmp.path, 'none'));
     });
 
-    DownloadRecord show(String folder) => DownloadRecord(
+    DownloadRecord show(String plugin, String dir) => DownloadRecord(
       10639,
       '',
       '',
-      'aafun',
-      {3: _episode(dir: p.join(tmp.path, folder, '3'))},
+      plugin,
+      {3: _episode(dir: dir)},
       DateTime(2026),
     );
 
-    test('deleting a show takes what its folder still holds', () async {
+    test('deleting a show keeps files the app did not put there', () async {
       write(p.join('10639_aafun', '3', 'video.mp4'));
-      write(p.join('10639_aafun', '4', 'seg_0.ts'));
-      write(p.join('10639_aafun', '5.importing', 'video.mp4'));
+      write(p.join('10639_aafun', 'subs.ass'));
       write(p.join('2_b', '1', 'video.mp4'));
       await DownloadManager().deleteRecordFiles(
         10639,
         'aafun',
-        record: show('10639_aafun'),
+        record: show('aafun', p.join(tmp.path, '10639_aafun', '3')),
       );
-      expect(exists('10639_aafun'), isFalse);
+      expect(exists(p.join('10639_aafun', '3')), isFalse);
+      expect(exists(p.join('10639_aafun', 'subs.ass')), isTrue);
       expect(exists(p.join('2_b', '1', 'video.mp4')), isTrue);
     });
 
-    test('a saved folder outside the show layout is never emptied', () async {
-      write(p.join('Movies', '3', 'video.mp4'));
-      write(p.join('Movies', 'holiday.mp4'));
-      await DownloadManager().deleteRecordFiles(
-        10639,
-        'aafun',
-        record: show('Movies'),
-      );
-      expect(exists(p.join('Movies', '3')), isFalse);
-      expect(exists(p.join('Movies', 'holiday.mp4')), isTrue);
+    test(
+      'a saved folder that is not an episode folder is never deleted',
+      () async {
+        write(p.join('Movies', '3', 'video.mp4'));
+        write(p.join('UserData', 'thesis.docx'));
+        write(p.join('10639_aafun', 'notes.txt'));
+        final manager = DownloadManager();
+        for (final dir in [
+          p.join(tmp.path, 'Movies', '3'),
+          p.join(tmp.path, 'UserData'),
+          p.join(tmp.path, '10639_aafun'),
+          p.join(tmp.path, '10639_aafun', '3', '..', '..', 'UserData'),
+          p.join('10639_aafun', '3'),
+        ]) {
+          await manager.deleteEpisodeFiles(
+            10639,
+            'aafun',
+            3,
+            episode: _episode(dir: dir),
+          );
+          await manager.deleteRecordFiles(
+            10639,
+            'aafun',
+            record: show('aafun', dir),
+          );
+        }
+        expect(exists(p.join('Movies', '3', 'video.mp4')), isTrue);
+        expect(exists(p.join('UserData', 'thesis.docx')), isTrue);
+        expect(exists(p.join('10639_aafun', 'notes.txt')), isTrue);
+      },
+    );
+
+    test(
+      'a source name that climbs out of the folder deletes nothing',
+      () async {
+        write(p.join('keep', 'a.txt'));
+        await DownloadManager().deleteRecordFiles(10639, r'x\..\..');
+        await DownloadManager().deleteRecordFiles(10639, 'x/../..');
+        expect(hive.existsSync(), isTrue);
+        expect(exists(p.join('keep', 'a.txt')), isTrue);
+      },
+    );
+
+    test('recognises only the folders the app creates', () {
+      final base = p.join(tmp.path, 'Downloads');
+      expect(isEpisodeFolder(p.join(base, '1_a', '3')), isTrue);
+      expect(isEpisodeFolder(p.join(base, '1_a', '3.importing')), isTrue);
+      expect(isShowFolder(p.join(base, '1_a')), isTrue);
+      for (final dir in [
+        p.join(base, '1_a'),
+        p.join(base, 'Videos', '3'),
+        p.join(base, '1_a', 'b', '3'),
+        p.join(base, '1_a', '3', '..', '4'),
+        p.join(base, '1_a', '.', '3'),
+        p.join('1_a', '3'),
+        p.join(base, '1_a', 'extras'),
+      ]) {
+        expect(isEpisodeFolder(dir), isFalse, reason: dir);
+      }
+      expect(isShowFolder(p.join(base, '1_a', '..')), isFalse);
+      expect(isShowFolder(p.join(base, '12')), isFalse);
+      expect(isShowFolder('1_a'), isFalse);
     });
   });
 }

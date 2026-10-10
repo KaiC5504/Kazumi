@@ -13,6 +13,7 @@ import 'package:kazumi/utils/format.dart' as fmt;
 import 'package:kazumi/utils/file_system.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/download/download_directory_service.dart';
+import 'package:kazumi/services/download/download_relocation.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:path/path.dart' as path;
 
@@ -933,7 +934,7 @@ class DownloadManager implements IDownloadManager {
       {DownloadEpisode? episode}) async {
     final dir = Directory(await _episodeDirForDeletion(
         episode, bangumiId, pluginName, episodeNumber));
-    if (await dir.exists()) {
+    if (isEpisodeFolder(dir.path) && await dir.exists()) {
       await dir.delete(recursive: true);
     }
   }
@@ -944,7 +945,7 @@ class DownloadManager implements IDownloadManager {
     if (record == null) {
       final dir = Directory(path.join(
           await getDefaultDownloadDirectory(), '${bangumiId}_$pluginName'));
-      if (await dir.exists()) {
+      if (isShowFolder(dir.path) && await dir.exists()) {
         await dir.delete(recursive: true);
       }
       return;
@@ -957,7 +958,7 @@ class DownloadManager implements IDownloadManager {
       final episodeDir = await _episodeDirForDeletion(
           entry.value, bangumiId, pluginName, entry.key);
       final dir = Directory(episodeDir);
-      if (await dir.exists()) {
+      if (isEpisodeFolder(episodeDir) && await dir.exists()) {
         await dir.delete(recursive: true);
       }
       parentDirs.add(path.dirname(episodeDir));
@@ -965,9 +966,7 @@ class DownloadManager implements IDownloadManager {
 
     for (final parentDir in parentDirs) {
       try {
-        // Only the show's own folder goes with everything left in it.
-        await Directory(parentDir).delete(
-            recursive: path.basename(parentDir) == '${bangumiId}_$pluginName');
+        await Directory(parentDir).delete();
       } on FileSystemException {
         // Parent is missing or still holds other files; leave it.
       }

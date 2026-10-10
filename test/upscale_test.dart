@@ -43,6 +43,29 @@ void main() {
       );
     });
 
+    test('rejects names that would save outside its folder', () {
+      for (final bad in <String, Object>{
+        'pluginName': r'x\..\..\Documents',
+        'pluginName ': 'x/../../Documents',
+        'pluginName  ': '..',
+        'pluginName   ': '',
+        'pluginName    ': 'C:',
+        'bangumiId': -1,
+        'episodeNumber': -3,
+      }.entries) {
+        final json = _manifest().toJson()..[bad.key.trim()] = bad.value;
+        expect(
+          () => UpscaledEpisodeManifest.fromJson(json),
+          throwsA(isA<FormatException>()),
+          reason: '${bad.key.trim()} = ${bad.value}',
+        );
+      }
+      for (final good in ['欧乐影院', 'AGE', '7sefun', 'girigiri love']) {
+        final json = _manifest().toJson()..['pluginName'] = good;
+        expect(UpscaledEpisodeManifest.fromJson(json).pluginName, good);
+      }
+    });
+
     test('builds a pre-upscaled download episode', () {
       final (record, episode) = _manifest().toDownloadEntities();
       expect(record.key, 'demo_42');
