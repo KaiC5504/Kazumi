@@ -18,14 +18,42 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
+/// Simulated time, [speed] times the wall clock. While the test process is
+/// frozen (other test files compiling, GC) for more than [_maxStepMicros] the
+/// clock stands still: a 0.9 s freeze would otherwise skip 18 s at 20x with
+/// nobody getting to react, and timing checks fail on a busy PC.
 class VirtualClock {
-  VirtualClock(this.speed);
+  VirtualClock(this.speed) {
+    // At 1x the clock runs alongside a real server and must keep real time.
+    if (speed > 1) {
+      _lastBeat = _watch.elapsedMicroseconds;
+      final beat = Timer.periodic(const Duration(milliseconds: 5), (_) {
+        final now = _watch.elapsedMicroseconds;
+        _frozenMicros += max(0, now - _lastBeat! - _maxStepMicros);
+        _lastBeat = now;
+      });
+      addTearDown(beat.cancel);
+    }
+  }
+
+  static const _maxStepMicros = 50000;
 
   final double speed;
   final Stopwatch _watch = Stopwatch()..start();
   final DateTime _origin = DateTime(2026, 10, 6, 23);
+  int? _lastBeat;
+  int _frozenMicros = 0;
 
-  double get seconds => _watch.elapsedMicroseconds / 1e6 * speed;
+  double get seconds {
+    final now = _watch.elapsedMicroseconds;
+    final lastBeat = _lastBeat;
+    // A freeze still in progress counts up to the cap until the next beat
+    // books it, so the clock never runs backwards.
+    final pending = lastBeat == null
+        ? 0
+        : max(0, now - lastBeat - _maxStepMicros);
+    return (now - _frozenMicros - pending) / 1e6 * speed;
+  }
 
   DateTime now() =>
       _origin.add(Duration(microseconds: (seconds * 1e6).round()));

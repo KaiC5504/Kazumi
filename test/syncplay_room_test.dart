@@ -178,14 +178,20 @@ void main() {
       await me.join(server, at: 600);
       await her.join(server, at: 0);
       gaps = GapRecorder(clock, me, her);
+      await clock.until(
+        () => her.seeks.isNotEmpty,
+        timeout: 10,
+        what: 'her to jump to kai',
+      );
+      // Lands where kai is right now, not measured against a later snapshot.
+      expect(
+        her.seeks.first.to,
+        closeTo(me.position, 1.5),
+        reason: her.log.join('\n'),
+      );
       await clock.wait(30);
       expect(me.syncPauses, 0, reason: me.log.join('\n'));
       expect(me.seeks, isEmpty);
-      expect(
-        her.seeks.first.to,
-        closeTo(me.position - 25, 6),
-        reason: her.log.join('\n'),
-      );
       await clock.wait(60);
       expect(gaps.lastGap, lessThan(3), reason: '$gaps');
       expect(me.syncSeeksWhilePlaying, isEmpty);

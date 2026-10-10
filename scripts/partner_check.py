@@ -79,6 +79,7 @@ DART_TESTS = [
     "test/syncplay_room_flag_test.dart",
     "test/syncplay_watchdog_test.dart",
     "test/watch_together_lab_test.dart",
+    "test/syncplay_sim_clock_test.dart",
     "test/player_room_speed_test.dart",
     "test/playback_end_guard_test.dart",
     "test/playback_end_wiring_test.dart",
