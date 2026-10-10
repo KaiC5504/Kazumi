@@ -41,7 +41,7 @@ class EpisodeSelectionPanel extends StatefulWidget {
 class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
   final _scrollController = ScrollController();
   late final _observerController =
-      ListObserverController(controller: _scrollController)
+      GridObserverController(controller: _scrollController)
         ..cacheJumpIndexOffset = false;
   late int _visibleRoad = widget.selectedRoad;
 
@@ -107,7 +107,8 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
 
     return LayoutBuilder(builder: (context, constraints) {
       final textScaler = MediaQuery.textScalerOf(context);
-      return ListViewObserver(
+      final largeText = textScaler.scale(14) > 21;
+      return GridViewObserver(
         controller: _observerController,
         child: Scrollbar(
           controller: _scrollController,
@@ -202,7 +203,14 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                     16,
                     16 + MediaQuery.paddingOf(context).bottom,
                   ),
-                  sliver: SliverList.builder(
+                  sliver: SliverGrid.builder(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: largeText ? 240 : 150,
+                      mainAxisExtent:
+                          textScaler.scale(24) + textScaler.scale(16) + 20,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                    ),
                     itemCount: count,
                     itemBuilder: (context, index) {
                       final episode = index + 1;
@@ -213,8 +221,6 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                       return _EpisodeRow(
                         key: ValueKey('$_visibleRoad:$episode'),
                         name: name,
-                        first: index == 0,
-                        last: index == count - 1,
                         selected: _visibleRoad == widget.selectedRoad &&
                             episode == widget.selectedEpisode,
                         isPlaying: widget.isPlaying,
@@ -512,8 +518,6 @@ class _EpisodeRow extends StatefulWidget {
   const _EpisodeRow({
     super.key,
     required this.name,
-    required this.first,
-    required this.last,
     required this.selected,
     required this.isPlaying,
     required this.isOffline,
@@ -523,8 +527,6 @@ class _EpisodeRow extends StatefulWidget {
   });
 
   final String name;
-  final bool first;
-  final bool last;
   final bool selected;
   final bool isPlaying;
   final bool isOffline;
@@ -608,16 +610,8 @@ class _EpisodeRowState extends State<_EpisodeRow>
         child: AnimatedBuilder(
           animation: _press,
           builder: (context, child) {
-            final restShape = widget.selected
-                ? BorderRadius.circular(20)
-                : BorderRadius.vertical(
-                    top: Radius.circular(widget.first ? 20 : 4),
-                    bottom: Radius.circular(widget.last ? 20 : 4),
-                  );
             final press = _press.value.clamp(0.0, 1.0);
-            return Padding(
-              padding: EdgeInsets.only(bottom: widget.last ? 0 : 2),
-              child: Material(
+            return Material(
                 animationDuration: _reduceMotion
                     ? Duration.zero
                     : const Duration(milliseconds: 200),
@@ -625,10 +619,9 @@ class _EpisodeRowState extends State<_EpisodeRow>
                     ? colors.primary
                     : colors.surfaceContainerLow,
                 borderRadius: BorderRadius.lerp(
-                    restShape, BorderRadius.circular(12), press),
+                    BorderRadius.circular(20), BorderRadius.circular(12), press),
                 clipBehavior: Clip.antiAlias,
                 child: child,
-              ),
             );
           },
           child: InkWell(
@@ -646,18 +639,15 @@ class _EpisodeRowState extends State<_EpisodeRow>
               return null;
             }),
             child: ExcludeSemantics(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 56),
-                child: Padding(
+              child: Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
                         widget.name,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: foreground,
@@ -670,6 +660,8 @@ class _EpisodeRowState extends State<_EpisodeRow>
                         const SizedBox(height: 4),
                         Text(
                           supportingText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: widget.selected
                                 ? foreground
@@ -686,7 +678,6 @@ class _EpisodeRowState extends State<_EpisodeRow>
             ),
           ),
         ),
-      ),
     );
   }
 }

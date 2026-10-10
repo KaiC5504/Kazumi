@@ -20,6 +20,8 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/pages/video/episode_selection_panel.dart';
+import 'package:kazumi/modules/roads/road_module.dart';
 import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
@@ -669,6 +671,67 @@ void main() {
         expect(opened, MyDestination.together);
       });
     }
+  });
+
+  group('episode grid on the video page', () {
+    Future<List<(int, int)>> pumpPanel(
+      WidgetTester tester, {
+      required int episodes,
+      int selected = 1,
+    }) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final picked = <(int, int)>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EpisodeSelectionPanel(
+              title: 'Fate/Zero',
+              roads: [
+                Road(
+                  name: '播放列表1',
+                  data: [for (var i = 1; i <= episodes; i++) 'ep$i'],
+                  identifier: const [],
+                ),
+              ],
+              selectedRoad: 0,
+              selectedEpisode: selected,
+              onEpisodeSelected: (episode, road) => picked.add((episode, road)),
+              downloads: const {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return picked;
+    }
+
+    testWidgets('a 13 episode cour fits on her iPhone, three to a row', (
+      tester,
+    ) async {
+      await pumpPanel(tester, episodes: 13);
+      for (var i = 1; i <= 13; i++) {
+        expect(find.text('第$i集').hitTestable(), findsOneWidget);
+      }
+      final second = tester.getTopLeft(find.text('第2集'));
+      expect(tester.getTopLeft(find.text('第3集')).dy, second.dy);
+      expect(tester.getTopLeft(find.text('第5集')).dy, greaterThan(second.dy));
+    });
+
+    testWidgets('tapping an episode plays it on that road', (tester) async {
+      final picked = await pumpPanel(tester, episodes: 13);
+      await tester.tap(find.text('第5集'));
+      expect(picked, [(5, 0)]);
+    });
+
+    testWidgets('定位当前集 brings a far episode into view', (tester) async {
+      await pumpPanel(tester, episodes: 120, selected: 100);
+      expect(find.text('第100集').hitTestable(), findsNothing);
+      await tester.tap(find.byTooltip('定位当前集'));
+      await tester.pumpAndSettle();
+      expect(find.text('第100集').hitTestable(), findsOneWidget);
+    });
   });
 }
 
