@@ -116,21 +116,27 @@ class HistoryRecordTile extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(title,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleSmall
                                   ?.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
+                          Text(episode,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: colors.onSurface)),
+                          const SizedBox(height: 2),
+                          // Position leads so a long source name never hides it.
                           Text.rich(
                             TextSpan(children: [
-                              TextSpan(text: episode),
                               if (position.isNotEmpty)
                                 TextSpan(
-                                    text: '  $position',
+                                    text: '$position  ·  ',
                                     style: TextStyle(
                                         color: colors.primary,
                                         fontWeight: FontWeight.w600)),
-                              TextSpan(text: '  ·  $meta'),
+                              TextSpan(text: meta),
                             ]),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
