@@ -20,7 +20,7 @@ void main() {
       'baimao',
       'brand-new-rule',
       '淘片动漫',
-      'LMM',
+      'EE',
       'AGE',
       'xfdmnext',
     ], (name) => name);
@@ -30,7 +30,7 @@ void main() {
       'AGE',
       '淘片动漫',
       'brand-new-rule',
-      'LMM',
+      'EE',
       'baimao',
     ]);
   });
@@ -45,7 +45,7 @@ void main() {
   testWidgets('blocked and unknown sources show a single icon', (tester) async {
     await tester.pumpWidget(_host('baimao'));
     expect(find.byIcon(Icons.block_rounded), findsOneWidget);
-    await tester.pumpWidget(_host('LMM'));
+    await tester.pumpWidget(_host('EE'));
     expect(find.byIcon(Icons.help_outline_rounded), findsOneWidget);
   });
 

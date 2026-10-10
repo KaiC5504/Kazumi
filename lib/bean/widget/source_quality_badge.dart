@@ -40,7 +40,7 @@ class SourceQuality {
   final String detail;
 }
 
-// Measured 2026-10-09 on 葬送的芙莉莲 ep 1 from the owner's PC (Australia):
+// Measured 2026-10-09/10 on 葬送的芙莉莲 ep 1 from the owner's PC (Australia):
 // 30 s clip at 7:00, ffprobe for codec/bitrate, FFT for the audio lowpass.
 // "blocked" CDNs (ffzy, yzzy, lz, dytt) answer 403 outside mainland China.
 const _measured = <String, SourceQuality>{
@@ -99,6 +99,30 @@ const _measured = <String, SourceQuality>{
     audio: 2,
     detail: '与 DM84 同源（推断）',
   ),
+  'lmm': SourceQuality(
+    height: 1080,
+    video: 3,
+    audio: 2,
+    detail: '1080p H.264 3.5 Mbps · 音频 149 kbps，高频截止 15.6 kHz',
+  ),
+  'girigirilove': SourceQuality(
+    height: 1080,
+    video: 2,
+    audio: 3,
+    detail: '1080p H.264 1.2 Mbps · 音频 211 kbps',
+  ),
+  'mutefun': SourceQuality(
+    height: 1080,
+    video: 2,
+    audio: 2,
+    detail: '1080p H.264 2.2 Mbps · 音频 132 kbps，高频截止 18 kHz',
+  ),
+  'cyfz': SourceQuality(
+    height: 1080,
+    video: 2,
+    audio: 2,
+    detail: '1080p H.264 1.2 Mbps · 音频 128 kbps，高频截止 18 kHz',
+  ),
   'sorani': SourceQuality(
     height: 1080,
     video: 2,
@@ -137,12 +161,8 @@ const _measured = <String, SourceQuality>{
   'akianime': SourceQuality.blocked('线路失效或加密'),
   '蘑菇网影视': SourceQuality.blocked('仅爱奇艺解析链接'),
   'qkan9': SourceQuality.blocked('Cloudflare 拦截'),
-  'girigirilove': SourceQuality.unknown('需要验证码，未测'),
-  'mgnacg': SourceQuality.unknown('需要验证码，未测'),
-  'cyfz': SourceQuality.unknown('需要验证码，未测'),
-  'lmm': SourceQuality.unknown('需要验证码，未测'),
-  'dalvdm': SourceQuality.unknown('需要验证码，未测'),
-  'mutefun': SourceQuality.unknown('需要验证码，未测'),
+  'mgnacg': SourceQuality.blocked('本地线路已下线，其余线路加载失败'),
+  'dalvdm': SourceQuality.blocked('Cloudflare 拦截'),
   'ee': SourceQuality.unknown('未能获取视频，未测'),
   'ezdmw': SourceQuality.unknown('未能获取视频，未测'),
 };
