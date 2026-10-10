@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/dialog.dart';
@@ -786,6 +787,67 @@ void main() {
       await tester.tap(find.byTooltip('定位当前集'));
       await tester.pumpAndSettle();
       expect(find.text('第100集').hitTestable(), findsOneWidget);
+    });
+  });
+
+  group('titled episodes on the video page', () {
+    const titles = [
+      'FX战士久留美是怎样炼成的',
+      '有杠杆的地方就有她的身影',
+      '久留美与不可思议的放学后',
+    ];
+
+    Future<List<(int, int)>> pumpTitled(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final picked = <(int, int)>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EpisodeSelectionPanel(
+              title: 'FX战士久留美',
+              roads: [
+                Road(
+                  name: '播放列表1',
+                  data: [for (var i = 1; i <= titles.length; i++) 'ep$i'],
+                  identifier: titles,
+                ),
+              ],
+              selectedRoad: 0,
+              selectedEpisode: 1,
+              onEpisodeSelected: (episode, road) => picked.add((episode, road)),
+              downloads: const {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return picked;
+    }
+
+    testWidgets('long names get a full row each and show in full', (
+      tester,
+    ) async {
+      await pumpTitled(tester);
+      for (final title in titles) {
+        final text = find.text(title);
+        expect(text.hitTestable(), findsOneWidget);
+        expect(
+          tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+          isFalse,
+        );
+      }
+      final first = tester.getTopLeft(find.text(titles[0]));
+      final second = tester.getTopLeft(find.text(titles[1]));
+      expect(second.dx, first.dx);
+      expect(second.dy, greaterThan(first.dy));
+    });
+
+    testWidgets('tapping a titled episode plays it', (tester) async {
+      final picked = await pumpTitled(tester);
+      await tester.tap(find.text(titles[2]));
+      expect(picked, [(3, 0)]);
     });
   });
 }

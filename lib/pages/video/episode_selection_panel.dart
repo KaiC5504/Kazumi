@@ -44,6 +44,56 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
       GridObserverController(controller: _scrollController)
         ..cacheJumpIndexOffset = false;
   late int _visibleRoad = widget.selectedRoad;
+  Object? _shapeKey;
+  ({int columns, int lines}) _shape = (columns: 1, lines: 1);
+
+  static String _episodeName(Road road, int index) =>
+      index < road.identifier.length && road.identifier[index].trim().isNotEmpty
+          ? road.identifier[index]
+          : '第${index + 1}集';
+
+  /// A grid while every name fits on one line, otherwise one full row per
+  /// episode so titled episodes read like a list, not a mix of cell sizes.
+  ({int columns, int lines}) _gridShape(Road road, double width,
+      TextStyle? style, TextScaler scaler, double minCell) {
+    // Cached: the panel rebuilds on every download progress tick.
+    final key = (road, width, scaler.scale(16), style, minCell);
+    if (key == _shapeKey) return _shape;
+    final painter =
+        TextPainter(textDirection: TextDirection.ltr, textScaler: scaler);
+    final names = <(String, double)>[];
+    for (final name in {
+      for (var i = 0; i < road.data.length; i++) _episodeName(road, i)
+    }) {
+      painter.text = TextSpan(text: name, style: style);
+      painter.layout();
+      names.add((name, painter.width));
+    }
+    names.sort((a, b) => b.$2.compareTo(a.$2));
+    bool fits(int columns, int lines) {
+      final cell =
+          (width - 8 * (columns - 1)) / columns - (columns == 1 ? 32 : 24);
+      painter.maxLines = lines;
+      for (final (name, single) in names) {
+        if (single <= cell) return true;
+        if (lines == 1) return false;
+        painter.text = TextSpan(text: name, style: style);
+        painter.layout(maxWidth: cell);
+        if (painter.didExceedMaxLines) return false;
+      }
+      return true;
+    }
+
+    final columns = math.max(1, (width / (minCell + 8)).ceil());
+    final shape = fits(columns, 1)
+        ? (columns: columns, lines: 1)
+        : fits(1, 1)
+            ? (columns: 1, lines: 1)
+            : (columns: 1, lines: fits(1, 2) ? 2 : 3);
+    painter.dispose();
+    _shapeKey = key;
+    return _shape = shape;
+  }
 
   bool get _canLocate =>
       widget.selectedRoad >= 0 &&
@@ -108,6 +158,12 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
     return LayoutBuilder(builder: (context, constraints) {
       final textScaler = MediaQuery.textScalerOf(context);
       final largeText = textScaler.scale(14) > 21;
+      final nameStyle =
+          theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700);
+      final shape = road == null
+          ? (columns: 1, lines: 1)
+          : _gridShape(road, constraints.maxWidth - 32, nameStyle, textScaler,
+              largeText ? 240 : 150);
       return GridViewObserver(
         controller: _observerController,
         child: Scrollbar(
@@ -204,23 +260,22 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                     16 + MediaQuery.paddingOf(context).bottom,
                   ),
                   sliver: SliverGrid.builder(
-                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: largeText ? 240 : 150,
-                      mainAxisExtent:
-                          textScaler.scale(24) + textScaler.scale(16) + 20,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: shape.columns,
+                      mainAxisExtent: shape.lines * textScaler.scale(24) +
+                          textScaler.scale(16) +
+                          20,
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),
                     itemCount: count,
                     itemBuilder: (context, index) {
                       final episode = index + 1;
-                      final name = index < road!.identifier.length &&
-                              road.identifier[index].trim().isNotEmpty
-                          ? road.identifier[index]
-                          : '第$episode集';
                       return _EpisodeRow(
                         key: ValueKey('$_visibleRoad:$episode'),
-                        name: name,
+                        name: _episodeName(road!, index),
+                        nameLines: shape.lines,
+                        fullRow: shape.columns == 1,
                         selected: _visibleRoad == widget.selectedRoad &&
                             episode == widget.selectedEpisode,
                         isPlaying: widget.isPlaying,
@@ -518,6 +573,8 @@ class _EpisodeRow extends StatefulWidget {
   const _EpisodeRow({
     super.key,
     required this.name,
+    required this.nameLines,
+    required this.fullRow,
     required this.selected,
     required this.isPlaying,
     required this.isOffline,
@@ -527,6 +584,8 @@ class _EpisodeRow extends StatefulWidget {
   });
 
   final String name;
+  final int nameLines;
+  final bool fullRow;
   final bool selected;
   final bool isPlaying;
   final bool isOffline;
@@ -640,15 +699,20 @@ class _EpisodeRowState extends State<_EpisodeRow>
             }),
             child: ExcludeSemantics(
               child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: widget.fullRow ? 16 : 12, vertical: 8),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: widget.fullRow
+                        ? CrossAxisAlignment.start
+                        : CrossAxisAlignment.center,
                     children: [
                       Text(
                         widget.name,
-                        maxLines: 1,
+                        maxLines: widget.nameLines,
                         overflow: TextOverflow.ellipsis,
+                        textAlign:
+                            widget.fullRow ? TextAlign.start : TextAlign.center,
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: foreground,
                           fontWeight: widget.selected
