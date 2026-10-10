@@ -5,6 +5,17 @@
 
 问题请在 [本仓库的 Issues](https://github.com/KaiC5504/Kazumi/issues) 反馈，不要提到上游。
 
+## 截图
+
+<table>
+  <tr>
+    <td><img alt="推荐" src="screenshots/home.webp" width="200"></td>
+    <td><img alt="番剧详情" src="screenshots/details.webp" width="200"></td>
+    <td><img alt="播放来源与画质标记" src="screenshots/sources.webp" width="200"></td>
+    <td><img alt="选集与跳过片头" src="screenshots/episodes.webp" width="200"></td>
+  </tr>
+</table>
+
 ## 和官方版的区别
 
 | 改动 | 平台 | 相关上游 issue |
