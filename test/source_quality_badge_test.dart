@@ -15,6 +15,26 @@ void main() {
     expect(sourceQualityFor('not-a-rule'), isNull);
   });
 
+  test('sort puts best measured first, untested next, blocked last', () {
+    final sorted = sortByQuality([
+      'baimao',
+      'brand-new-rule',
+      '淘片动漫',
+      'LMM',
+      'AGE',
+      'xfdmnext',
+    ], (name) => name);
+
+    expect(sorted, [
+      'xfdmnext',
+      'AGE',
+      '淘片动漫',
+      'brand-new-rule',
+      'LMM',
+      'baimao',
+    ]);
+  });
+
   testWidgets('measured source shows resolution and road', (tester) async {
     await tester.pumpWidget(_host('dmghg1'));
     expect(find.text('1080p'), findsOneWidget);

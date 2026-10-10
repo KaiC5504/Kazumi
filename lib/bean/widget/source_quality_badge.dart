@@ -150,6 +150,29 @@ const _measured = <String, SourceQuality>{
 SourceQuality? sourceQualityFor(String pluginName) =>
     _measured[pluginNameKey(pluginName)];
 
+/// Best measured sources first (resolution, then video, then audio), then the
+/// untested ones, blocked last. Ties keep their current order.
+List<T> sortByQuality<T>(List<T> items, String Function(T) nameOf) {
+  int tier(SourceQuality? q) => switch (q?.availability) {
+    SourceAvailability.measured => 0,
+    SourceAvailability.blocked => 2,
+    _ => 1,
+  };
+  final indexed = items.indexed.toList();
+  indexed.sort((a, b) {
+    final qa = sourceQualityFor(nameOf(a.$2));
+    final qb = sourceQualityFor(nameOf(b.$2));
+    var c = tier(qa).compareTo(tier(qb));
+    if (c == 0 && qa != null && qb != null) {
+      c = qb.height.compareTo(qa.height);
+      if (c == 0) c = qb.video.compareTo(qa.video);
+      if (c == 0) c = qb.audio.compareTo(qa.audio);
+    }
+    return c != 0 ? c : a.$1.compareTo(b.$1);
+  });
+  return [for (final (_, item) in indexed) item];
+}
+
 /// Language-free quality glance: resolution, video bars, audio bars, road.
 class SourceQualityBadge extends StatelessWidget {
   const SourceQualityBadge({super.key, required this.pluginName});

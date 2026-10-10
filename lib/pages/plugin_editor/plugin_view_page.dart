@@ -9,6 +9,7 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:kazumi/bean/card/rule_card.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
+import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
@@ -167,6 +168,23 @@ class _PluginViewPageState extends State<PluginViewPage> {
     }
   }
 
+  Future<void> _sortByQuality() async {
+    final previous = _controller.pluginList.toList();
+    final sorted = sortByQuality(previous, (p) => p.name);
+    try {
+      await _controller.applyOrder(sorted);
+    } catch (_) {
+      KazumiDialog.showToast(message: '保存规则顺序失败');
+      return;
+    }
+    GlassNotice.show('已按画质排序',
+        icon: Icons.high_quality_rounded,
+        actionLabel: '撤销',
+        onAction: () => unawaited(_controller
+            .applyOrder(previous)
+            .catchError((_) => KazumiDialog.showToast(message: '撤销失败'))));
+  }
+
   Future<void> _updateOne(Plugin plugin) async {
     if (_updating || !_updatingNames.add(plugin.name)) return;
     setState(() {});
@@ -212,12 +230,18 @@ class _PluginViewPageState extends State<PluginViewPage> {
                     : () => _delete(Set.of(_selected)),
                 icon: const Icon(Icons.delete_outline_rounded),
               )
-            else
+            else ...[
+              IconButton(
+                tooltip: '按画质排序',
+                onPressed: _sortByQuality,
+                icon: const Icon(Icons.high_quality_rounded),
+              ),
               IconButton(
                 tooltip: '批量选择',
                 onPressed: () => setState(() => _selecting = true),
                 icon: const Icon(Icons.checklist_rounded),
               ),
+            ],
             const SizedBox(width: 8),
           ],
           body: SafeArea(
