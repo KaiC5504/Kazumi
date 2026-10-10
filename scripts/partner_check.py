@@ -28,7 +28,8 @@ On a pass with a clean tree, the commit's tree is recorded for codemagic.py.
 
 A deliberate change to her path fails the frozen guard until it is signed off:
 make sure partner_flow_test.dart covers it, then move the baseline to it.
-    git tag -f partner-baseline <commit> && git push -f origin partner-baseline
+    git tag -f partner-baseline <commit>
+The tag stays local: the repo is public, so never push it.
 Work that must not touch her path (the public build) never moves it.
 
 Exit 0: all passed.
