@@ -13,11 +13,12 @@ import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/utils/crypto.dart';
 
 /// Public builds ship without upstream's mirror credentials, so the mirror
-/// rejects search; until the user picks a mode they use 直连.
+/// rejects search; until the user picks a mode they use ECH, because 直连 to
+/// api.bgm.tv doesn't load in mainland China.
 void applyPublicBangumiDefault() {
   if (!kPublicBuild) return;
   if (GStorage.getSetting(SettingsKeys.bangumiAcceleration).isNotEmpty) return;
-  unawaited(GStorage.putSetting(SettingsKeys.bangumiAcceleration, 'direct'));
+  unawaited(GStorage.putSetting(SettingsKeys.bangumiAcceleration, 'ech'));
 }
 
 class BangumiClient {

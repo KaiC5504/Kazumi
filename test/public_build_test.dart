@@ -216,12 +216,12 @@ void main() {
   group('Bangumi acceleration', () {
     setUp(() => GStorage.putSetting(SettingsKeys.bangumiAcceleration, ''));
 
-    test('an unset mode becomes 直连 only in the public build', () async {
+    test('an unset mode becomes ECH only in the public build', () async {
       applyPublicBangumiDefault();
       await Future<void>.delayed(Duration.zero);
       expect(
         BangumiAcceleration.current,
-        kPublicBuild ? BangumiAcceleration.direct : BangumiAcceleration.mirror,
+        kPublicBuild ? BangumiAcceleration.ech : BangumiAcceleration.mirror,
       );
     });
 
