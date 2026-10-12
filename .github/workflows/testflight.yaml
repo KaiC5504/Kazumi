@@ -1,0 +1,362 @@
+# Signed iOS build of this fork for TestFlight (internal testing only), since build 33.
+# It does what codemagic.yaml does, which stays as the fallback.
+#
+# Start it with `python scripts/testflight.py start`, never by hand: that checks main
+# passed scripts/partner_check.py and hands its exact commit to this workflow.
+#
+# The repo is public, so this log and every artifact are public too. Secrets live in
+# the `testflight` environment, which only main can use, and reach only the steps that
+# need them. Never upload the IPA, Xcode logs or ios/Flutter/Generated.xcconfig: they
+# carry the dandanplay secret.
+name: TestFlight
+run-name: TestFlight ${{ inputs.upload && 'upload' || 'dry run' }} ${{ inputs.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Head of main that passed scripts/partner_check.py"
+        required: true
+        type: string
+      upload:
+        description: "Upload to TestFlight (off: sign and check the IPA only)"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Enforced by the cache service, so no step, now or later, restores a cache another
+# workflow on main wrote; this job holds the signing key.
+cache-mode: none
+
+env:
+  # cli-tools otherwise caches a 19-minute App Store Connect token in $TMPDIR, where
+  # the build step's third-party code could read it.
+  APP_STORE_CONNECT_DISABLE_JWT_CACHE: "1"
+  BUNDLE_ID: com.kaichuan.kazumi
+  # App Store Connect's id for the app, as in lib/services/update/testflight_update.dart.
+  ASC_APP_ID: "6818711929"
+  # Codemagic shipped up to build 32. Installed apps compare build numbers only, so
+  # they must keep rising or the update prompt never shows.
+  BUILD_NUMBER_FLOOR: "32"
+  # What Codemagic's `xcode: latest` resolved to for build 32. The image keeps the
+  # Xcode_26.6.app path across patch releases, so the build number is checked too.
+  XCODE_VERSION: "26.6"
+  XCODE_BUILD: 17F113
+
+jobs:
+  build:
+    name: Signed build
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: testflight
+    outputs:
+      build_number: ${{ steps.number.outputs.build_number }}
+    steps:
+      - name: Build only the checked commit
+        env:
+          WANT: ${{ inputs.sha }}
+        run: |
+          if [ "$WANT" != "$GITHUB_SHA" ]; then
+            echo "main is at $GITHUB_SHA, not $WANT. Rerun the checks on the new head."
+            exit 1
+          fi
+
+      # Flutter hands dart-defines to Xcode base64-encoded (KEY=value). The runner's
+      # own base64 masks end in `=` padding, which Xcode prints as `\=`, so mask each
+      # define and the value at every byte offset: padded, escaped and padding-free.
+      - name: Mask encoded dandanplay values
+        env:
+          DANDANAPI_APPID: ${{ secrets.TESTFLIGHT_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
+        run: |
+          python3 -I - <<'EOF'
+          import base64, os
+          for name in ("DANDANAPI_APPID", "DANDANAPI_KEY"):
+              value = os.environ[name].encode()
+              for raw in (name.encode() + b"=" + value, value, value[1:], value[2:]):
+                  full = base64.b64encode(raw).decode()
+                  core = base64.b64encode(raw[: len(raw) // 3 * 3]).decode()
+                  for mask in {full, full.replace("=", "\\="), core} - {""}:
+                      print("::add-mask::" + mask)
+          EOF
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No cache: a cache another workflow wrote could feed this signed build.
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Toolchain
+        run: |
+          xcode="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ ! -d "$xcode" ]; then
+            echo "Xcode $XCODE_VERSION isn't on this image any more. Installed:"
+            ls -d /Applications/Xcode_*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          if ! xcodebuild -version | grep -q "Build version $XCODE_BUILD"; then
+            echo "Xcode_$XCODE_VERSION.app is now $(xcodebuild -version | tr '\n' ' ')"
+            exit 1
+          fi
+          # cli-tools shells out to `openssl smime`; keep OpenSSL 3 while the image
+          # moves its default to 4.
+          if [ -d /opt/homebrew/opt/openssl@3/bin ]; then
+            echo /opt/homebrew/opt/openssl@3/bin >> "$GITHUB_PATH"
+            export PATH="/opt/homebrew/opt/openssl@3/bin:$PATH"
+          fi
+          python -m pip install --quiet --require-hashes -r scripts/testflight-requirements.txt
+          python - > "$RUNNER_TEMP/toolchain.json" <<'EOF'
+          import json, subprocess
+          def out(*cmd):
+              return subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
+          def flutter():
+              raw = out("flutter", "--version", "--machine")
+              try:
+                  return json.loads(raw[raw.index("{"):])
+              except ValueError:
+                  return raw
+          print(json.dumps({
+              "macos": out("sw_vers", "-productVersion"),
+              "xcode": out("xcodebuild", "-version"),
+              "flutter": flutter(),
+              "cocoapods": out("pod", "--version"),
+              "openssl": out("openssl", "version"),
+              "cli_tools": out("app-store-connect", "--version"),
+          }, indent=1))
+          EOF
+          cat "$RUNNER_TEMP/toolchain.json"
+
+      - name: Make the project ours
+        env:
+          DANDANAPI_APPID: ${{ secrets.TESTFLIGHT_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
+        run: |
+          set -e
+          if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
+            echo "the testflight environment is missing TESTFLIGHT_DANDANAPI_APPID / _KEY"
+            exit 1
+          fi
+          pbx=ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = com.example.kazumi;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/" "$pbx"
+          # Debug, Release and Profile; fail loudly if upstream restructures.
+          grep -c "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;" "$pbx" | grep -qx 3
+
+          plist=ios/Runner/Info.plist
+          set_key() {
+            /usr/libexec/PlistBuddy -c "Delete :$1" "$plist" || true
+            /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$plist"
+          }
+          set_key ITSAppUsesNonExemptEncryption bool false
+          # App Store processing (ITMS-90683) rejects builds whose linked
+          # plugins reference these APIs without purpose strings, even
+          # unused ones. Upstream only ships unsigned IPAs, so never needed them.
+          set_key NSPhotoLibraryUsageDescription string "用于选择图片进行以图搜番"
+          set_key NSPhotoLibraryAddUsageDescription string "用于将截图保存到相册"
+          set_key NSCameraUsageDescription string "用于拍照进行以图搜番"
+          set_key NSLocationWhenInUseUsageDescription string "Kazumi 不会读取你的位置"
+          /usr/libexec/PlistBuddy -c "Print" "$plist" | grep -E "Usage|Encryption"
+
+      - name: Native build tools
+        # ech_http compiles a C++ bridge through a build hook. Both are on the image.
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_UPGRADE: "1"
+        run: brew install cmake ninja || true
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Create signing files
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          CERT_KEY_B64: ${{ secrets.CERT_KEY_B64 }}
+          # Optional: the legal name in the certificate, which cli-tools prints. Set as
+          # a secret it is masked; unset, the public log shows it.
+          SIGNING_NAME: ${{ secrets.SIGNING_NAME }}
+        run: |
+          set -e
+          umask 077
+          key="$RUNNER_TEMP/cert_key.pem"
+          trap 'rm -f "$key"' EXIT
+          # Not cli-tools' empty default: with it, anything that copies the keychain
+          # file can decrypt the signing key offline.
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          export KEYCHAIN_PASSWORD
+          keychain initialize --password @env:KEYCHAIN_PASSWORD
+          # Carried base64 because a PEM pasted into a web form loses its line breaks.
+          printf '%s' "$CERT_KEY_B64" | openssl base64 -d -A > "$key"
+          # The runner only knows this key in its base64 form.
+          grep -v -e '-----' "$key" | while IFS= read -r line; do echo "::add-mask::$line"; done
+          p12_password=$(openssl rand -hex 16)
+          echo "::add-mask::$p12_password"
+          # Unlike codemagic.yaml this never creates anything: the same key finds the
+          # certificate and App Store profile Codemagic made, and a wrong key fails
+          # here instead of adding a certificate to the account. Renewal is a one-off.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key "@file:$key" \
+            --p12-password "$p12_password"
+          rm -f "$key"
+          keychain add-certificates --certificate-password "$p12_password"
+          # The keychain has it now; the build doesn't need the .p12 lying around.
+          rm -f "$HOME/Library/Developer/Xcode/UserData/Certificates/"*.p12 \
+            "$HOME/Library/MobileDevice/Certificates/"*.p12
+          # Lets codesign use the key without a GUI prompt on a headless runner.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" \
+            "$(security default-keychain | sed -e 's/^ *"//' -e 's/"$//')" > /dev/null
+
+      - name: Apply signing settings
+        run: |
+          xcode-project use-profiles \
+            --project ios/Runner.xcodeproj \
+            --export-options-plist "$RUNNER_TEMP/export_options.plist" \
+            --code-signing-setup-verbose-logging
+
+      - name: Pick the build number
+        id: number
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          latest=$(app-store-connect get-latest-testflight-build-number "$ASC_APP_ID" --all-versions)
+          case "$latest" in
+            ''|*[!0-9]*) echo "App Store Connect gave no build number: '$latest'"; exit 1 ;;
+          esac
+          next=$(( (10#$latest > BUILD_NUMBER_FLOOR ? 10#$latest : BUILD_NUMBER_FLOOR) + 1 ))
+          echo "latest uploaded build is $latest; this one is $next"
+          echo "BUILD_NUMBER=$next" >> "$GITHUB_ENV"
+          echo "build_number=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Build IPA
+        env:
+          DANDANAPI_APPID: ${{ secrets.TESTFLIGHT_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
+        run: |
+          flutter build ipa --release \
+            --build-name=3.1.0 \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist="$RUNNER_TEMP/export_options.plist" \
+            --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID:-}" \
+            --dart-define=DANDANAPI_KEY="${DANDANAPI_KEY:-}"
+          set -- build/ios/ipa/*.ipa
+          if [ $# -ne 1 ] || [ ! -f "$1" ]; then
+            echo "expected exactly one IPA, found: $*"
+            exit 1
+          fi
+          case "$1" in
+            *[!A-Za-z0-9._/-]*) echo "unexpected IPA path: $1"; exit 1 ;;
+          esac
+          echo "IPA=$1" >> "$GITHUB_ENV"
+
+      - name: Describe the IPA
+        env:
+          DANDANAPI_APPID: ${{ secrets.TESTFLIGHT_DANDANAPI_APPID }}
+          DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
+        run: |
+          python scripts/ipa_manifest.py describe "$IPA" --sha "$GITHUB_SHA" \
+            --toolchain "$RUNNER_TEMP/toolchain.json" \
+            --needle DANDANAPI_APPID --needle DANDANAPI_KEY \
+            > "$RUNNER_TEMP/testflight-build.json"
+
+      # Public: holds no secrets (the needles are only true/false), and
+      # testflight.py publish-latest reads the version and build number from it.
+      # overwrite: a rerun of this job would otherwise fail on the existing name.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testflight-build
+          path: ${{ runner.temp }}/testflight-build.json
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Check the IPA
+        run: |
+          python scripts/ipa_manifest.py check "$RUNNER_TEMP/testflight-build.json" \
+            --bundle-id "$BUNDLE_ID" --build "$BUILD_NUMBER"
+          version=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
+            "$RUNNER_TEMP/testflight-build.json")
+          echo "### $version ($BUILD_NUMBER) from ${GITHUB_SHA:0:8}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to TestFlight
+        if: inputs.upload
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: app-store-connect publish --path "$IPA"
+
+  # A dry run uploads nothing, so it polls the floor build instead, which Apple
+  # already processed: that proves this job and its key work before a real upload.
+  processed:
+    name: Apple processing
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: testflight
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/testflight-requirements.txt
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install cli-tools
+        run: python -m pip install --quiet --require-hashes -r scripts/testflight-requirements.txt
+
+      # Green here means Apple has processed the build; testers can install it a few
+      # minutes later.
+      - name: Wait for Apple to finish processing
+        env:
+          UPLOAD: ${{ inputs.upload }}
+          BUILT: ${{ needs.build.outputs.build_number }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          if [ "$UPLOAD" = true ]; then build="$BUILT"; else build="$BUILD_NUMBER_FLOOR"; fi
+          case "$build" in
+            ''|*[!0-9]*) echo "no build number to wait for: '$build'"; exit 1 ;;
+          esac
+          deadline=$((SECONDS + 3600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            # One failed call is a blip, not a verdict; Apple's answer decides.
+            state=$(timeout 120 app-store-connect builds list --app-id "$ASC_APP_ID" \
+                --build-version-number "$build" --json \
+              | python -c 'import json,sys; b=json.load(sys.stdin); print(b[0]["attributes"]["processingState"] if b else "NOT_FOUND")') \
+              || state="no answer, retrying"
+            echo "$(date -u +%H:%M:%S) build $build: $state"
+            case "$state" in
+              VALID) exit 0 ;;
+              FAILED|INVALID) echo "Apple rejected build $build; its email says why."; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "Still processing after an hour. Once TestFlight shows it, rerun this job:"
+          echo "  gh run rerun $GITHUB_RUN_ID -R $GITHUB_REPOSITORY --failed"
+          exit 1
