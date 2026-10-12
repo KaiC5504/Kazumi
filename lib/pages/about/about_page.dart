@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/widget/content_section.dart';
-import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/pages/about/fork_about_section.dart';
 import 'package:kazumi/pages/about/about_widgets.dart';
 import 'package:kazumi/request/config/api_endpoints.dart';
-import 'package:kazumi/services/update/testflight_update.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key, required this.onCheckUpdate});
@@ -19,7 +17,7 @@ class AboutPage extends StatelessWidget {
         body: AboutContent(
           children: [
             _ProjectHeader(onCheckUpdate: onCheckUpdate),
-            if (kPublicBuild) const ForkAboutSection(),
+            const ForkAboutSection(),
             const SizedBox(height: 24),
             LayoutBuilder(builder: (context, constraints) {
               final sections = [
@@ -125,7 +123,7 @@ class _ProjectHeader extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            TestflightUpdate.versionLabel,
+            ApiEndpoints.version,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colors.onSurfaceVariant,
             ),

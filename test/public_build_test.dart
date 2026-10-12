@@ -135,19 +135,23 @@ void main() {
             ),
           ),
         );
-        expect(find.text(TestflightUpdate.versionLabel), findsOneWidget);
+        // The version without TestFlight's build number, in both builds.
+        expect(find.text(ApiEndpoints.version), findsOneWidget);
         expect(find.text('检查更新'), findsOneWidget);
         expect(find.text('更新日志'), findsOneWidget);
         expect(find.text('项目'), findsOneWidget);
         expect(find.text('开源'), findsOneWidget);
         expect(find.text('源代码'), findsOneWidget);
+        // The fork's section comes first in both builds, then upstream's.
+        expect(find.byType(ForkAboutSection), findsOneWidget);
         expect(
-          find.byType(ForkAboutSection),
-          kPublicBuild ? findsOneWidget : findsNothing,
+          find.text('Kazumi Plus ${ApiEndpoints.version}'),
+          findsOneWidget,
         );
+        expect(find.textContaining('与官方无关'), findsOneWidget);
         expect(
-          find.textContaining('与官方无关'),
-          kPublicBuild ? findsOneWidget : findsNothing,
+          tester.getTopLeft(find.byType(ForkAboutSection)).dy,
+          lessThan(tester.getTopLeft(find.text('项目')).dy),
         );
         await tester.tap(find.text('检查更新'));
         await tester.pump();
