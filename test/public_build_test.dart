@@ -30,6 +30,8 @@ import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/auto_updater.dart';
 import 'package:kazumi/services/update/public_update.dart';
 import 'package:kazumi/services/update/testflight_update.dart';
+import 'package:kazumi/services/update/update_download_source.dart';
+import 'package:kazumi/services/update/update_downloader.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -272,7 +274,7 @@ void main() {
       expect(apk?['name'], 'Kazumi_android_3.0.0.apk');
       expect(getUpdateFileHashFromAsset(apk!), hasLength(64));
       expect(
-        getUpdateDownloadUrlFromAsset(apk),
+        getUpdateDownloadUrlFromAsset(apk, UpdateDownloadSource.github),
         startsWith('https://github.com/KaiC5504/Kazumi/releases/download/'),
       );
     });
