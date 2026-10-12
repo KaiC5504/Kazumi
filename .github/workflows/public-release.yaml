@@ -97,6 +97,12 @@ jobs:
             exit 1
           fi
           build_number=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
+          # Public and TestFlight builds share one version line since 3.2.0.
+          testflight=$(sed -n 's/.*--build-name=\([0-9][0-9.]*\).*/\1/p' .github/workflows/testflight.yaml | head -1)
+          if [ "$VERSION" != "$testflight" ]; then
+            echo "::error::version $VERSION isn't the TestFlight build's ($testflight in .github/workflows/testflight.yaml); bump them together"
+            exit 1
+          fi
           # The fork carries all of upstream's tags; never publish onto one of them.
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
             echo "::error::tag $VERSION already exists"
