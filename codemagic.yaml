@@ -28,6 +28,10 @@ workflows:
       - name: Make the project ours
         script: |
           set -e
+          if [ -z "$DANDANAPI_APPID" ] || [ -z "$DANDANAPI_KEY" ]; then
+            echo "kazumi_api group is missing DANDANAPI_APPID / DANDANAPI_KEY"
+            exit 1
+          fi
           pbx=ios/Runner.xcodeproj/project.pbxproj
           sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = com.example.kazumi;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/" "$pbx"
           # Debug, Release and Profile; fail loudly if upstream restructures.
