@@ -151,6 +151,16 @@ class StartTest(unittest.TestCase):
         self.start(shell, "--dry-run")
         self.assertIn("upload=false", self.dispatches(shell)[0])
 
+    def test_waits_for_the_run_name_before_judging_the_mode(self):
+        # Right after a dispatch GitHub shows the workflow's bare name as the title.
+        run_ = self.queued(tf.DRY_RUN)
+        shell = FakeShell(after_dispatch=run_,
+                          views=[{**run_, "displayTitle": "TestFlight"}, run_])
+        code, out = self.start(shell, "--dry-run")
+        self.assertEqual(0, code, out)
+        self.assertNotIn(("gh", "run", "cancel", "9", "-R", tf.REPO), shell.calls)
+        self.assertIn("started run 9", out)
+
     def test_cancels_a_run_in_the_wrong_mode(self):
         shell = FakeShell(after_dispatch=self.queued(tf.UPLOAD))
         code, out = self.start(shell, "--dry-run")

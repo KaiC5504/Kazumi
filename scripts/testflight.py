@@ -149,10 +149,15 @@ def dispatched_run(output: str, known: set[int], sha: str) -> dict | None:
     for _ in range(40):
         try:
             if match:
-                return view(match.group(1))
-            new = [r for r in runs(10) if r["databaseId"] not in known and sha in r["displayTitle"]]
-            if new:
-                return new[0]
+                # The title is the workflow's bare name until GitHub evaluates run-name.
+                found = view(match.group(1))
+                if sha in found["displayTitle"]:
+                    return found
+            else:
+                new = [r for r in runs(10)
+                       if r["databaseId"] not in known and sha in r["displayTitle"]]
+                if new:
+                    return new[0]
         except SystemExit:
             pass
         time.sleep(3)
