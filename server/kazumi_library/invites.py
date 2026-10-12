@@ -52,8 +52,7 @@ class Invites:
         return any(secrets.compare_digest(code, known) for known in codes)
 
     def _live(self, now: datetime) -> dict[str, str]:
-        data = read_json(self._path) if self._path.exists() else None
-        codes = (data or {}).get("codes", {})
+        codes = (read_json(self._path) or {}).get("codes", {})
         live = {}
         for code, expires in codes.items():
             try:

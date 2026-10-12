@@ -140,14 +140,7 @@ class _WideSpaceLayout extends StatelessWidget {
         ),
         if (!kPublicBuild && !continueRow) ...[
           const SizedBox(height: 12),
-          _ToolTile(
-            icon: Icons.favorite_rounded,
-            title: '一起看',
-            caption: '同步播放',
-            color: colors.primaryContainer,
-            foreground: colors.onPrimaryContainer,
-            onTap: () => onOpen(MyDestination.together),
-          ),
+          together,
         ],
         const SizedBox(height: 12),
         _AdaptivePair(
@@ -913,11 +906,10 @@ class _RecentHistoryState extends State<_RecentHistory> {
     if (given != null) return widget.builder(context, given);
     final controller = _controller;
     if (controller == null) return widget.builder(context, const []);
-    return Observer(builder: (context) {
-      final recent = controller.histories.toList()
-        ..sort((a, b) => b.lastWatchTime.compareTo(a.lastWatchTime));
-      return widget.builder(context, recent.take(10).toList());
-    });
+    // getAllHistories() already returns newest first.
+    return Observer(
+        builder: (context) =>
+            widget.builder(context, controller.histories.take(10).toList()));
   }
 }
 

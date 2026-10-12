@@ -49,7 +49,7 @@ class PublicUpdate {
     String? currentVersion,
     this.fetchTimeout = const Duration(seconds: 8),
   }) : _fetchLatest = fetchLatest ?? _fetchFromGitHub,
-       _launch = launch ?? _launchExternal,
+       _launch = launch ?? launchExternal,
        currentVersion = currentVersion ?? ApiEndpoints.version;
 
   static final PublicUpdate instance = PublicUpdate();
@@ -121,31 +121,35 @@ class PublicUpdate {
     KazumiDialog.showToast(message: '打不开浏览器，请访问 ${release.page}');
   }
 
-  static Future<String> _fetchFromGitHub() async {
-    final uri = Uri.parse(ApiEndpoints.latestAppMirror);
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-    try {
-      final request = await client.getUrl(uri);
-      request.headers.set(
-        HttpHeaders.acceptHeader,
-        'application/vnd.github+json',
-      );
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'releases/latest: ${response.statusCode}',
-          uri: uri,
-        );
-      }
-      return await response.transform(utf8.decoder).join();
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  static Future<bool> _launchExternal(Uri uri) =>
-      launchUrl(uri, mode: LaunchMode.externalApplication);
+  static Future<String> _fetchFromGitHub() => fetchUpdateText(
+    Uri.parse(ApiEndpoints.latestAppMirror),
+    'releases/latest',
+    {HttpHeaders.acceptHeader: 'application/vnd.github+json'},
+  );
 }
+
+/// GETs [uri] as text for an update check; [what] names it in errors.
+Future<String> fetchUpdateText(
+  Uri uri,
+  String what,
+  Map<String, String> headers,
+) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final request = await client.getUrl(uri);
+    headers.forEach(request.headers.set);
+    final response = await request.close();
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException('$what: ${response.statusCode}', uri: uri);
+    }
+    return await response.transform(utf8.decoder).join();
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<bool> launchExternal(Uri uri) =>
+    launchUrl(uri, mode: LaunchMode.externalApplication);
 
 class PublicUpdateDialog extends StatelessWidget {
   const PublicUpdateDialog({

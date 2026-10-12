@@ -41,45 +41,41 @@ Future<void> showUpscaledImportFlow(
     KazumiDialog.showToast(message: '无法打开文件夹: $e');
     return;
   }
-  if (folder == null || !context.mounted) {
-    await service.releaseFolder();
-    return;
-  }
-
-  List<UpscaledImportCandidate> candidates;
   try {
-    candidates = await service.scan(folder);
-  } catch (e) {
-    KazumiLogger().w('UpscaledImport: scan failed', error: e);
-    KazumiDialog.showToast(message: '读取文件夹失败: $e');
-    await service.releaseFolder();
-    return;
-  }
-  if (candidates.isEmpty) {
-    KazumiDialog.showToast(message: '这个文件夹里没有找到超分剧集');
-    await service.releaseFolder();
-    return;
-  }
-  if (!context.mounted) {
-    await service.releaseFolder();
-    return;
-  }
+    if (folder == null || !context.mounted) return;
+    final List<UpscaledImportCandidate> candidates;
+    try {
+      candidates = await service.scan(folder);
+    } catch (e) {
+      KazumiLogger().w('UpscaledImport: scan failed', error: e);
+      KazumiDialog.showToast(message: '读取文件夹失败: $e');
+      return;
+    }
+    if (candidates.isEmpty) {
+      KazumiDialog.showToast(message: '这个文件夹里没有找到超分剧集');
+      return;
+    }
+    if (!context.mounted) return;
 
-  await showAdaptiveBottomSheet<void>(
-    context: context,
-    builder: (context) => UpscaledTransferSheet(
-      title: '导入超分剧集',
-      actionLabel: '导入',
-      items: [
-        for (final c in candidates)
-          UpscaledTransferItem.of(controller, c.manifest),
-      ],
-      run: (index, onProgress) =>
-          controller.importCandidate(candidates[index], onProgress: onProgress),
-      doneMessage: (count) => '已导入 $count 集，可在下载管理中离线播放',
-    ),
-  );
-  await service.releaseFolder();
+    await showAdaptiveBottomSheet<void>(
+      context: context,
+      builder: (context) => UpscaledTransferSheet(
+        title: '导入超分剧集',
+        actionLabel: '导入',
+        items: [
+          for (final c in candidates)
+            UpscaledTransferItem.of(controller, c.manifest),
+        ],
+        run: (index, onProgress) => controller.importCandidate(
+          candidates[index],
+          onProgress: onProgress,
+        ),
+        doneMessage: (count) => '已导入 $count 集，可在下载管理中离线播放',
+      ),
+    );
+  } finally {
+    await service.releaseFolder();
+  }
 }
 
 Future<void> showLanPullFlow(

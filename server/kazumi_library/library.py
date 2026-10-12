@@ -75,7 +75,6 @@ class Library:
     """Episodes, partial uploads and the member list, all as plain files under one directory."""
 
     def __init__(self, root: Path, clock: Callable[[], datetime], watchers: frozenset[str] = frozenset()) -> None:
-        self.root = root
         self.watchers = watchers
         self.episodes_dir = root / "episodes"
         self.uploads_dir = root / "uploads"
@@ -149,7 +148,7 @@ class Library:
             self.assemble_parts(episode_id, name, manifest["sizeBytes"] if name == "video.mp4" else None)
         with self._lock:
             size = file_size(video) if video.is_file() else 0
-            if not video.is_file() or size != manifest["sizeBytes"]:
+            if size != manifest["sizeBytes"]:
                 raise SizeMismatch(size)
             stored = {**manifest, "hasDanmaku": (upload_dir / "danmaku.json").is_file()}
             meta = {"uploadedAt": to_iso(self._clock()), "watchedBy": [], "firstWatchedAt": None}

@@ -45,11 +45,8 @@ def tcp_summary(samples: list) -> dict:
         for header, info in zip(lines[::2], lines[1::2]):
             peer = header.split()[-1]
             stats = dict(re.findall(r"(\w+):([\d.]+)", info))
-            rtt = re.search(r"rtt:([\d.]+)/", info)
-            if rtt:
-                rtts.append(float(rtt.group(1)))
-                stats["rtt"] = rtt.group(1)
-            stats["state"] = header.split()[0]
+            if "rtt" in stats:
+                rtts.append(float(stats["rtt"]))
             connections[peer] = stats
     sent = sum(int(c.get("bytes_sent", 0)) for c in connections.values())
     retrans = sum(int(c.get("bytes_retrans", 0)) for c in connections.values())

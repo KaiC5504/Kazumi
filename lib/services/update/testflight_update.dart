@@ -8,7 +8,6 @@ import 'package:kazumi/bean/dialog/dialog.dart';
 import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/update/public_update.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// What `latest.json` on the HK box says about the newest TestFlight build.
 class AppRelease {
@@ -84,7 +83,7 @@ class TestflightUpdate {
     bool? isIOS,
     this.fetchTimeout = const Duration(seconds: 8),
   }) : _fetchLatest = fetchLatest ?? _fetchFromServer,
-       _launch = launch ?? _launchExternal,
+       _launch = launch ?? launchExternal,
        _clock = clock ?? DateTime.now,
        currentBuild = currentBuild ?? buildNumber,
        _isIOS = isIOS ?? Platform.isIOS;
@@ -249,26 +248,11 @@ class TestflightUpdate {
     _lifecycle = null;
   }
 
-  static Future<String> _fetchFromServer() async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-    try {
-      final request = await client.getUrl(latestUri);
-      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'latest.json: ${response.statusCode}',
-          uri: latestUri,
-        );
-      }
-      return await response.transform(utf8.decoder).join();
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  static Future<bool> _launchExternal(Uri uri) =>
-      launchUrl(uri, mode: LaunchMode.externalApplication);
+  static Future<String> _fetchFromServer() => fetchUpdateText(
+    latestUri,
+    'latest.json',
+    {HttpHeaders.cacheControlHeader: 'no-cache'},
+  );
 }
 
 class UpdateDialog extends StatelessWidget {

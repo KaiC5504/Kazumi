@@ -15,19 +15,15 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: subosito/flutter-action@v2.16.0
+      - uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1 # v2.16.0
         with:
           channel: stable
           flutter-version-file: pubspec.yaml
-          cache: true
-
-      - uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile', 'pubspec.lock') }}
-          restore-keys: pods-${{ runner.os }}-
+          # Restoring the 2.2 GB SDK takes as long as installing it, and a miss adds
+          # a minute of saving; feature-branch caches can't be read from main anyway.
+          cache: false
 
       - run: flutter pub get
 

@@ -365,15 +365,12 @@ class _DownloadPageState extends State<DownloadPage> {
 
   List<Widget> _upscaleActions(DownloadRecord record, DownloadEpisode episode) {
     if (!upscaleController.canBake || episode.preUpscaled) return const [];
-    final colorScheme = Theme.of(context).colorScheme;
-    final cloudButton = IconButton(
-      icon: Icon(Icons.cloud_upload_outlined,
-          size: 20, color: colorScheme.tertiary),
-      onPressed: () => showCloudEpisodeFlow(
-          context, upscaleController, record, episode.episodeNumber),
-      tooltip: '云端烘焙 (加入云端队列)',
-      visualDensity: VisualDensity.compact,
-    );
+    final cloudButton = _smallAction(
+        Icons.cloud_upload_outlined,
+        '云端烘焙 (加入云端队列)',
+        () => showCloudEpisodeFlow(
+            context, upscaleController, record, episode.episodeNumber),
+        accent: true);
     // Once uploading, cloud episodes are cancelled with the banner's stop
     // button.
     if (episode.upscaleStatus == UpscaleStatus.queued &&
@@ -382,51 +379,39 @@ class _DownloadPageState extends State<DownloadPage> {
         return const [];
       }
       return [
-        IconButton(
-          icon: const Icon(Icons.cloud_off_outlined, size: 20),
-          onPressed: () => upscaleController.removeFromCloud(
-              record.key, episode.episodeNumber),
-          tooltip: '移出云端队列',
-          visualDensity: VisualDensity.compact,
-        ),
+        _smallAction(
+            Icons.cloud_off_outlined,
+            '移出云端队列',
+            () => upscaleController.removeFromCloud(
+                record.key, episode.episodeNumber)),
       ];
     }
     switch (episode.upscaleStatus) {
       case UpscaleStatus.queued:
       case UpscaleStatus.baking:
         return [
-          IconButton(
-            icon: const Icon(Icons.stop_circle_outlined, size: 20),
-            onPressed: () => upscaleController.cancelBake(
-                record.key, episode.episodeNumber),
-            tooltip: '取消烘焙',
-            visualDensity: VisualDensity.compact,
-          ),
+          _smallAction(
+              Icons.stop_circle_outlined,
+              '取消烘焙',
+              () => upscaleController.cancelBake(
+                  record.key, episode.episodeNumber)),
           if (episode.upscaleStatus == UpscaleStatus.queued &&
               showCloudUi(upscaleController.canBake))
             cloudButton,
         ];
       case UpscaleStatus.done:
         return [
-          IconButton(
-            icon: Icon(Icons.ios_share_rounded,
-                size: 20, color: colorScheme.tertiary),
-            onPressed: () => _exportEpisode(record, episode),
-            tooltip: '导出超分版本',
-            visualDensity: VisualDensity.compact,
-          ),
+          _smallAction(Icons.ios_share_rounded, '导出超分版本',
+              () => _exportEpisode(record, episode),
+              accent: true),
           if (showCloudUi(upscaleController.canBake))
             _uploadAction(record, episode),
         ];
       default:
         return [
-          IconButton(
-            icon: Icon(Icons.auto_awesome_outlined,
-                size: 20, color: colorScheme.tertiary),
-            onPressed: () => _bakeEpisode(record, episode),
-            tooltip: '烘焙超分 (质量档)',
-            visualDensity: VisualDensity.compact,
-          ),
+          _smallAction(Icons.auto_awesome_outlined, '烘焙超分 (质量档)',
+              () => _bakeEpisode(record, episode),
+              accent: true),
           if (showCloudUi(upscaleController.canBake)) cloudButton,
         ];
     }
@@ -486,35 +471,36 @@ class _DownloadPageState extends State<DownloadPage> {
                 : '片头片尾没有变化');
   }
 
+  Widget _smallAction(IconData icon, String tooltip, VoidCallback onPressed,
+      {bool accent = false}) {
+    return IconButton(
+      icon: Icon(icon,
+          size: 20,
+          color: accent ? Theme.of(context).colorScheme.tertiary : null),
+      onPressed: onPressed,
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
   Widget _uploadAction(DownloadRecord record, DownloadEpisode episode) {
-    final colorScheme = Theme.of(context).colorScheme;
     final key =
         UpscaleController.progressKey(record.key, episode.episodeNumber);
     if (upscaleController.uploadProgress.containsKey(key)) {
-      return IconButton(
-        icon: const Icon(Icons.stop_circle_outlined, size: 20),
-        onPressed: () =>
-            upscaleController.cancelUpload(record.key, episode.episodeNumber),
-        tooltip: '取消上传',
-        visualDensity: VisualDensity.compact,
-      );
+      return _smallAction(
+          Icons.stop_circle_outlined,
+          '取消上传',
+          () => upscaleController.cancelUpload(
+              record.key, episode.episodeNumber));
     }
     if (upscaleController.isInLibrary(record.key, episode.episodeNumber)) {
-      return IconButton(
-        icon: Icon(Icons.cloud_done_rounded,
-            size: 20, color: colorScheme.tertiary),
-        onPressed: () => _confirmReupload(record, episode),
-        tooltip: '已在片库，点击重新上传',
-        visualDensity: VisualDensity.compact,
-      );
+      return _smallAction(Icons.cloud_done_rounded, '已在片库，点击重新上传',
+          () => _confirmReupload(record, episode),
+          accent: true);
     }
-    return IconButton(
-      icon: Icon(Icons.cloud_upload_outlined,
-          size: 20, color: colorScheme.tertiary),
-      onPressed: () => _uploadEpisode(record, episode),
-      tooltip: '上传到片库',
-      visualDensity: VisualDensity.compact,
-    );
+    return _smallAction(Icons.cloud_upload_outlined, '上传到片库',
+        () => _uploadEpisode(record, episode),
+        accent: true);
   }
 
   void _confirmReupload(DownloadRecord record, DownloadEpisode episode) {
