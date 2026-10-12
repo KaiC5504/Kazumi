@@ -1,8 +1,10 @@
-# Signed iOS build of this fork for TestFlight (internal testing only).
+# Signed iOS build of this fork for TestFlight (internal testing only). Since build
+# 33 this is the fallback for .github/workflows/testflight.yaml; partner_check.py
+# keeps the two building the same app.
 #
 # Upstream's source is built as-is; everything that makes it ours (bundle id,
 # export compliance) is applied at build time so `git merge upstream/main`
-# never conflicts. The unsigned compile check is upstream's own pr.yaml.
+# never conflicts. The unsigned compile check is ios-check.yaml.
 
 workflows:
   testflight:
@@ -14,7 +16,7 @@ workflows:
       app_store_connect: NextStop ASC key
     environment:
       flutter: 3.47.7
-      xcode: latest
+      xcode: "26.6"
       cocoapods: default
       # code_signing supplies CERT_KEY_B64; kazumi_api supplies our own
       # dandanplay DANDANAPI_APPID / DANDANAPI_KEY. Without them danmaku
@@ -74,6 +76,14 @@ workflows:
             --code-signing-setup-verbose-logging
       - name: Build IPA
         script: |
+          set -e
+          # GitHub uploads too, so Codemagic's own counter is behind; take the next
+          # number from App Store Connect, as testflight.yaml does.
+          latest=$(app-store-connect get-latest-testflight-build-number 6818711929 --all-versions)
+          case "$latest" in
+            ''|*[!0-9]*) echo "App Store Connect gave no build number: '$latest'"; exit 1 ;;
+          esac
+          BUILD_NUMBER=$(( (10#$latest > 32 ? 10#$latest : 32) + 1 ))
           flutter build ipa --release \
             --build-name=3.1.0 \
             --build-number="$BUILD_NUMBER" \

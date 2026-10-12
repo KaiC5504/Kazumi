@@ -1,12 +1,12 @@
-"""Local check before a Codemagic build, so a build is never spent on a broken commit.
+"""Local check before a TestFlight build, so a build is never spent on a broken commit.
 
-    python scripts/precheck.py              # compare with the last build that passed
+    python scripts/precheck.py              # compare with the last build that shipped
     python scripts/precheck.py --base REF   # compare with any git ref instead
 
 Runs `flutter analyze`, the tests that import a changed file, and a scan of the bundled
 assets for files App Store Connect rejects as unsigned code.
 
-Exit 0: go straight to Codemagic.
+Exit 0: go straight to the TestFlight build.
 Exit 2: the native side changed (dependencies, ios/, signing), so run the iOS compile
         check first: gh workflow run ios-check.yaml -R KaiC5504/Kazumi --ref <branch>
 Exit 1: a check failed.
@@ -30,9 +30,15 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 NATIVE_PATTERNS = [
     r"^pubspec\.(yaml|lock)$",
     r"^ios/",
-    r"^codemagic\.yaml$",
     r"^\.gitmodules$",
 ]
+
+# The build pipeline's own tests (test/ci) cover these. ios-check.yaml never runs the
+# TestFlight workflow, so a change here is proven by a dry run instead.
+PIPELINE_PATTERN = re.compile(
+    r"^(\.github/workflows/testflight\.yaml|codemagic\.yaml|test/ci/"
+    r"|scripts/(testflight|ipa_manifest|codemagic|partner_check|precheck)\.py"
+    r"|scripts/testflight-requirements\.txt)")
 
 # App Store Connect rejected a plain .py with no shebang or exec bit (build 18), so
 # script types are refused by extension, not by content.
@@ -53,6 +59,16 @@ def git(*args: str) -> str:
 
 
 def last_passed_build() -> str | None:
+    """Commit of the newest TestFlight build that shipped: GitHub's, else Codemagic's."""
+    try:
+        import testflight
+        shipped = testflight.last_shipped()
+    except BaseException as e:  # testflight.py exits via SystemExit when gh fails
+        print(f"  (no GitHub upload to compare with: {e})")
+        shipped = None
+    if shipped:
+        print(f"  base: TestFlight run {shipped['databaseId']} ({shipped['headSha'][:8]})")
+        return shipped["headSha"]
     try:
         import codemagic
         builds = codemagic.call(f"/builds?appId={codemagic.app_id()}").get("builds", [])
@@ -147,7 +163,11 @@ def main() -> int:
     args = parser.parse_args()
 
     print("precheck")
-    base = args.base or last_passed_build() or "origin/main"
+    base = args.base or last_passed_build()
+    if not base:
+        # Diffing against origin/main after a push would test nothing.
+        print("  can't find the last build that shipped; pass --base <ref>")
+        return 1
     changed = changed_files(base)
     print(f"  {len(changed)} file(s) changed since {base[:12]}")
 
@@ -181,6 +201,17 @@ def main() -> int:
         if worker_tests.returncode:
             failed.append("cloud worker tests")
 
+    pipeline = [f for f in changed if PIPELINE_PATTERN.match(f)]
+    if pipeline:
+        print("\n$ python -m unittest (build pipeline)", flush=True)
+        pipeline_tests = subprocess.run(
+            ["uv", "run", "--no-project", "--quiet", "--with", "pyyaml==6.0.3", "python", "-m",
+             "unittest", "discover", "-s", "test/ci", "-p", "test_*.py"],
+            cwd=ROOT, shell=sys.platform == "win32",
+        )
+        if pipeline_tests.returncode:
+            failed.append("pipeline tests")
+
     native = sorted({f for f in changed if any(re.search(p, f) for p in NATIVE_PATTERNS)})
     if "pubspec.yaml" in native and only_version_or_assets_changed(base):
         native.remove("pubspec.yaml")
@@ -190,11 +221,14 @@ def main() -> int:
         print(f"  FAILED: {', '.join(failed)}")
         return 1
     if native:
-        print("  native side changed, run the iOS compile check before Codemagic:")
+        print("  native side changed, run the iOS compile check before the TestFlight build:")
         for f in native:
             print(f"    {f}")
         return 2
-    print("  OK, go straight to Codemagic")
+    if pipeline:
+        print("  build pipeline changed: after merging, run "
+              "`python scripts/testflight.py start --dry-run` before the next upload")
+    print("  OK, go straight to the TestFlight build")
     return 0
 
 
