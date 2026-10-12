@@ -35,6 +35,9 @@ permissions:
 
 env:
   VERSION: ${{ inputs.version }}
+  # Visible name only. Hidden ids (package, bundle id, CompanyName/ProductName, mutex)
+  # stay as they are: ProductName names the Windows data dir.
+  APP_NAME: Kazumi Plus
   # branding/public/ mirrors these repo paths; CI copies it over the checkout only.
   # Android 8+ draws drawable-*/ic_launcher_foreground.png (adaptive icon); mipmap-* is
   # the legacy launcher and the reminder notification icon.
@@ -169,6 +172,12 @@ jobs:
           sed -i 's/applicationId "com\.predidit\.kazumi"/applicationId "com.kaichuan.kazumi"/' android/app/build.gradle
           expect android/app/build.gradle 'applicationId "com.kaichuan.kazumi"'
 
+          sed -i "s/android:label=\"Kazumi\"/android:label=\"$APP_NAME\"/" android/app/src/main/AndroidManifest.xml
+          expect android/app/src/main/AndroidManifest.xml "android:label=\"$APP_NAME\""
+          # The recents screen shows MaterialApp's title.
+          sed -i "s/title: \"Kazumi\",/title: \"$APP_NAME\",/" lib/app_widget.dart
+          expect lib/app_widget.dart "title: \"$APP_NAME\","
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -211,15 +220,15 @@ jobs:
           # Gradle signs release builds with the debug key; apksigner replaces it.
           "$bt/apksigner" sign --ks "$RUNNER_TEMP/public.jks" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEY_STORE_PASSWORD --key-pass env:KEY_STORE_PASSWORD \
-            --out "Kazumi_android_$VERSION.apk" build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            --out "KazumiPlus_android_$VERSION.apk" build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           rm -f "$RUNNER_TEMP/public.jks"
           # Compared with the SHA-256 of the keystore backup.
-          "$bt/apksigner" verify --print-certs "Kazumi_android_$VERSION.apk"
+          "$bt/apksigner" verify --print-certs "KazumiPlus_android_$VERSION.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: android
-          path: Kazumi_android_*.apk
+          path: KazumiPlus_android_*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -245,7 +254,7 @@ jobs:
       # path_provider_windows builds the data dir from the exe's CompanyName/ProductName,
       # so this moves everything to %APPDATA%\KazumiFork\kazumi. Never change the mutex
       # without the data dir: two apps would open the same Hive boxes.
-      - name: Public identity (own data dir and mutex)
+      - name: Public identity (own data dir, mutex and name)
         shell: bash
         run: |
           expect() { grep -qF -- "$2" "$1" || { echo "::error file=$1::'$2' not found after patching; did upstream change this line?"; exit 1; }; }
@@ -259,6 +268,30 @@ jobs:
           sed -i 's/L"kazumi\.win\.mutex"/L"kazumi-fork.win.mutex"/' "$cpp"
           expect "$cpp" 'L"kazumi-fork.win.mutex"'
           reject "$cpp" 'kazumi\.win\.mutex'
+
+          # ActivateExistingWindow finds the running window by this title, which
+          # window_manager then sets from main.dart, so all three change together.
+          # It also stops a second launch from raising upstream Kazumi's window.
+          sed -i "s/L\"kazumi\"/L\"$APP_NAME\"/g" "$cpp"
+          expect "$cpp" "FindWindow(kWindowClassName, L\"$APP_NAME\")"
+          expect "$cpp" "window.Create(L\"$APP_NAME\""
+          sed -i "s/title: 'Kazumi',/title: '$APP_NAME',/" lib/main.dart
+          expect lib/main.dart "title: '$APP_NAME',"
+
+          sed -i "s/\"FileDescription\", \"kazumi\"/\"FileDescription\", \"$APP_NAME\"/" "$rc"
+          expect "$rc" "\"FileDescription\", \"$APP_NAME\""
+          expect "$rc" '"ProductName", "kazumi"'
+
+          sed -i "s/CreateDesktopShortcut(L\"Kazumi\", L\"Kazumi - Anime Player\")/CreateDesktopShortcut(L\"$APP_NAME\", L\"$APP_NAME - Anime Player\")/" windows/runner/flutter_window.cpp
+          expect windows/runner/flutter_window.cpp "CreateDesktopShortcut(L\"$APP_NAME\""
+
+          app=lib/app_widget.dart
+          sed -i "s/title: \"Kazumi\",/title: \"$APP_NAME\",/" "$app"
+          sed -i "s/setToolTip('Kazumi')/setToolTip('$APP_NAME')/" "$app"
+          sed -i "s/'退出 Kazumi'/'退出 $APP_NAME'/" "$app"
+          expect "$app" "title: \"$APP_NAME\","
+          expect "$app" "setToolTip('$APP_NAME')"
+          expect "$app" "'退出 $APP_NAME'"
 
       - run: git config --system core.longpaths true
 
@@ -284,12 +317,12 @@ jobs:
           "--dart-define=DANDANAPI_KEY=$env:DANDANAPI_KEY"
 
       - name: Package
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "Kazumi_windows_$env:VERSION.zip"
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "KazumiPlus_windows_$env:VERSION.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: Kazumi_windows_*.zip
+          path: KazumiPlus_windows_*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -321,6 +354,11 @@ jobs:
         run: |
           plist=ios/Runner/Info.plist
           /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$plist"
+          if [ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$plist")" != "$APP_NAME" ]; then
+            echo "::error file=$plist::CFBundleDisplayName not set"
+            exit 1
+          fi
           if grep -q 'kazumi-library' "$plist"; then
             echo "::error file=$plist::kazumi-library scheme still registered"
             exit 1
@@ -368,12 +406,12 @@ jobs:
           mkdir Payload
           cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
           find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
-          zip -q -r "Kazumi_ios_${VERSION}_no_sign.ipa" Payload
+          zip -q -r "KazumiPlus_ios_${VERSION}_no_sign.ipa" Payload
 
       - uses: actions/upload-artifact@v4
         with:
           name: ios
-          path: Kazumi_ios_*_no_sign.ipa
+          path: KazumiPlus_ios_*_no_sign.ipa
           if-no-files-found: error
           retention-days: 7
 
@@ -395,9 +433,9 @@ jobs:
         run: |
           ls -l dist
           if [ "$(find dist -type f | wc -l)" != 3 ] ||
-             [ ! -f "dist/Kazumi_android_$VERSION.apk" ] || [ ! -f "dist/Kazumi_windows_$VERSION.zip" ] ||
-             [ ! -f "dist/Kazumi_ios_${VERSION}_no_sign.ipa" ]; then
-            echo "::error::dist/ must hold exactly Kazumi_android_$VERSION.apk, Kazumi_windows_$VERSION.zip and Kazumi_ios_${VERSION}_no_sign.ipa"
+             [ ! -f "dist/KazumiPlus_android_$VERSION.apk" ] || [ ! -f "dist/KazumiPlus_windows_$VERSION.zip" ] ||
+             [ ! -f "dist/KazumiPlus_ios_${VERSION}_no_sign.ipa" ]; then
+            echo "::error::dist/ must hold exactly KazumiPlus_android_$VERSION.apk, KazumiPlus_windows_$VERSION.zip and KazumiPlus_ios_${VERSION}_no_sign.ipa"
             exit 1
           fi
 
@@ -423,7 +461,7 @@ jobs:
           {
             printf '%s\n' "$NOTES"
             echo
-            echo '- 非官方修改版，与官方 Kazumi 无关，可与官方版同时安装'
+            echo '- Kazumi Plus 是 Kazumi 的非官方修改版，与官方无关，可与官方版同时安装'
             echo '- Windows 首次运行提示「已保护你的电脑」时：更多信息 → 仍要运行'
             echo '- iOS 安装包未签名，需用 AltStore、SideStore 或 TrollStore 等工具自签安装'
             echo '- 国内下载失败时，点「查看详情」用浏览器下载'
@@ -437,12 +475,12 @@ jobs:
         with:
           tag_name: ${{ inputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Kazumi ${{ inputs.version }}
+          name: Kazumi Plus ${{ inputs.version }}
           body_path: ${{ runner.temp }}/body.md
           draft: ${{ inputs.draft }}
           make_latest: ${{ !inputs.draft }}
           files: |
-            dist/Kazumi_android_${{ inputs.version }}.apk
-            dist/Kazumi_windows_${{ inputs.version }}.zip
-            dist/Kazumi_ios_${{ inputs.version }}_no_sign.ipa
+            dist/KazumiPlus_android_${{ inputs.version }}.apk
+            dist/KazumiPlus_windows_${{ inputs.version }}.zip
+            dist/KazumiPlus_ios_${{ inputs.version }}_no_sign.ipa
           fail_on_unmatched_files: true

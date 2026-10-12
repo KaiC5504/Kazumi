@@ -6,4 +6,4 @@
 /// `flutter test` and in AOT, true under `dart run`).
 const bool kPublicBuild = bool.fromEnvironment('KAZUMI_PUBLIC');
 
-const String kForkName = 'Kazumi';
+const String kForkName = kPublicBuild ? 'Kazumi Plus' : 'Kazumi';

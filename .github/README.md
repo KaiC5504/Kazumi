@@ -1,6 +1,6 @@
-# Kazumi
+# Kazumi Plus
 
-[Predidit/Kazumi](https://github.com/Predidit/Kazumi) 的**非官方修改版**，与官方无关。应用和绝大部分代码来自上游，功劳属于 Kazumi 的作者和贡献者。
+Kazumi Plus 是 [Predidit/Kazumi](https://github.com/Predidit/Kazumi) 的**非官方修改版**，与官方无关。应用和绝大部分代码来自上游，功劳属于 Kazumi 的作者和贡献者。
 本版本修复了一些上游 issue 中提到但尚未合入的问题，并持续同步上游更新。
 
 问题请在 [本仓库的 Issues](https://github.com/KaiC5504/Kazumi/issues) 反馈，不要提到上游。
@@ -35,16 +35,15 @@
 
 在 [Releases](https://github.com/KaiC5504/Kazumi/releases) 下载：
 
-- **Android**（arm64）：`Kazumi_android_X.Y.Z.apk`
-- **Windows**（x64，免安装）：`Kazumi_windows_X.Y.Z.zip`，解压后运行 `kazumi.exe`
-- **iOS**（未签名）：`Kazumi_ios_X.Y.Z_no_sign.ipa`，需用 AltStore、SideStore 或 TrollStore 等工具自签安装
+- **Android**（arm64）：`KazumiPlus_android_X.Y.Z.apk`
+- **Windows**（x64，免安装）：`KazumiPlus_windows_X.Y.Z.zip`，解压后运行 `kazumi.exe`
+- **iOS**（未签名）：`KazumiPlus_ios_X.Y.Z_no_sign.ipa`，需用 AltStore、SideStore 或 TrollStore 等工具自签安装
 
 说明：
 
 - 可以和官方 Kazumi 同时安装：Android 包名和 iOS Bundle ID 不同，Windows 使用单独的数据目录（`%APPDATA%\KazumiFork\kazumi`），两边的数据互不影响。
-- 应用名和图标与官方版相同。区分方法：本版本的「我的 → 关于」里有一段标明来源的说明和本仓库的链接。
+- 图标与官方版相同，应用名为 Kazumi Plus。「我的 → 关于」里有一段标明来源的说明和本仓库的链接。
 - Windows 首次运行若提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（安装包没有代码签名）。
-- 如果电脑上也装了官方版，首次启动时建议在「创建桌面快捷方式」提示中选择不创建，否则会覆盖官方版的同名快捷方式。
 - 应用内检查更新只查询本仓库的 Releases。Android 可在应用内下载并安装；Windows 和 iOS 会打开下载页面。国内网络下载失败时，请用浏览器打开 Releases 页面下载。
 
 ## 从官方版迁移
