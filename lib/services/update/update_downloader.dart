@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/request/clients/download_http_client.dart';
 import 'package:kazumi/request/core/network_exception.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -9,6 +10,14 @@ import 'package:kazumi/utils/crypto.dart';
 
 String getUpdateDownloadUrlFromAsset(
     Map<String, dynamic>? asset, UpdateDownloadSource source) {
+  // Public releases come straight from GitHub's API, which has no mirror link;
+  // gh-proxy is the mirror the public build already uses for rules. The file's
+  // sha256 digest is still checked, so the proxy can't swap it.
+  if (kPublicBuild && source == UpdateDownloadSource.mirror) {
+    final github =
+        getUpdateDownloadUrlFromAsset(asset, UpdateDownloadSource.github);
+    return github.isEmpty ? '' : 'https://cdn.gh-proxy.org/$github';
+  }
   final url = asset?[switch (source) {
     UpdateDownloadSource.mirror => 'mirror_download_url',
     UpdateDownloadSource.github => 'browser_download_url',

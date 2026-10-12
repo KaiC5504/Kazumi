@@ -273,9 +273,18 @@ void main() {
       );
       expect(apk?['name'], 'Kazumi_android_3.0.0.apk');
       expect(getUpdateFileHashFromAsset(apk!), hasLength(64));
+      final github = getUpdateDownloadUrlFromAsset(
+        apk,
+        UpdateDownloadSource.github,
+      );
       expect(
-        getUpdateDownloadUrlFromAsset(apk, UpdateDownloadSource.github),
+        github,
         startsWith('https://github.com/KaiC5504/Kazumi/releases/download/'),
+      );
+      // The update dialog starts on 镜像, and GitHub's API has no mirror link.
+      expect(
+        getUpdateDownloadUrlFromAsset(apk, UpdateDownloadSource.mirror),
+        kPublicBuild ? 'https://cdn.gh-proxy.org/$github' : '',
       );
     });
 

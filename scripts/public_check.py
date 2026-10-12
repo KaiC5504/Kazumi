@@ -79,6 +79,7 @@ PERSONAL_TESTS = {
     "lib/pages/my/my_space_view.dart": "test/public_build_test.dart",
     "lib/services/update/testflight_update.dart": "test/public_build_test.dart",
     "lib/services/update/public_update.dart": "test/public_build_test.dart",
+    "lib/services/update/update_downloader.dart": "test/public_build_test.dart",
     "lib/request/config/api_endpoints.dart": "test/public_build_test.dart",
     "lib/pages/download/download_page.dart": "test/public_build_test.dart",
     "lib/pages/download/public_gates.dart": "test/public_build_test.dart",
