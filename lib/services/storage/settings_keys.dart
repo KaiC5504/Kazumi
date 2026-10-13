@@ -658,12 +658,12 @@ class SettingsKeys {
     group: SettingGroup.bangumi,
   );
   static const bangumiAutoMarkWatched = SettingKey<bool>(
-    _SettingBoxKey.bangumiAutoMarkWatched,
+    'bangumiAutoMarkWatched',
     true,
     group: SettingGroup.bangumi,
   );
   static const bangumiProgressQueue = SettingKey<String>(
-    _SettingBoxKey.bangumiProgressQueue,
+    'bangumiProgressQueue',
     '[]',
     group: SettingGroup.bangumi,
   );
@@ -951,8 +951,6 @@ class _SettingBoxKey {
       shortcutDialogShown = 'shortcutDialogShown',
       bangumiSyncEnable = 'bangumiSyncEnable',
       bangumiAccessToken = 'bangumiAccessToken',
-      bangumiAutoMarkWatched = 'bangumiAutoMarkWatched',
-      bangumiProgressQueue = 'bangumiProgressQueue',
       bangumiSyncPriority = 'bangumiSyncPriority',
       bangumiImmediateSyncToastEnable = 'bangumiImmediateSyncToastEnable',
       brightnessVolumeGesture = 'brightnessVolumeGesture',
