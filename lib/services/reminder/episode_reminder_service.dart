@@ -31,7 +31,7 @@ class EpisodeReminderService {
   /// system page instead of a switch that silently does nothing.
   final permissionDenied = ValueNotifier<bool>(false);
 
-  bool get _supported => Platform.isIOS || Platform.isAndroid;
+  bool get supported => Platform.isIOS || Platform.isAndroid;
 
   Future<void> _init() async {
     if (_ready) return;
@@ -69,7 +69,7 @@ class EpisodeReminderService {
   }
 
   Future<void> handleLaunchTap() async {
-    if (!_supported) return;
+    if (!supported) return;
     try {
       await _init();
       final details = await _plugin.getNotificationAppLaunchDetails();
@@ -99,7 +99,7 @@ class EpisodeReminderService {
       _running ??= _refresh().whenComplete(() => _running = null);
 
   Future<void> _refresh() async {
-    if (!_supported) return;
+    if (!supported) return;
     try {
       await _init();
       _lastRun = DateTime.now();
@@ -109,11 +109,30 @@ class EpisodeReminderService {
           .where((c) => c.type == CollectType.watching.value)
           .toList();
       if (watching.isEmpty) return;
+      final raw = GStorage.getSetting(SettingsKeys.reminderEpisodeCache);
+      Map<String, dynamic> cache;
+      try {
+        cache = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        cache = {};
+      }
       final shows = <ReminderShow>[];
-      for (final c in watching) {
-        final item = c.bangumiItem;
-        final name = item.nameCn.isNotEmpty ? item.nameCn : item.name;
-        shows.add(ReminderShow(item.id, name, await _episodes(item.id)));
+      try {
+        for (final c in watching) {
+          final item = c.bangumiItem;
+          final name = item.nameCn.isNotEmpty ? item.nameCn : item.name;
+          shows.add(
+            ReminderShow(item.id, name, await _episodes(item.id, cache)),
+          );
+        }
+      } finally {
+        final encoded = jsonEncode(cache);
+        if (encoded != raw) {
+          await GStorage.putSetting<String>(
+            SettingsKeys.reminderEpisodeCache,
+            encoded,
+          );
+        }
       }
       final plan = planReminders(shows: shows, nowLocal: DateTime.now());
       if (plan.isEmpty) return;
@@ -162,21 +181,16 @@ class EpisodeReminderService {
 
   Future<void> _cancelOurs() async {
     for (final p in await _plugin.pendingNotificationRequests()) {
-      if (p.id >= 1000000000) await _plugin.cancel(id: p.id);
+      if (p.id >= reminderIdBase) await _plugin.cancel(id: p.id);
     }
   }
 
   /// Episode lists are cached for a day per show so a launch doesn't
-  /// refetch them.
-  Future<List<EpisodeInfo>> _episodes(int id) async {
-    Map<String, dynamic> cache;
-    try {
-      cache =
-          jsonDecode(GStorage.getSetting(SettingsKeys.reminderEpisodeCache))
-              as Map<String, dynamic>;
-    } catch (_) {
-      cache = {};
-    }
+  /// refetch them. Fetched lists go into [cache]; the caller saves it.
+  Future<List<EpisodeInfo>> _episodes(
+    int id,
+    Map<String, dynamic> cache,
+  ) async {
     final hit = cache['$id'] as Map<String, dynamic>?;
     if (hit != null &&
         DateTime.now().difference(DateTime.parse(hit['at'] as String)) <
@@ -203,10 +217,6 @@ class EpisodeReminderService {
             {'s': e.episode, 'e': e.ep, 't': e.type, 'a': e.airdate},
         ],
       };
-      await GStorage.putSetting<String>(
-        SettingsKeys.reminderEpisodeCache,
-        jsonEncode(cache),
-      );
     }
     return eps;
   }
