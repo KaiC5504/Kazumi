@@ -5,19 +5,29 @@ import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/pages/collect/collect_watch_progress.dart';
 
 void main() {
-  test('keeps source episode names only when they carry a number', () {
+  test('every source format becomes 第 N 集', () {
     final progress = collectWatchProgress([
       _history(1, episode: 3, name: '第03集', at: 1),
       _history(2, episode: 7, name: '07', at: 1),
       _history(3, episode: 2, name: '', at: 1),
       _history(4, episode: 4, name: 'もう一度、君に会うために', at: 1),
+      _history(5, episode: 1, name: '第13话 再会', at: 1),
+      _history(6, episode: 5, name: 'EP05', at: 1),
+      _history(7, episode: 9, name: '第12.5集', at: 1),
+      _history(8, episode: 6, name: '100万の命の上に', at: 1),
+      _history(9, episode: 1, name: '04 旅立ち', at: 1),
     ]);
 
     expect(progress, {
-      1: '看到 第03集',
-      2: '看到 第 7 话',
-      3: '看到 第 2 话',
-      4: '看到 第 4 话',
+      1: '看到 第 3 集',
+      2: '看到 第 7 集',
+      3: '看到 第 2 集',
+      4: '看到 第 4 集',
+      5: '看到 第 13 集',
+      6: '看到 第 5 集',
+      7: '看到 第 12.5 集',
+      8: '看到 第 6 集',
+      9: '看到 第 4 集',
     });
   });
 
@@ -28,7 +38,7 @@ void main() {
       _history(1, episode: 1, name: '', at: 1, adapter: 'c'),
     ]);
 
-    expect(progress, {1: '看到 第 9 话'});
+    expect(progress, {1: '看到 第 9 集'});
   });
 }
 
