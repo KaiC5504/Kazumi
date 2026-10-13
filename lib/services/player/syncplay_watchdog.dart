@@ -97,7 +97,8 @@ class ReconnectBackoff {
   DateTime? _lastAttempt;
   int _attempts = 0;
 
-  bool get running => _startedAt != null && !exhausted;
+  /// From [start] until [reset], whether or not attempts remain.
+  bool get started => _startedAt != null;
   bool get exhausted => _attempts >= _gaps.length;
   Duration get elapsed =>
       _startedAt == null ? Duration.zero : _clock().difference(_startedAt!);
