@@ -11,9 +11,9 @@ import 'package:kazumi/services/storage/storage.dart';
 /// Names already handed out are remembered, so a rule the user deletes stays
 /// deleted; only rules newly added to the catalog get installed later.
 ///
-/// The first sync on a device orders every rule by measured quality, so the
-/// 播放来源 sheet lists the best sources first. Later syncs keep the user's
-/// order.
+/// The first sync on a device puts [firstInstallOrder] on top and the rest by
+/// measured quality, so the 播放来源 sheet lists the best sources first. Later
+/// syncs keep the user's order.
 Future<({int installed, int updated})> syncOfficialRules(
   PluginsController controller, {
   required bool updateExisting,
@@ -38,7 +38,7 @@ Future<({int installed, int updated})> syncOfficialRules(
   if (known.isEmpty && installed > 0) {
     await _applyOrder(
       controller,
-      sortByQuality(controller.pluginList.toList(), (plugin) => plugin.name),
+      sortForFirstInstall(controller.pluginList.toList(), (p) => p.name),
     );
   }
 
@@ -80,6 +80,37 @@ Future<void> syncOfficialRulesWithFeedback(
       stackTrace: stackTrace,
     );
   }
+}
+
+/// Hand-picked: the measured numbers tie on most of these sources, so their
+/// order is a judgement call rather than something the badge data decides.
+const firstInstallOrder = [
+  'xfdmnext',
+  'xfdmneo',
+  '欧乐影院',
+  'moonci',
+  'aafun',
+  'dmghg1',
+  '7sefun',
+  'dm84',
+  'milimili',
+  'sorani',
+  'mxdm',
+];
+
+/// [firstInstallOrder] first, then everything else by measured quality.
+List<T> sortForFirstInstall<T>(List<T> items, String Function(T) nameOf) {
+  int rank(T item) {
+    final index = firstInstallOrder.indexOf(pluginNameKey(nameOf(item)));
+    return index < 0 ? firstInstallOrder.length : index;
+  }
+
+  final byQuality = sortByQuality(items, nameOf).indexed.toList()
+    ..sort((a, b) {
+      final c = rank(a.$2).compareTo(rank(b.$2));
+      return c != 0 ? c : a.$1.compareTo(b.$1);
+    });
+  return [for (final (_, item) in byQuality) item];
 }
 
 // One rule at a time through onReorder: plugins_controller.dart stays as

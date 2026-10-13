@@ -83,6 +83,29 @@ void main() {
     expect(names(c), ['AGE', 'ezdmw', 'baimao', 'akianime']);
   });
 
+  test('the hand-picked sources lead, in their order', () async {
+    catalog = {
+      'akianime': '1.0',
+      'MXdm': '2.4',
+      'AGE': '1.5',
+      'aafun': '1.2',
+      'xfdmnext': '1.1',
+      '7sefun': '1.3',
+    };
+    final c = controller();
+
+    await syncOfficialRules(c, updateExisting: false);
+
+    expect(names(c), [
+      'xfdmnext',
+      'aafun',
+      '7sefun',
+      'MXdm',
+      'AGE',
+      'akianime',
+    ]);
+  });
+
   test('later syncs keep the order the user chose', () async {
     final c = controller();
     await syncOfficialRules(c, updateExisting: false);
