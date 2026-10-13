@@ -33,16 +33,26 @@ LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message,
   return DefSubclassProc(hwnd, message, wparam, lparam);
 }
 
+bool FileExists(const std::wstring& path) {
+  return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// Checked next to the exe and in %LOCALAPPDATA%\Kazumi, so the per-user one
+// covers every build on the machine, wherever it runs from.
 bool AccessibilityMarkerExists() {
-  wchar_t exe_path[MAX_PATH];
-  DWORD length = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
-  if (length == 0 || length == MAX_PATH) {
-    return false;
+  wchar_t buffer[MAX_PATH];
+  DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+  if (length > 0 && length < MAX_PATH) {
+    std::wstring marker(buffer, length);
+    marker.resize(marker.find_last_of(L'\\') + 1);
+    if (FileExists(marker + L"allow-accessibility")) {
+      return true;
+    }
   }
-  std::wstring marker(exe_path, length);
-  marker.resize(marker.find_last_of(L'\\') + 1);
-  marker += L"allow-accessibility";
-  return GetFileAttributesW(marker.c_str()) != INVALID_FILE_ATTRIBUTES;
+  length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
+  return length > 0 && length < MAX_PATH &&
+         FileExists(std::wstring(buffer, length) +
+                    L"\\Kazumi\\allow-accessibility");
 }
 
 }  // namespace
