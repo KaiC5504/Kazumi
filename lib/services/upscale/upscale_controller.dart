@@ -1183,27 +1183,32 @@ class UpscaleController {
     var attempt = 0;
     while (true) {
       if (cancel?.isCompleted ?? false) throw const UploadCancelled();
-      final offset = await api.uploadedSize(id, file);
-      if (offset == size) return;
-      if (offset > size) {
-        throw LibraryException('服务器上的 $file 比本地大，请在服务器上删除后重试');
-      }
+      final int offset;
+      // The offset query retries too, so an outage longer than the backoff
+      // doesn't end the upload.
       try {
-        await api.upload(
-          id,
-          file,
-          source,
-          offset: offset,
-          onProgress: onProgress,
-          cancelled: cancel?.future,
-        );
-        return;
+        offset = await api.uploadedSize(id, file);
+        if (offset < size) {
+          await api.upload(
+            id,
+            file,
+            source,
+            offset: offset,
+            onProgress: onProgress,
+            cancelled: cancel?.future,
+          );
+        }
       } on LibraryException catch (e) {
         if (cancel?.isCompleted ?? false) throw const UploadCancelled();
         if (++attempt >= 8) rethrow;
         KazumiLogger().w('UpscaleController: upload retry $attempt: $e');
         await Future.delayed(Duration(seconds: 2 * attempt));
+        continue;
       }
+      if (offset > size) {
+        throw LibraryException('服务器上的 $file 比本地大，请在服务器上删除后重试');
+      }
+      return;
     }
   }
 

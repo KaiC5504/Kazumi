@@ -238,6 +238,9 @@ class UpscaleBaker {
 
     KazumiLogger().i('UpscaleBaker: ${ffmpeg.executable} ${args.join(' ')}');
 
+    // A cancel during the duration probe had no process to kill.
+    if (_cancelled) throw UpscaleBakeCancelled();
+
     // Filtergraph escaping of Windows paths is fragile, so run next to the
     // shader and refer to it by bare file name.
     final process = await Process.start(

@@ -129,8 +129,8 @@ class CloudJob {
   /// Where the baked video ends up: `<episode>/upscaled/video.mp4`.
   final String outputPath;
 
-  /// Picked for the cloud by hand: the laptop lane leaves it alone unless
-  /// the pod is gone.
+  /// Picked for the cloud by hand: the laptop lane never takes it, and it
+  /// fails if the pod can't bake it.
   final bool cloudOnly;
 
   String get id => idFor(recordKey, episodeNumber);
@@ -656,8 +656,8 @@ class CloudBakeSession {
     _notify();
     final local = _localLane();
     await _cloudLane();
-    // Pulled out before _cloudOver flips, or the laptop lane would grab them
-    // while the awaits below run.
+    // Pulled out so the laptop lane, which skips them, sees the queue drain
+    // and stops.
     final orphans = _pending.where((j) => !_laptopMayTake(j)).toList();
     _pending.removeWhere((j) => !_laptopMayTake(j));
     _cloudOver = true;
