@@ -24,6 +24,7 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/pages/video/episode_layout.dart';
 import 'package:kazumi/pages/video/episode_selection_panel.dart';
 import 'package:kazumi/modules/roads/road_module.dart';
 import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
@@ -848,6 +849,123 @@ void main() {
       final picked = await pumpTitled(tester);
       await tester.tap(find.text(titles[2]));
       expect(picked, [(3, 0)]);
+    });
+  });
+
+  group('episode layout choice on the video page', () {
+    final saved = <EpisodeLayout>[];
+
+    setUp(() async {
+      saved.clear();
+      EpisodeLayout.debugOnSave = (layout) async => saved.add(layout);
+      await GStorage.resetSettings([EpisodeLayout.setting]);
+    });
+    tearDown(() async {
+      EpisodeLayout.debugOnSave = null;
+      await GStorage.resetSettings([EpisodeLayout.setting]);
+    });
+
+    // Outside fake async, where a Hive write can finish.
+    Future<void> useLayout(WidgetTester tester, EpisodeLayout layout) =>
+        tester.runAsync(
+          () => GStorage.putSetting(EpisodeLayout.setting, layout.name),
+        );
+
+    Future<List<(int, int)>> pumpNamed(
+      WidgetTester tester,
+      List<String> names,
+    ) async {
+      tester.view.physicalSize = const Size(440, 956);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final picked = <(int, int)>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EpisodeSelectionPanel(
+              title: '测试番剧',
+              roads: [
+                Road(
+                  name: '播放列表1',
+                  data: [for (var i = 1; i <= names.length; i++) 'ep$i'],
+                  identifier: names,
+                ),
+              ],
+              selectedRoad: 0,
+              selectedEpisode: 1,
+              onEpisodeSelected: (episode, road) => picked.add((episode, road)),
+              downloads: const {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return picked;
+    }
+
+    // Compare unselected episodes: the selected one has a status line.
+    bool sameRow(WidgetTester tester, String a, String b) =>
+        tester.getTopLeft(find.text(a)).dy ==
+        tester.getTopLeft(find.text(b)).dy;
+
+    const titled = [
+      'FX战士久留美是怎样炼成的',
+      '有杠杆的地方就有她的身影',
+      '久留美与不可思议的放学后',
+    ];
+
+    testWidgets('自动 keeps a grid when names fit a cell in two lines', (
+      tester,
+    ) async {
+      const names = ['第一话 新的开始', '第二话 意外的客人', '第三话 雨中的约定'];
+      await pumpNamed(tester, names);
+      expect(sameRow(tester, names[1], names[2]), isTrue);
+      for (final name in names) {
+        expect(
+          tester.renderObject<RenderParagraph>(find.text(name)).didExceedMaxLines,
+          isFalse,
+        );
+      }
+    });
+
+    testWidgets('picking 列表 gives every episode a row and is remembered', (
+      tester,
+    ) async {
+      const names = ['第一话 新的开始', '第二话 意外的客人', '第三话 雨中的约定'];
+      await pumpNamed(tester, names);
+      await tester.tap(find.byTooltip('选集布局：自动'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('列表'));
+      await tester.pumpAndSettle();
+      expect(sameRow(tester, names[1], names[2]), isFalse);
+      expect(saved, [EpisodeLayout.list]);
+
+      await useLayout(tester, EpisodeLayout.list);
+      await tester.pumpWidget(const SizedBox());
+      await pumpNamed(tester, names);
+      expect(find.byTooltip('选集布局：列表'), findsOneWidget);
+      expect(sameRow(tester, names[1], names[2]), isFalse);
+    });
+
+    testWidgets('网格 keeps long titles in columns, cut to two lines', (
+      tester,
+    ) async {
+      await useLayout(tester, EpisodeLayout.grid);
+      final picked = await pumpNamed(tester, titled);
+      expect(sameRow(tester, titled[1], titled[2]), isTrue);
+      await tester.tap(find.text(titled[2]));
+      expect(picked, [(3, 0)]);
+    });
+
+    testWidgets('紧凑 fits a 26 episode season on her iPhone', (tester) async {
+      await useLayout(tester, EpisodeLayout.compact);
+      final names = [for (var i = 1; i <= 26; i++) '第$i集'];
+      final picked = await pumpNamed(tester, names);
+      for (final name in names) {
+        expect(find.text(name).hitTestable(), findsOneWidget);
+      }
+      await tester.tap(find.text('第26集'));
+      expect(picked, [(26, 0)]);
     });
   });
 }

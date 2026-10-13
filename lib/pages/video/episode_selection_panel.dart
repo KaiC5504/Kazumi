@@ -5,8 +5,10 @@ import 'package:flutter/physics.dart';
 import 'package:scrollview_observer/scrollview_observer.dart';
 
 import 'package:kazumi/bean/widget/empty_state_widget.dart';
+import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/roads/road_module.dart';
+import 'package:kazumi/pages/video/episode_layout.dart';
 
 class EpisodeSelectionPanel extends StatefulWidget {
   const EpisodeSelectionPanel({
@@ -44,6 +46,7 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
       GridObserverController(controller: _scrollController)
         ..cacheJumpIndexOffset = false;
   late int _visibleRoad = widget.selectedRoad;
+  EpisodeLayout _layout = EpisodeLayout.saved;
   Object? _shapeKey;
   ({int columns, int lines}) _shape = (columns: 1, lines: 1);
 
@@ -52,12 +55,13 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
           ? road.identifier[index]
           : '第${index + 1}集';
 
-  /// A grid while every name fits on one line, otherwise one full row per
-  /// episode so titled episodes read like a list, not a mix of cell sizes.
-  ({int columns, int lines}) _gridShape(Road road, double width,
-      TextStyle? style, TextScaler scaler, double minCell) {
+  /// [EpisodeLayout.auto] keeps a grid while every name fits a cell in one or
+  /// two lines, otherwise one full row per episode so titled episodes read like
+  /// a list, not a mix of cell sizes.
+  ({int columns, int lines}) _gridShape(Road road, EpisodeLayout layout,
+      double width, TextStyle? style, TextScaler scaler, double minCell) {
     // Cached: the panel rebuilds on every download progress tick.
-    final key = (road, width, scaler.scale(16), style, minCell);
+    final key = (road, layout, width, scaler.scale(16), style, minCell);
     if (key == _shapeKey) return _shape;
     final painter =
         TextPainter(textDirection: TextDirection.ltr, textScaler: scaler);
@@ -84,12 +88,19 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
       return true;
     }
 
+    ({int columns, int lines}) fullRows() =>
+        (columns: 1, lines: fits(1, 1) ? 1 : (fits(1, 2) ? 2 : 3));
+
     final columns = math.max(1, (width / (minCell + 8)).ceil());
-    final shape = fits(columns, 1)
-        ? (columns: columns, lines: 1)
-        : fits(1, 1)
-            ? (columns: 1, lines: 1)
-            : (columns: 1, lines: fits(1, 2) ? 2 : 3);
+    final shape = switch (layout) {
+      EpisodeLayout.list => fullRows(),
+      EpisodeLayout.grid => (columns: columns, lines: fits(columns, 1) ? 1 : 2),
+      _ => fits(columns, 1)
+          ? (columns: columns, lines: 1)
+          : fits(columns, 2)
+              ? (columns: columns, lines: 2)
+              : fullRows(),
+    };
     painter.dispose();
     _shapeKey = key;
     return _shape = shape;
@@ -103,6 +114,12 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
 
   double get _toolbarHeight =>
       math.max(56, MediaQuery.textScalerOf(context).scale(20) + 8);
+
+  void _setLayout(EpisodeLayout layout) {
+    if (layout == _layout) return;
+    setState(() => _layout = layout);
+    EpisodeLayout.save(layout);
+  }
 
   void _selectRoad(int road) {
     if (_visibleRoad == road) return;
@@ -160,10 +177,18 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
       final largeText = textScaler.scale(14) > 21;
       final nameStyle =
           theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700);
+      final dense = _layout == EpisodeLayout.compact;
+      // Compact cells are sized for short names like 第12集 and never measure.
       final shape = road == null
           ? (columns: 1, lines: 1)
-          : _gridShape(road, constraints.maxWidth - 32, nameStyle, textScaler,
-              largeText ? 240 : 150);
+          : dense
+              ? (
+                  columns: math.max(
+                      1, (constraints.maxWidth - 24) ~/ (largeText ? 128 : 84)),
+                  lines: 1
+                )
+              : _gridShape(road, _layout, constraints.maxWidth - 32, nameStyle,
+                  textScaler, largeText ? 240 : 150);
       return GridViewObserver(
         controller: _observerController,
         child: Scrollbar(
@@ -225,6 +250,22 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                             ),
                           ),
                         ),
+                        KazumiMenuButton(
+                          menuChildren: [
+                            for (final layout in EpisodeLayout.values)
+                              KazumiMenuItem(
+                                selected: layout == _layout,
+                                leadingIcon: Icon(layout.icon),
+                                label: layout.label,
+                                onPressed: () => _setLayout(layout),
+                              ),
+                          ],
+                          builder: (context, toggle) => IconButton(
+                            tooltip: '选集布局：${_layout.label}',
+                            onPressed: toggle,
+                            icon: Icon(_layout.icon, size: 20),
+                          ),
+                        ),
                         IconButton(
                           tooltip: '定位当前集',
                           onPressed: _canLocate ? revealCurrentEpisode : null,
@@ -264,9 +305,11 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                       crossAxisCount: shape.columns,
                       // Padding and gap take 20; fallback CJK glyphs run a
                       // little past the nominal line height, hence 24.
-                      mainAxisExtent: shape.lines * textScaler.scale(24) +
-                          textScaler.scale(16) +
-                          24,
+                      mainAxisExtent: dense
+                          ? textScaler.scale(22) + 26
+                          : shape.lines * textScaler.scale(24) +
+                              textScaler.scale(16) +
+                              24,
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),
@@ -277,7 +320,8 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                         key: ValueKey('$_visibleRoad:$episode'),
                         name: _episodeName(road!, index),
                         nameLines: shape.lines,
-                        fullRow: shape.columns == 1,
+                        fullRow: shape.columns == 1 && !dense,
+                        dense: dense,
                         selected: _visibleRoad == widget.selectedRoad &&
                             episode == widget.selectedEpisode,
                         isPlaying: widget.isPlaying,
@@ -577,6 +621,7 @@ class _EpisodeRow extends StatefulWidget {
     required this.name,
     required this.nameLines,
     required this.fullRow,
+    this.dense = false,
     required this.selected,
     required this.isPlaying,
     required this.isOffline,
@@ -588,6 +633,9 @@ class _EpisodeRow extends StatefulWidget {
   final String name;
   final int nameLines;
   final bool fullRow;
+
+  /// Compact cell: the name only, with a dot for the cache state.
+  final bool dense;
   final bool selected;
   final bool isPlaying;
   final bool isOffline;
@@ -628,6 +676,51 @@ class _EpisodeRowState extends State<_EpisodeRow>
   void dispose() {
     _press.dispose();
     super.dispose();
+  }
+
+  Widget _denseContent(ThemeData theme, Color foreground,
+      int? status, String? downloadLabel) {
+    final colors = theme.colorScheme;
+    return Stack(
+      children: [
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              widget.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: foreground,
+                fontWeight:
+                    widget.selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+        if (!widget.isOffline && downloadLabel != null)
+          PositionedDirectional(
+            top: 6,
+            end: 6,
+            child: SizedBox.square(
+              dimension: 6,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.selected
+                      ? foreground
+                      : switch (status) {
+                          DownloadStatus.completed => colors.tertiary,
+                          DownloadStatus.failed => colors.error,
+                          _ => colors.outline,
+                        },
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -700,7 +793,9 @@ class _EpisodeRowState extends State<_EpisodeRow>
               return null;
             }),
             child: ExcludeSemantics(
-              child: Padding(
+              child: widget.dense
+                  ? _denseContent(theme, foreground, status, downloadLabel)
+                  : Padding(
                   padding: EdgeInsets.symmetric(
                       horizontal: widget.fullRow ? 16 : 12, vertical: 8),
                   child: Column(
