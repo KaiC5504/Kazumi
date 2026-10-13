@@ -9,6 +9,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/onboarding/steps/disclaimer_step.dart';
+import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/onboarding/steps/mirror_settings_step.dart';
 import 'package:kazumi/pages/onboarding/steps/update_source_step.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
@@ -33,6 +34,7 @@ class OnboardingPage extends StatefulWidget {
 
 enum _OnboardingStep {
   welcome('使用约定'),
+  layout('界面布局'),
   updates('更新来源'),
   mirrors('访问加速');
 
@@ -45,6 +47,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final _pageController = PageController();
   final _steps = [
     _OnboardingStep.welcome,
+    _OnboardingStep.layout,
     if (Platform.isAndroid) _OnboardingStep.updates,
     // No rules step: every official rule installs after the disclaimer.
     _OnboardingStep.mirrors,
@@ -72,6 +75,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   Widget _buildStep(_OnboardingStep step) => switch (step) {
         _OnboardingStep.welcome => const DisclaimerStep(),
+        _OnboardingStep.layout => const LayoutStyleStep(),
         _OnboardingStep.updates => UpdateSourceStep(
             useGithubUpdate: _useGithubUpdate,
             onChanged: (value) {

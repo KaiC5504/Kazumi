@@ -24,7 +24,11 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/bean/settings/settings_list.dart';
+import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/settings/interface_settings.dart';
+import 'package:kazumi/pages/settings/layout_settings.dart';
+import 'package:kazumi/modules/collect/collect_layout.dart';
 import 'package:kazumi/pages/video/episode_layout.dart';
 import 'package:kazumi/pages/video/episode_selection_panel.dart';
 import 'package:kazumi/modules/roads/road_module.dart';
@@ -741,26 +745,94 @@ void main() {
       await GStorage.resetSettings([
         ClassicLayout.setting,
         EpisodeLayout.setting,
+        SettingsKeys.defaultCollectLayout,
       ]);
       ClassicLayout.debugReset();
     });
 
-    testWidgets('is off in her app, so 界面设置 shows it off', (tester) async {
+    Future<void> pumpPhone(WidgetTester tester, Widget child) async {
       tester.view.physicalSize = const Size(400, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(
-        const MaterialApp(home: InterfaceSettingsPage()),
-      );
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
       await tester.pumpAndSettle();
-      expect(find.text('经典布局'), findsOneWidget);
-      // 界面风格 is the first section, so its switch is the first one.
-      expect(tester.widgetList<Switch>(find.byType(Switch)).first.value, isFalse);
+    }
+
+    // The write runs outside fake async, where Hive can finish it.
+    Future<void> pick(WidgetTester tester, String style, bool classic) async {
+      await tester.runAsync(() async {
+        await tester.tap(find.bySemanticsLabel(RegExp('^$style布局')));
+        while (ClassicLayout.enabled != classic) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pumpAndSettle();
+    }
+
+    Finder style(String name) => find.bySemanticsLabel(RegExp('^$name布局'));
+
+    testWidgets('is off in her app: 外观设置 → 布局 has 新版 picked', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPhone(
+        tester,
+        const SettingsList(sections: [LayoutSettingsSection()]),
+      );
+      expect(
+        tester.getSemantics(style('新版')),
+        isSemantics(isSelected: true),
+      );
+      expect(
+        tester.getSemantics(style('经典')),
+        isSemantics(isSelected: false),
+      );
+      expect(find.text(CollectLayout.list.label), findsOneWidget);
+      expect(find.text(EpisodeLayout.auto.label), findsOneWidget);
+      semantics.dispose();
     });
 
-    testWidgets('我的 keeps 一起看 in the list layout at 1200 px', (
+    testWidgets('picking 经典 in 外观设置 moves 追番 and 选集 to grids', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPhone(
+        tester,
+        const SettingsList(sections: [LayoutSettingsSection()]),
+      );
+      await pick(tester, '经典', true);
+      expect(
+        tester.getSemantics(style('经典')),
+        isSemantics(isSelected: true),
+      );
+      expect(find.text(CollectLayout.cards.label), findsOneWidget);
+      expect(find.text(EpisodeLayout.grid.label), findsOneWidget);
+
+      await pick(tester, '新版', false);
+      expect(find.text(CollectLayout.list.label), findsOneWidget);
+      expect(find.text(EpisodeLayout.auto.label), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('界面设置 no longer carries the layout options', (tester) async {
+      await pumpPhone(tester, const InterfaceSettingsPage());
+      expect(find.text('经典布局'), findsNothing);
+      expect(find.text('追番默认布局'), findsNothing);
+      expect(find.text('显示评分'), findsOneWidget);
+    });
+
+    testWidgets('onboarding offers both styles and keeps the pick', (
       tester,
     ) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPhone(tester, const LayoutStyleStep());
+      expect(find.text('选一个喜欢的布局'), findsOneWidget);
+      expect(
+        tester.getSemantics(style('新版')),
+        isSemantics(isSelected: true),
+      );
+      await pick(tester, '经典', true);
+      expect(EpisodeLayout.saved, EpisodeLayout.grid);
+      semantics.dispose();
+    });
+
+    testWidgets('我的 keeps 一起看 in the list layout at 1200 px', (tester) async {
       await useClassic(tester, true);
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1;

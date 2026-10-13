@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_dropdown_tile.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
-import 'package:kazumi/modules/collect/collect_layout.dart';
-import 'package:kazumi/services/layout/classic_layout.dart';
 import 'package:kazumi/services/reminder/episode_reminder_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/utils/device.dart';
@@ -20,8 +17,6 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
   late bool showRating;
   late bool episodeReminders;
   late String defaultPage;
-  late CollectLayout _defaultCollectLayout;
-  bool _savingCollectLayout = false;
   static const _exitBehaviorTitles = ['退出 Kazumi', '最小化至托盘', '每次都询问'];
   int _exitBehavior = GStorage.getSetting(SettingsKeys.exitBehavior)
       .clamp(0, _exitBehaviorTitles.length - 1);
@@ -39,9 +34,6 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
     showRating = GStorage.getSetting(SettingsKeys.showRating);
     episodeReminders = GStorage.getSetting(SettingsKeys.episodeReminders);
     defaultPage = GStorage.getSetting(SettingsKeys.defaultStartupPage);
-    _defaultCollectLayout = CollectLayout.fromValue(
-      GStorage.getSetting(SettingsKeys.defaultCollectLayout),
-    );
   }
 
   Future<void> _toggleEpisodeReminders(bool? value) async {
@@ -63,45 +55,12 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
     });
   }
 
-  Future<void> _updateDefaultCollectLayout(CollectLayout layout) async {
-    if (_savingCollectLayout || layout == _defaultCollectLayout) return;
-    setState(() => _savingCollectLayout = true);
-    try {
-      await GStorage.putSetting(SettingsKeys.defaultCollectLayout, layout.name);
-      if (mounted) setState(() => _defaultCollectLayout = layout);
-    } catch (_) {
-      if (mounted) KazumiDialog.showToast(message: '追番默认布局保存失败，请重试');
-    } finally {
-      if (mounted) setState(() => _savingCollectLayout = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return SettingsDetailScaffold(
       title: Text('界面设置'),
       body: SettingsList(
         sections: [
-          SettingsSection(title: Text('界面风格'), tiles: [
-            ValueListenableBuilder<bool>(
-              valueListenable: ClassicLayout.listenable,
-              builder: (context, classic, _) => SettingsTile.switchTile(
-                leading: Icons.view_comfy_alt_rounded,
-                onToggle: (value) async {
-                  await ClassicLayout.set(value ?? !classic);
-                  if (mounted) {
-                    setState(() => _defaultCollectLayout =
-                        CollectLayout.fromValue(GStorage.getSetting(
-                            SettingsKeys.defaultCollectLayout)));
-                  }
-                },
-                title: const Text('经典布局'),
-                description: const Text(
-                    '更紧凑的旧版排布：追番和搜索用小海报网格，选集用网格，我的页面用列表'),
-                initialValue: classic,
-              ),
-            ),
-          ]),
           SettingsSection(title: Text('启动'), tiles: [
             SettingsDropdownTile<String>(
               leading: Icons.home_rounded,
@@ -114,17 +73,7 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
             ),
           ]),
           SettingsSection(title: Text('展示信息'), tiles: [
-            SettingsDropdownTile<CollectLayout>(
-              leading: Icons.view_agenda_rounded,
-              title: const Text('追番默认布局'),
-              description: const Text('下次打开追番页时使用，页面内切换不会改变此设置'),
-              enabled: !_savingCollectLayout,
-              value: _defaultCollectLayout,
-              options: {
-                for (final layout in CollectLayout.values) layout: layout.label,
-              },
-              onChanged: _updateDefaultCollectLayout,
-            ),
+            // 追番默认布局 lives in 外观设置 → 布局 with the other layouts.
             SettingsTile.switchTile(
               leading: Icons.star_rounded,
               onToggle: (value) async {

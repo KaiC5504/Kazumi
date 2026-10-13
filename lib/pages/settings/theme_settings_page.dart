@@ -10,6 +10,7 @@ import 'package:kazumi/bean/settings/color_type.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_dropdown_tile.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
+import 'package:kazumi/pages/settings/layout_settings.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/utils/theme.dart';
@@ -229,6 +230,7 @@ class _ThemeSettingsPageState extends State<ThemeSettingsPage> {
             ],
             bottomInfo: Text('动态配色仅支持安卓12及以上和桌面平台'),
           ),
+          const LayoutSettingsSection(),
           SettingsSection(
             title: Text('显示'),
             tiles: [

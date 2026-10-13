@@ -166,6 +166,8 @@ PIPELINE_TESTS = ["uv", "run", "--no-project", "--quiet", "--with", "pyyaml==6.0
 TESTED_EDITS = {
     "lib/pages/my/my_space_view.dart",
     "lib/pages/settings/interface_settings.dart",
+    "lib/pages/settings/layout_settings.dart",
+    "lib/pages/settings/theme_settings_page.dart",
     "lib/services/update/testflight_update.dart",
     "lib/request/config/api_endpoints.dart",
 }
