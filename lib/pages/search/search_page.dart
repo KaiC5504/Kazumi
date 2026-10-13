@@ -293,7 +293,7 @@ class _SearchPageState extends State<SearchPage> {
             // A filled icon instead of a dot: a dot reads as unread and
             // can't be cleared while a filter the user wants stays on.
             IconButton(
-              tooltip: filtered ? '筛选番剧（已启用筛选）' : '筛选番剧',
+              tooltip: filtered ? '筛选番剧（已开启）' : '筛选番剧',
               onPressed: _showFilters,
               isSelected: filtered,
               selectedIcon: const Icon(Icons.filter_alt_rounded),
@@ -316,7 +316,7 @@ class _SearchPageState extends State<SearchPage> {
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
-                  child: const Text('显示'),
+                  child: const Text('显示全部'),
                 ),
             ],
           ),

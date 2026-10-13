@@ -20,6 +20,7 @@ Kazumi Plus 是 [Predidit/Kazumi](https://github.com/Predidit/Kazumi) 的**非�
 
 | 改动 | 平台 | 相关上游 issue |
 |---|---|---|
+| 布局可选：第一次打开时选新版或经典布局（经典更像改版前，追番和搜索都是海报墙），之后在「我的 → 外观设置 → 布局」里随时换；追番和选集的布局也能单独设置，选集有自动、网格、列表、紧凑四种 | 全部 | [#2539](https://github.com/Predidit/Kazumi/issues/2539) |
 | 在线播放时从 [AniSkip](https://aniskip.com) 查询片头片尾时间并提示跳过（播放设置中可关闭） | 全部 | [#2420](https://github.com/Predidit/Kazumi/issues/2420)、[#218](https://github.com/Predidit/Kazumi/issues/218) |
 | 每部番剧单独记住播放倍速（一起看时固定 1.0×） | 全部 | [#2572](https://github.com/Predidit/Kazumi/issues/2572)、[#1599](https://github.com/Predidit/Kazumi/issues/1599) |
 | 首次启动自动安装官方规则，之后官方新增的规则也会自动安装（删除过的不会再装回来） | 全部 | — |
