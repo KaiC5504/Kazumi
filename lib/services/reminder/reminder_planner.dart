@@ -25,8 +25,10 @@ class PlannedReminder {
 
 /// Reminder ids live above 1e9 so cancelling them never touches other
 /// notifications.
+const reminderIdBase = 1000000000;
+
 int reminderId(int bangumiId, num ep) =>
-    1000000000 + ((bangumiId * 2000 + ep.toInt()) % 1000000000);
+    reminderIdBase + ((bangumiId * 2000 + ep.toInt()) % reminderIdBase);
 
 /// Bangumi only has the Japanese air date, and Chinese sources usually
 /// carry a late-night episode by the next morning.

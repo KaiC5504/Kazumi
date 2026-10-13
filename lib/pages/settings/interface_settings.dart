@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
@@ -39,23 +37,10 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
     super.initState();
     showRating = GStorage.getSetting(SettingsKeys.showRating);
     episodeReminders = GStorage.getSetting(SettingsKeys.episodeReminders);
-    EpisodeReminderService.instance.permissionDenied
-        .addListener(_onPermissionChanged);
     defaultPage = GStorage.getSetting(SettingsKeys.defaultStartupPage);
     _defaultCollectLayout = CollectLayout.fromValue(
       GStorage.getSetting(SettingsKeys.defaultCollectLayout),
     );
-  }
-
-  @override
-  void dispose() {
-    EpisodeReminderService.instance.permissionDenied
-        .removeListener(_onPermissionChanged);
-    super.dispose();
-  }
-
-  void _onPermissionChanged() {
-    if (mounted) setState(() {});
   }
 
   Future<void> _toggleEpisodeReminders(bool? value) async {
@@ -131,18 +116,20 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
               initialValue: showRating,
             ),
           ]),
-          if (Platform.isIOS || Platform.isAndroid)
+          if (EpisodeReminderService.instance.supported)
             SettingsSection(title: Text('提醒'), tiles: [
-              SettingsTile.switchTile(
-                leading: Icons.notifications_active_rounded,
-                onToggle: _toggleEpisodeReminders,
-                title: Text('新集提醒'),
-                description: Text(
-                    EpisodeReminderService.instance.permissionDenied.value
-                        ? '未授权，去系统设置开启'
-                        : '在看的番剧更新后第二天 10:00 提醒'),
-                initialValue: episodeReminders &&
-                    !EpisodeReminderService.instance.permissionDenied.value,
+              ValueListenableBuilder<bool>(
+                valueListenable:
+                    EpisodeReminderService.instance.permissionDenied,
+                builder: (context, denied, _) => SettingsTile.switchTile(
+                  leading: Icons.notifications_active_rounded,
+                  onToggle: _toggleEpisodeReminders,
+                  title: Text('新集提醒'),
+                  description: Text(denied
+                      ? '未授权，去系统设置开启'
+                      : '在看的番剧更新后第二天 10:00 提醒'),
+                  initialValue: episodeReminders && !denied,
+                ),
               ),
             ]),
           if (isDesktop())

@@ -112,22 +112,20 @@ class BangumiProgressService {
     }
   }
 
+  Future<void> _writeItems(Iterable<(int, int)> items) => writeQueue(
+    jsonEncode([
+      for (final (s, e) in items) {'s': s, 'e': e},
+    ]),
+  );
+
   Future<void> _enqueue(int subjectId, int episodeNumber) async {
     final items = _readItems()..add((subjectId, episodeNumber));
-    await writeQueue(
-      jsonEncode([
-        for (final (s, e) in items.toSet()) {'s': s, 'e': e},
-      ]),
-    );
+    await _writeItems(items.toSet());
   }
 
   Future<void> _dequeue(int subjectId, int episodeNumber) async {
     final items = _readItems()..remove((subjectId, episodeNumber));
-    await writeQueue(
-      jsonEncode([
-        for (final (s, e) in items) {'s': s, 'e': e},
-      ]),
-    );
+    await _writeItems(items);
   }
 
   /// Returns whether the mark is (still) queued.

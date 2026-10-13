@@ -19,7 +19,6 @@ def gh_run(run_id, title, conclusion="success", status="completed", sha=SHA, bra
            event="workflow_dispatch"):
     return {"databaseId": run_id, "displayTitle": title, "status": status,
             "conclusion": conclusion, "headSha": sha, "headBranch": branch, "event": event,
-            "createdAt": "2026-10-12T10:00:00Z",
             "url": f"https://github.com/{tf.REPO}/actions/runs/{run_id}"}
 
 
@@ -308,6 +307,32 @@ class PublishTest(unittest.TestCase):
         shell = FakeShell([gh_run(7, f"{tf.UPLOAD} {SHA}")], manifest={**self.MANIFEST, "build": "31"})
         with self.assertRaises(SystemExit):
             self.publish(shell, hk={"build": 32})
+
+
+class CodemagicPublishTest(unittest.TestCase):
+    def setUp(self):
+        self.writes = []
+
+    def publish(self, ipa):
+        def ssh(command, stdin=None):
+            if stdin is not None:
+                self.writes.append(json.loads(stdin))
+            return ""
+
+        build = {"status": "finished", "artefacts": [{"type": "ipa", **ipa}]}
+        with mock.patch.object(tf.codemagic, "latest", return_value=build), \
+                mock.patch.object(tf.codemagic, "ssh", ssh):
+            return call(tf.codemagic.cmd_publish_latest, [])[0]
+
+    def test_announces_the_build(self):
+        self.assertEqual(0, self.publish({"versionCode": "33", "versionName": "3.2.0"}))
+        self.assertEqual((33, "3.2.0"), (self.writes[0]["build"], self.writes[0]["version"]))
+
+    def test_refuses_an_ipa_without_a_version(self):
+        # The app ignores a latest.json whose version is null.
+        with self.assertRaises(SystemExit):
+            self.publish({"versionCode": "33"})
+        self.assertEqual([], self.writes)
 
 
 if __name__ == "__main__":

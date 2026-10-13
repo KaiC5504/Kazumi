@@ -30,6 +30,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import partner_check
+
 # The Windows console defaults to cp1252 and dies on a Chinese commit message.
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -101,9 +103,13 @@ def app_id() -> str:
     raise SystemExit(f"No app matching {APP_NAME_HINT!r}. Found: {names}")
 
 
+def builds() -> list[dict]:
+    """Newest first."""
+    return call(f"/builds?appId={app_id()}").get("builds", [])
+
+
 def latest() -> dict | None:
-    builds = call(f"/builds?appId={app_id()}").get("builds", [])
-    return builds[0] if builds else None
+    return next(iter(builds()), None)
 
 
 def report(build: dict) -> None:
@@ -165,15 +171,16 @@ def cmd_watch() -> int:
         time.sleep(20)
 
 
-def partner_check_passed(branch: str) -> bool:
+def partner_check_passed(branch: str, fetch: bool = True) -> bool:
     """Whether scripts/partner_check.py passed on the tree Codemagic will build."""
     def git(*args: str) -> str:
         return subprocess.run(["git", *args], capture_output=True, text=True,
                               encoding="utf-8", check=True).stdout.strip()
 
-    git("fetch", "-q", "origin", branch)
+    if fetch:
+        git("fetch", "-q", "origin", branch)
     tree = git("rev-parse", f"origin/{branch}^{{tree}}")
-    stamp = Path(git("rev-parse", "--git-common-dir")) / "partner-check-pass"
+    stamp = Path(git("rev-parse", "--git-common-dir")) / partner_check.STAMP
     try:
         passed = {line.split()[0] for line in stamp.read_text(encoding="utf-8").splitlines()
                   if line.strip()}
@@ -209,6 +216,37 @@ def ssh(command: str, stdin: str | None = None) -> str:
     return result.stdout
 
 
+def publish(build: int, version: str | None, notes: str, required: bool) -> int:
+    """Writes latest.json on HK, for this script's and testflight.py's publish-latest."""
+    if not isinstance(version, str) or not version:
+        # The app ignores a latest.json without a version, so the prompt would never show.
+        raise SystemExit(f"No version for build {build}; not publishing.")
+    previous = {}
+    raw = ssh(f"sudo cat {LATEST_PATH} 2>/dev/null || true")
+    if raw.strip():
+        previous = json.loads(raw)
+    if previous.get("build", 0) > build:
+        raise SystemExit(f"HK already announces build {previous['build']}, newer than {build}.")
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    latest_json = {
+        "build": build,
+        "version": version,
+        "minBuild": build if required else previous.get("minBuild", 0),
+        "requiredSince": now if required else previous.get("requiredSince"),
+        "notes": notes,
+        "publishedAt": now,
+    }
+    body = json.dumps(latest_json, ensure_ascii=False, indent=1) + "\n"
+    ssh(f"sudo mkdir -p {Path(LATEST_PATH).parent.as_posix()} && "
+        f"sudo tee {LATEST_PATH}.tmp >/dev/null && sudo chmod 644 {LATEST_PATH}.tmp && "
+        f"sudo mv {LATEST_PATH}.tmp {LATEST_PATH}", stdin=body)
+    print(f"published {version} ({build})" + (" as required" if required else "")
+          + " -> https://hk.kaic5504.com/app/latest.json")
+    print(body)
+    return 0
+
+
 def cmd_publish_latest(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="codemagic.py publish-latest")
     parser.add_argument("--required", action="store_true",
@@ -222,33 +260,8 @@ def cmd_publish_latest(argv: list[str]) -> int:
     ipa = next((a for a in build.get("artefacts") or [] if a.get("type") == "ipa"), None)
     if not ipa or not str(ipa.get("versionCode", "")).isdigit():
         raise SystemExit("The build has no IPA with a build number.")
-    number, version = int(ipa["versionCode"]), ipa.get("versionName") or ipa.get("version")
-
-    previous = {}
-    raw = ssh(f"sudo cat {LATEST_PATH} 2>/dev/null || true")
-    if raw.strip():
-        previous = json.loads(raw)
-    if previous.get("build", 0) > number:
-        raise SystemExit(f"HK already announces build {previous['build']}, newer than {number}.")
-
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    latest_json = {
-        "build": number,
-        "version": version,
-        "minBuild": number if args.required else previous.get("minBuild", 0),
-        "requiredSince": now if args.required else previous.get("requiredSince"),
-        "notes": args.notes,
-        "publishedAt": now,
-    }
-    body = json.dumps(latest_json, ensure_ascii=False, indent=1) + "\n"
-    ssh(f"sudo mkdir -p {Path(LATEST_PATH).parent.as_posix()} && "
-        f"sudo tee {LATEST_PATH}.tmp >/dev/null && sudo chmod 644 {LATEST_PATH}.tmp && "
-        f"sudo mv {LATEST_PATH}.tmp {LATEST_PATH}", stdin=body)
-    print(f"published {version} ({number})"
-          + (" as required" if args.required else "")
-          + f" -> https://hk.kaic5504.com/app/latest.json")
-    print(body)
-    return 0
+    return publish(int(ipa["versionCode"]), ipa.get("versionName") or ipa.get("version"),
+                   args.notes, args.required)
 
 
 def main() -> int:
