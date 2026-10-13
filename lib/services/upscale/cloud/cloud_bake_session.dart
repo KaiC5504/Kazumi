@@ -646,6 +646,8 @@ class CloudBakeSession {
       // A retry after a failed run here starts clean.
       _freshDownloads.remove(job.id);
       _uploadAttempts.remove(job.id);
+      _committed.remove(job.id);
+      _lastProgress.remove(job.id);
     }
     _pending.addAll(fresh);
     _total += fresh.length;
