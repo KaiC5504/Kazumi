@@ -29,6 +29,7 @@ import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
 import 'package:kazumi/services/upscale/upscaled_import_service.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
+import 'package:kazumi/utils/async_single_flight.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:mobx/mobx.dart';
 import 'package:path/path.dart' as path;
@@ -79,7 +80,7 @@ class UpscaleController {
 
   /// Ids of the episodes the library server holds, from the last refresh.
   final ObservableSet<String> libraryIds = ObservableSet<String>();
-  Future<void>? _libraryRefresh;
+  final _libraryRefresh = AsyncSingleFlight<void>();
   Future<void> _skipAnalysis = Future.value();
 
   /// Record keys whose openings and endings are being analysed.
@@ -1015,7 +1016,7 @@ class UpscaleController {
   /// Reloads [libraryIds]. A failed refresh keeps the last known list.
   Future<void> refreshLibrary() {
     if (!canUploadToLibrary) return Future.value();
-    return _libraryRefresh ??= () async {
+    return _libraryRefresh.run(() async {
       try {
         final api = LibraryApi(
           GStorage.getSetting(SettingsKeys.libraryServer),
@@ -1029,10 +1030,8 @@ class UpscaleController {
         });
       } catch (e) {
         KazumiLogger().w('UpscaleController: library refresh failed', error: e);
-      } finally {
-        _libraryRefresh = null;
       }
-    }();
+    });
   }
 
   Future<void> _pumpUploadQueue() async {

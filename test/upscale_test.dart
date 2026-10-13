@@ -1,11 +1,22 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/plugins/plugins_controller.dart';
+import 'package:kazumi/repositories/download_repository.dart';
+import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
+import 'package:logger/logger.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 UpscaledEpisodeManifest _manifest({int episode = 3, int size = 10}) =>
     UpscaledEpisodeManifest(
@@ -209,4 +220,90 @@ void main() {
       expect(probe.stderr as String, contains('1280x720'));
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
+
+  group('UpscaleController', () {
+    late Directory home;
+    late PathProviderPlatform originalPaths;
+
+    setUpAll(() async {
+      Logger.level = Level.off;
+      home = await Directory.systemTemp.createTemp('kazumi_upscale_ctl_');
+      originalPaths = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = _TestPaths(home.path);
+      Hive.init(home.path);
+      await GStorage.init();
+    });
+
+    tearDownAll(() async {
+      await Hive.close();
+      PathProviderPlatform.instance = originalPaths;
+      await home.delete(recursive: true);
+    });
+
+    test(
+      'a library refresh that failed to start does not block the next',
+      () async {
+        var requests = 0;
+        final library = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => library.close(force: true));
+        library.listen((request) async {
+          requests++;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'episodes': [
+                {..._manifest().toJson(), 'id': 'ep3'},
+              ],
+            }),
+          );
+          await request.response.close();
+        });
+        final controller = UpscaleController(
+          _FakeRepository(),
+          _FakeDownloadManager(),
+          DownloadController(
+            _FakeRepository(),
+            _FakeDownloadManager(),
+            PluginsController(),
+          ),
+          ShaderAssetService(),
+        );
+
+        await GStorage.putSetting(SettingsKeys.libraryAdminKey, 'admin');
+        // The port doesn't parse, so LibraryApi throws before its first await.
+        await GStorage.putSetting(SettingsKeys.libraryServer, 'library:abc');
+        await controller.refreshLibrary();
+        expect(controller.libraryIds, isEmpty);
+
+        await GStorage.putSetting(
+          SettingsKeys.libraryServer,
+          'http://127.0.0.1:${library.port}',
+        );
+        await controller.refreshLibrary();
+        expect(requests, 1);
+        expect(controller.libraryIds, {'ep3'});
+      },
+    );
+  });
+}
+
+class _FakeRepository implements IDownloadRepository {
+  @override
+  List<DownloadRecord> getAllRecords() => [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeDownloadManager implements IDownloadManager {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _TestPaths extends PathProviderPlatform {
+  _TestPaths(this.path);
+  final String path;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
 }
