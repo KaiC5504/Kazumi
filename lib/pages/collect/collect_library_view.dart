@@ -26,6 +26,7 @@ class CollectLibraryView extends StatefulWidget {
     super.key,
     required this.entries,
     required this.showRating,
+    this.watchProgress = const {},
     required this.onOpen,
     required this.onChangeType,
     required this.canEdit,
@@ -35,6 +36,7 @@ class CollectLibraryView extends StatefulWidget {
 
   final List<CollectedBangumi> entries;
   final bool showRating;
+  final Map<int, String> watchProgress;
   final ValueChanged<BangumiItem> onOpen;
   final void Function(BangumiItem, CollectType) onChangeType;
   final bool Function(BangumiItem) canEdit;
@@ -364,6 +366,8 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
             key: ValueKey('collect-${entries[index].bangumiItem.id}'),
             entry: entries[index],
             showRating: widget.showRating,
+            watchProgress:
+                widget.watchProgress[entries[index].bangumiItem.id],
             onOpen: () => widget.onOpen(entries[index].bangumiItem),
             onChangeType: _changeTypeFor(entries[index]),
           ),
@@ -428,6 +432,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
         entry: entries[index],
         showRating: widget.showRating,
         showStatus: type == null,
+        watchProgress: widget.watchProgress[entries[index].bangumiItem.id],
         onOpen: () => widget.onOpen(entries[index].bangumiItem),
         onChangeType: _changeTypeFor(entries[index]),
       ),

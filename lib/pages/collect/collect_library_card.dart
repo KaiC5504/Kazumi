@@ -6,6 +6,7 @@ class _CollectPosterCard extends StatelessWidget {
     required this.entry,
     required this.showRating,
     required this.showStatus,
+    this.watchProgress,
     required this.onOpen,
     required this.onChangeType,
   });
@@ -13,6 +14,7 @@ class _CollectPosterCard extends StatelessWidget {
   final CollectedBangumi entry;
   final bool showRating;
   final bool showStatus;
+  final String? watchProgress;
   final VoidCallback onOpen;
   final ValueChanged<CollectType>? onChangeType;
 
@@ -189,6 +191,7 @@ class _CollectPosterCard extends StatelessWidget {
             type.label,
             if (year != null) '$year 年',
             if (hasRating) '${item.ratingScore.toStringAsFixed(1)} 分',
+            ?watchProgress,
           ].join('，'),
           child: InkWell(
             onTap: onOpen,
@@ -198,7 +201,25 @@ class _CollectPosterCard extends StatelessWidget {
                 ExcludeSemantics(
                   child: AspectRatio(
                     aspectRatio: _coverRatio,
-                    child: _CollectCover(item: item),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _CollectCover(item: item),
+                        if (watchProgress != null)
+                          PositionedDirectional(
+                            start: compact ? 6 : 8,
+                            end: compact ? 6 : 8,
+                            bottom: compact ? 6 : 8,
+                            child: Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: _CollectProgressBadge(
+                                label: watchProgress!,
+                                compact: compact,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(child: footer),
@@ -216,12 +237,14 @@ class _CollectListTile extends StatelessWidget {
     super.key,
     required this.entry,
     required this.showRating,
+    this.watchProgress,
     required this.onOpen,
     required this.onChangeType,
   });
 
   final CollectedBangumi entry;
   final bool showRating;
+  final String? watchProgress;
   final VoidCallback onOpen;
   final ValueChanged<CollectType>? onChangeType;
 
@@ -248,7 +271,7 @@ class _CollectListTile extends StatelessWidget {
           Positioned.fill(
             child: Semantics(
               button: true,
-              label: [title, ...metadata].join('，'),
+              label: [title, ...metadata, ?watchProgress].join('，'),
               child: InkWell(onTap: onOpen),
             ),
           ),
@@ -305,6 +328,29 @@ class _CollectListTile extends StatelessWidget {
                                         ),
                                       ),
                                     ),
+                                  if (watchProgress != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.play_arrow_rounded,
+                                              size: 16, color: colors.primary),
+                                          const SizedBox(width: 2),
+                                          Flexible(
+                                            child: Text(
+                                              watchProgress!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: colors.primary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -323,6 +369,48 @@ class _CollectListTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CollectProgressBadge extends StatelessWidget {
+  const _CollectProgressBadge({required this.label, required this.compact});
+  final String label;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHigh.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: EdgeInsetsDirectional.fromSTEB(
+            compact ? 6 : 8, 3, compact ? 8 : 10, 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.play_arrow_rounded,
+                size: compact ? 13 : 15, color: colors.primary),
+            const SizedBox(width: 2),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: compact ? 10.5 : 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

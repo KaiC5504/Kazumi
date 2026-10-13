@@ -15,15 +15,19 @@ import 'package:kazumi/modules/collect/collect_type.dart';
 import 'package:kazumi/pages/collect/collect_controller.dart';
 import 'package:kazumi/pages/collect/collect_library_view.dart';
 import 'package:kazumi/pages/collect/collect_sync_dialog.dart';
+import 'package:kazumi/pages/collect/collect_watch_progress.dart';
+import 'package:kazumi/repositories/history_repository.dart';
 import 'package:kazumi/services/storage/storage.dart';
 
 class CollectPage extends StatefulWidget {
   const CollectPage({
     super.key,
     required this.controller,
+    required this.historyRepository,
   });
 
   final CollectController controller;
+  final IHistoryRepository historyRepository;
 
   @override
   State<CollectPage> createState() => _CollectPageState();
@@ -34,6 +38,9 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
   bool get _syncDialogOpen => dialogs.isRunning;
   final Set<int> _pendingIds = {};
   late CollectLayout _layout;
+  Map<int, String> _watchProgress = const {};
+  StreamSubscription<void>? _historyChanges;
+  Timer? _historyRefresh;
 
   Future<bool> _syncStep(
     CollectSyncStep step, {
@@ -61,6 +68,26 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
       GStorage.getSetting(SettingsKeys.defaultCollectLayout),
     );
     collectController.loadCollectibles();
+    _loadWatchProgress();
+    _historyChanges = widget.historyRepository.changes.listen((_) {
+      // Playback writes history every few seconds.
+      _historyRefresh?.cancel();
+      _historyRefresh = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) setState(_loadWatchProgress);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _historyRefresh?.cancel();
+    _historyChanges?.cancel();
+    super.dispose();
+  }
+
+  void _loadWatchProgress() {
+    _watchProgress =
+        collectWatchProgress(widget.historyRepository.getAllHistories());
   }
 
   void _changeLayout(CollectLayout layout) {
@@ -140,6 +167,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
           builder: (context) => CollectLibraryView(
             entries: collectController.collectibles.toList(),
             showRating: GStorage.getSetting(SettingsKeys.showRating),
+            watchProgress: _watchProgress,
             layout: _layout,
             onLayoutChanged: _changeLayout,
             canEdit: (item) =>
