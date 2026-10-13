@@ -134,6 +134,14 @@ void main() {
     expect(File('${target.path}.part').existsSync(), isFalse);
   });
 
+  test('download replaces an older file at the target', () async {
+    fake.output = utf8.encode('abcdefghij');
+    final target = File(path.join(dir.path, 'video.mp4'))
+      ..writeAsStringSync('old');
+    await client.download('e1', target, expectedBytes: 10);
+    expect(target.readAsStringSync(), 'abcdefghij');
+  });
+
   test('download refuses a size that disagrees with the status', () async {
     fake.output = Uint8List(10);
     final target = File(path.join(dir.path, 'video.mp4'));

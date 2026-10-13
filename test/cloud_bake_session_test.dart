@@ -68,9 +68,6 @@ class FakePodApi implements CloudPodApi {
     deleted.add(id);
     exists = false;
   }
-
-  @override
-  Future<List<CloudPodInfo>> listPods() async => [];
 }
 
 class FakeWorker implements CloudWorker {

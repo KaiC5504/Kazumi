@@ -78,13 +78,9 @@ class CloudBakeReport {
 
   Duration get wall => endedAt.difference(startedAt);
 
-  int get podSec {
-    final start = podStartedAt;
-    if (start == null) return 0;
-    return (podEndedAt ?? endedAt).difference(start).inSeconds;
-  }
+  int get podSec => _podSeconds(podStartedAt, podEndedAt, endedAt);
 
-  double get cost => podSec / 3600 * pricePerHour;
+  double get cost => podCost(podSec, pricePerHour);
 
   Iterable<CloudEpisodeReport> where(CloudEpisodeOutcome outcome) =>
       episodes.where((e) => e.outcome == outcome);
@@ -163,7 +159,6 @@ class CloudJob {
 
 class CloudBakeQuote {
   const CloudBakeQuote({
-    required this.recordKey,
     required this.jobs,
     required this.offer,
     required this.estimate,
@@ -171,7 +166,6 @@ class CloudBakeQuote {
     required this.height,
   });
 
-  final String recordKey;
   final List<CloudJob> jobs;
   final CloudOffer offer;
   final CloudBakeEstimate estimate;
@@ -181,7 +175,6 @@ class CloudBakeQuote {
   /// The same episodes with the laptop left out, for when the owner picks
   /// the cloud over an estimate that favours the laptop.
   CloudBakeQuote allCloud() => CloudBakeQuote(
-    recordKey: recordKey,
     jobs: [for (final j in jobs) j.asCloudOnly()],
     offer: offer,
     includeLocal: false,
@@ -235,15 +228,11 @@ class CloudBakeSessionView {
   double? projectedCost(DateTime now) {
     final remaining = remainingAt(now);
     if (remaining == null) return null;
-    return costAt(now) + remaining / 3600 * pricePerHour;
+    return costAt(now) + podCost(remaining, pricePerHour);
   }
 
-  double costAt(DateTime now) {
-    final start = podStartedAt;
-    if (start == null) return 0;
-    final end = podEndedAt ?? now;
-    return end.difference(start).inSeconds / 3600 * pricePerHour;
-  }
+  double costAt(DateTime now) =>
+      podCost(_podSeconds(podStartedAt, podEndedAt, now), pricePerHour);
 
   String summary(DateTime now) {
     final minutes = now.difference(startedAt).inMinutes;
@@ -259,6 +248,9 @@ class CloudBakeSessionView {
         '$cost$failedText$note';
   }
 }
+
+int _podSeconds(DateTime? start, DateTime? end, DateTime fallbackEnd) =>
+    start == null ? 0 : (end ?? fallbackEnd).difference(start).inSeconds;
 
 String newCloudToken() {
   final random = Random.secure();
@@ -423,12 +415,8 @@ class CloudBakeSession {
     int? outBytes,
   }) {
     final marks = _marks.remove(job.id) ?? const {};
-    int? between(CloudEpisodeStage from, CloudEpisodeStage? to) {
-      final a = marks[from];
-      if (a == null) return null;
-      final b = to == null ? DateTime.now() : marks[to];
-      return b?.difference(a).inSeconds;
-    }
+    int? secs(DateTime? from, DateTime? to) =>
+        from == null || to == null ? null : to.difference(from).inSeconds;
 
     final bakeStart =
         marks[CloudEpisodeStage.waiting] ?? marks[CloudEpisodeStage.baking];
@@ -437,14 +425,13 @@ class CloudBakeSession {
       job: job,
       outcome: outcome,
       error: error,
-      uploadSec: bakeStart == null
-          ? null
-          : marks[CloudEpisodeStage.uploading] == null
-          ? null
-          : bakeStart.difference(marks[CloudEpisodeStage.uploading]!).inSeconds,
-      bakeSec: between(CloudEpisodeStage.baking, CloudEpisodeStage.downloading),
+      uploadSec: secs(marks[CloudEpisodeStage.uploading], bakeStart),
+      bakeSec: secs(
+        marks[CloudEpisodeStage.baking],
+        marks[CloudEpisodeStage.downloading],
+      ),
       downloadSec: outcome == CloudEpisodeOutcome.cloud
-          ? between(CloudEpisodeStage.downloading, null)
+          ? secs(marks[CloudEpisodeStage.downloading], DateTime.now())
           : null,
       outBytes: outBytes,
     );
@@ -467,9 +454,8 @@ class CloudBakeSession {
   /// each one is now.
   double remainingPodSec() => _plan().podSec;
 
-  /// Splits the queue the way the quote does: the pod takes from the front
-  /// and the laptop from the back, whichever would finish its next one
-  /// first. Returns the pod's remaining time and what the laptop should take.
+  /// The pod's remaining time and what the laptop should take, with the
+  /// queue split the way the quote splits it.
   ({double podSec, Set<String> laptop}) _plan() {
     final now = DateTime.now();
     final podStart = _podStartedAt;
@@ -522,28 +508,20 @@ class CloudBakeSession {
     };
     final held = _held.values.toList()
       ..sort((a, b) => order(a).compareTo(order(b)));
-    final onPod = [for (final job in held) left(job)];
-    final laptop = <String>{};
-    final queue = [..._pending];
-    var localFree = includeLocal ? _localBusySec(now) : double.infinity;
-    while (queue.isNotEmpty) {
-      final back = queue.lastIndexWhere((j) => !j.cloudOnly);
-      final podDone = simulatePod([
-        ...onPod,
-        left(queue.first),
-      ], readyInSec: readyIn);
-      final localDone = back < 0
-          ? double.infinity
-          : localFree +
-                queue[back].load.durationSec / CloudBakeRates.localRealtime;
-      if (podDone <= localDone) {
-        onPod.add(left(queue.removeAt(0)));
-      } else {
-        localFree = localDone;
-        laptop.add(queue.removeAt(back).id);
-      }
-    }
-    return (podSec: simulatePod(onPod, readyInSec: readyIn), laptop: laptop);
+    final split = splitLanes(
+      [for (final job in _pending) job.load],
+      readyInSec: readyIn,
+      localFree: includeLocal ? _localBusySec(now) : double.infinity,
+      onPod: [for (final job in held) left(job)],
+      podOnly: {
+        for (var i = 0; i < _pending.length; i++)
+          if (_pending[i].cloudOnly) i,
+      },
+    );
+    return (
+      podSec: split.podSec,
+      laptop: {for (final i in split.laptop) _pending[i].id},
+    );
   }
 
   /// Keeps the list from showing every queued episode as headed for the pod.
@@ -604,17 +582,13 @@ class CloudBakeSession {
     // raise every poll.
     _capSec = min(need + 600, CloudBakeRates.maxCapSec);
     final worker = _worker;
-    if (worker != null) {
-      unawaited(
-        worker.extendCap(_capSec).catchError((Object e) {
-          KazumiLogger().w(
-            'CloudBakeSession: raising the cap failed',
-            error: e,
-          );
-        }),
-      );
-    }
+    if (worker != null) unawaited(_sendCap(worker));
   }
+
+  Future<void> _sendCap(CloudWorker worker) =>
+      worker.extendCap(_capSec).catchError((Object e) {
+        KazumiLogger().w('CloudBakeSession: raising the cap failed', error: e);
+      });
 
   /// True while the session still owes this episode a bake.
   bool holds(String recordKey, int episodeNumber) {
@@ -756,7 +730,6 @@ class CloudBakeSession {
 
   CloudJob? _nextLocal() {
     if (_fallback.isNotEmpty) return _fallback.removeAt(0);
-    if (_cloudOver && _pending.isNotEmpty) return _pending.removeLast();
     if (!includeLocal) return null;
     for (var i = _pending.length - 1; i >= 0; i--) {
       if (!_pending[i].cloudOnly) return _pending.removeAt(i);
@@ -800,7 +773,7 @@ class CloudBakeSession {
         _phase = CloudBakePhase.waiting;
         _notify();
       }
-      await Future.any([_signal.future, Future.delayed(offerInterval)]);
+      await _waitWake(offerInterval);
     }
     return null;
   }
@@ -829,16 +802,7 @@ class CloudBakeSession {
       if (_stopped) return;
       // Episodes added while the pod booted raised the cap after it was
       // baked into the pod's env.
-      if (_capSec > _createdCapSec) {
-        try {
-          await worker.extendCap(_capSec);
-        } catch (e) {
-          KazumiLogger().w(
-            'CloudBakeSession: raising the cap failed',
-            error: e,
-          );
-        }
-      }
+      if (_capSec > _createdCapSec) await _sendCap(worker);
       _phase = CloudBakePhase.running;
       _notify();
       await Future.wait([_uploadLoop(worker), _pollLoop(worker)]);
@@ -1012,7 +976,7 @@ class CloudBakeSession {
           }
           if (episode.state == 'baking' && _stalled(job.id, episode.progress)) {
             KazumiLogger().w('CloudBakeSession: ${job.id} stalled on the pod');
-            unawaited(worker.drop(job.id).then((_) {}, onError: (_) {}));
+            worker.drop(job.id).ignore();
             await _dropFromPod(job, '云端烘焙卡住');
             continue;
           }
@@ -1034,7 +998,7 @@ class CloudBakeSession {
             case 'failed':
               _held.remove(job.id);
               _setPhase(job, null);
-              unawaited(worker.drop(job.id).then((_) {}, onError: (_) {}));
+              worker.drop(job.id).ignore();
               if (_laptopMayTake(job)) {
                 _fallback.add(job);
               } else {
@@ -1185,6 +1149,6 @@ class CloudBakeSession {
     signal.complete();
   }
 
-  Future<void> _waitWake() =>
-      Future.any([_signal.future, Future.delayed(pollInterval)]);
+  Future<void> _waitWake([Duration? after]) =>
+      Future.any([_signal.future, Future.delayed(after ?? pollInterval)]);
 }

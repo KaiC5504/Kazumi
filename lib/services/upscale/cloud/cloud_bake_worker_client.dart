@@ -255,7 +255,6 @@ class CloudBakeWorkerClient implements CloudWorker {
       openRange: (start, end) => _openRange(id, start, end),
     );
     if (!complete) throw const CloudWorkerException('已停止');
-    if (await target.exists()) await target.delete();
     await tmp.rename(target.path);
   }
 

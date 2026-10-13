@@ -102,6 +102,49 @@ int capFor(double podSec) => min(
   max(CloudBakeRates.minCapSec, (podSec * 1.5).ceil()),
 );
 
+double podCost(num sec, double pricePerHour) => sec / 3600 * pricePerHour;
+
+/// Splits [queue] between the lanes: the pod takes from the front and the
+/// laptop from the back, whichever would finish its next one first. [onPod]
+/// is work the pod already holds, [podOnly] the indices the laptop must leave
+/// alone, and [localFree] when the laptop could start one. Returns the pod's
+/// time with everything it took, the indices the laptop took, and when the
+/// laptop is done.
+({double podSec, Set<int> laptop, double localFree}) splitLanes(
+  List<CloudLoad> queue, {
+  required double readyInSec,
+  required double localFree,
+  List<PodWork> onPod = const [],
+  Set<int> podOnly = const {},
+}) {
+  final work = [...onPod];
+  final laptop = <int>{};
+  final left = [for (var i = 0; i < queue.length; i++) i];
+  var localAt = localFree;
+  while (left.isNotEmpty) {
+    final back = left.lastIndexWhere((i) => !podOnly.contains(i));
+    final podDone = simulatePod([
+      ...work,
+      PodWork.fresh(queue[left.first]),
+    ], readyInSec: readyInSec);
+    final localDone = back < 0
+        ? double.infinity
+        : localAt +
+              queue[left[back]].durationSec / CloudBakeRates.localRealtime;
+    if (podDone <= localDone) {
+      work.add(PodWork.fresh(queue[left.removeAt(0)]));
+    } else {
+      localAt = localDone;
+      laptop.add(left.removeAt(back));
+    }
+  }
+  return (
+    podSec: simulatePod(work, readyInSec: readyInSec),
+    laptop: laptop,
+    localFree: localAt,
+  );
+}
+
 class CloudBakeEstimate {
   const CloudBakeEstimate({
     required this.cloudCount,
@@ -123,9 +166,9 @@ class CloudBakeEstimate {
 
   int get capSec => capFor(cloudSec.toDouble());
 
-  double cost(double pricePerHour) => cloudSec / 3600 * pricePerHour;
+  double cost(double pricePerHour) => podCost(cloudSec, pricePerHour);
 
-  double maxCost(double pricePerHour) => capSec / 3600 * pricePerHour;
+  double maxCost(double pricePerHour) => podCost(capSec, pricePerHour);
 
   /// Plays both lanes over the season in order: the pod from the front once
   /// it has started, the laptop from the back after [localBusySec] of work
@@ -136,29 +179,15 @@ class CloudBakeEstimate {
     required bool includeLocal,
     int localBusySec = 0,
   }) {
-    double podSec(List<CloudLoad> onPod) => simulatePod([
-      for (final l in onPod) PodWork.fresh(l),
-    ], readyInSec: CloudBakeRates.startupSec.toDouble());
-
-    var front = 0;
-    var back = loads.length - 1;
-    var localFree = includeLocal ? localBusySec.toDouble() : double.infinity;
-    final onPod = <CloudLoad>[];
-    var localCount = 0;
-    while (front <= back) {
-      final cloudDone = podSec([...onPod, loads[front]]);
-      final localDone =
-          localFree + loads[back].durationSec / CloudBakeRates.localRealtime;
-      if (cloudDone <= localDone) {
-        onPod.add(loads[front++]);
-      } else {
-        localFree = localDone;
-        back--;
-        localCount++;
-      }
-    }
-    final cloudSec = onPod.isEmpty ? 0 : podSec(onPod).ceil();
-    final localSec = localCount == 0 ? 0 : localFree.ceil();
+    final split = splitLanes(
+      loads,
+      readyInSec: CloudBakeRates.startupSec.toDouble(),
+      localFree: includeLocal ? localBusySec.toDouble() : double.infinity,
+    );
+    final localCount = split.laptop.length;
+    final cloudCount = loads.length - localCount;
+    final cloudSec = cloudCount == 0 ? 0 : split.podSec.ceil();
+    final localSec = localCount == 0 ? 0 : split.localFree.ceil();
     final localOnly =
         localBusySec +
         loads.fold(
@@ -166,7 +195,7 @@ class CloudBakeEstimate {
           (a, l) => a + l.durationSec / CloudBakeRates.localRealtime,
         );
     return CloudBakeEstimate(
-      cloudCount: onPod.length,
+      cloudCount: cloudCount,
       localCount: localCount,
       cloudSec: cloudSec,
       finishSec: max(cloudSec, localSec),

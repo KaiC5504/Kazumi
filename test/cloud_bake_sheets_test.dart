@@ -9,7 +9,6 @@ import 'package:mobx/mobx.dart';
 void main() {
   CloudBakeQuote quote({bool includeLocal = true, bool available = true}) =>
       CloudBakeQuote(
-        recordKey: 'r',
         jobs: const [],
         offer: CloudOffer(available: available, pricePerHour: 1.2),
         estimate: const CloudBakeEstimate(

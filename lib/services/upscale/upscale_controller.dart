@@ -366,7 +366,6 @@ class UpscaleController {
         GStorage.getSetting(SettingsKeys.cloudBakeIncludeLocal);
     final offer = await _runpod().sydneyOffer();
     return CloudBakeQuote(
-      recordKey: recordKey,
       jobs: jobs,
       offer: offer,
       includeLocal: includeLocal,
