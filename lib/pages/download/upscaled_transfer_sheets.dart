@@ -120,16 +120,12 @@ class UpscaledTransferItem {
     UpscaleController controller,
     UpscaledEpisodeManifest manifest,
   ) {
-    final upToDate = controller.isUpToDate(manifest);
-    final skipTimesOnly = controller.onlySkipTimesChanged(manifest);
+    final state = controller.importState(manifest);
     return UpscaledTransferItem(
       manifest: manifest,
-      replaces:
-          !upToDate &&
-          !skipTimesOnly &&
-          controller.isAlreadyDownloaded(manifest),
-      skipTimesOnly: skipTimesOnly,
-      upToDate: upToDate,
+      replaces: state == UpscaledImportState.replaces,
+      skipTimesOnly: state == UpscaledImportState.skipTimesOnly,
+      upToDate: state == UpscaledImportState.upToDate,
     );
   }
 

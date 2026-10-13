@@ -931,22 +931,22 @@ class UpscaleController {
     }
   }
 
-  /// The device already has this exact video; only the skip times differ.
-  bool onlySkipTimesChanged(UpscaledEpisodeManifest manifest) =>
-      _sameVideoAlreadyImported(manifest) &&
-      _importedSkipSegments(manifest) != manifest.skipSegments.encode();
+  UpscaledImportState importState(UpscaledEpisodeManifest manifest) {
+    final episode = _importedEpisode(manifest);
+    if (episode == null) return UpscaledImportState.fresh;
+    if (!_sameVideo(episode, manifest)) return UpscaledImportState.replaces;
+    return episode.skipSegments == manifest.skipSegments.encode()
+        ? UpscaledImportState.upToDate
+        : UpscaledImportState.skipTimesOnly;
+  }
 
-  bool isUpToDate(UpscaledEpisodeManifest manifest) =>
-      _sameVideoAlreadyImported(manifest) &&
-      _importedSkipSegments(manifest) == manifest.skipSegments.encode();
+  DownloadEpisode? _importedEpisode(UpscaledEpisodeManifest manifest) =>
+      _repository
+          .getRecord(manifest.recordKey)
+          ?.episodes[manifest.episodeNumber];
 
-  bool _sameVideoAlreadyImported(UpscaledEpisodeManifest manifest) {
-    final episode = _repository
-        .getRecord(manifest.recordKey)
-        ?.episodes[manifest.episodeNumber];
-    if (episode == null ||
-        !episode.preUpscaled ||
-        episode.status != DownloadStatus.completed) {
+  bool _sameVideo(DownloadEpisode episode, UpscaledEpisodeManifest manifest) {
+    if (!episode.preUpscaled || episode.status != DownloadStatus.completed) {
       return false;
     }
     final localPath = _downloadController.getLocalVideoPath(
@@ -958,11 +958,6 @@ class UpscaleController {
     final file = File(localPath);
     return file.existsSync() && file.lengthSync() == manifest.sizeBytes;
   }
-
-  String? _importedSkipSegments(UpscaledEpisodeManifest manifest) => _repository
-      .getRecord(manifest.recordKey)
-      ?.episodes[manifest.episodeNumber]
-      ?.skipSegments;
 
   Future<void> _updateSkipTimes(UpscaledEpisodeManifest manifest) =>
       _updateEpisode(manifest.recordKey, manifest.episodeNumber, (e) {
@@ -1211,18 +1206,12 @@ class UpscaleController {
     }
   }
 
-  bool isAlreadyDownloaded(UpscaledEpisodeManifest manifest) =>
-      _repository
-          .getRecord(manifest.recordKey)
-          ?.episodes[manifest.episodeNumber] !=
-      null;
-
   Future<void> importCandidate(
     UpscaledEpisodeFiles candidate, {
     void Function(double)? onProgress,
   }) async {
     final manifest = candidate.manifest;
-    if (onlySkipTimesChanged(manifest)) {
+    if (importState(manifest) == UpscaledImportState.skipTimesOnly) {
       await _updateSkipTimes(manifest);
       onProgress?.call(1);
       return;
@@ -1261,7 +1250,7 @@ class UpscaleController {
     }
 
     // Only drop the existing download once the replacement is fully on disk.
-    if (isAlreadyDownloaded(manifest)) {
+    if (_importedEpisode(manifest) != null) {
       await _downloadController.deleteEpisode(
         manifest.bangumiId,
         manifest.pluginName,
@@ -1372,11 +1361,12 @@ class UpscaleController {
     LanShareClient client,
     UpscaledEpisodeManifest manifest,
   ) async {
-    if (onlySkipTimesChanged(manifest)) {
+    final state = importState(manifest);
+    if (state == UpscaledImportState.skipTimesOnly) {
       await _updateSkipTimes(manifest);
       return;
     }
-    if (isAlreadyDownloaded(manifest)) {
+    if (state != UpscaledImportState.fresh) {
       await _downloadController.deleteEpisode(
         manifest.bangumiId,
         manifest.pluginName,
@@ -1441,4 +1431,16 @@ class UpscaleController {
 
 class UploadCancelled implements Exception {
   const UploadCancelled();
+}
+
+/// How an episode on offer compares with what this device already has.
+enum UpscaledImportState {
+  fresh,
+
+  /// A different video of the same episode is downloaded.
+  replaces,
+
+  /// The same video is already here; only the opening/ending times moved.
+  skipTimesOnly,
+  upToDate,
 }

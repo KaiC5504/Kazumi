@@ -9,6 +9,7 @@ import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/skip/skip_segments.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_baker.dart';
@@ -18,23 +19,27 @@ import 'package:logger/logger.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-UpscaledEpisodeManifest _manifest({int episode = 3, int size = 10}) =>
-    UpscaledEpisodeManifest(
-      bangumiId: 42,
-      pluginName: 'demo',
-      bangumiName: '测试/番剧: 第二季?',
-      bangumiCover: 'https://example.com/c.jpg',
-      episodeNumber: episode,
-      episodeName: '',
-      road: 1,
-      episodePageUrl: '/play/42-1-3',
-      danDanBangumiID: 7,
-      tier: 'quality',
-      width: 0,
-      height: 1440,
-      sizeBytes: size,
-      hasDanmaku: true,
-    );
+UpscaledEpisodeManifest _manifest({
+  int episode = 3,
+  int size = 10,
+  SkipSegments skip = SkipSegments.empty,
+}) => UpscaledEpisodeManifest(
+  bangumiId: 42,
+  pluginName: 'demo',
+  bangumiName: '测试/番剧: 第二季?',
+  bangumiCover: 'https://example.com/c.jpg',
+  episodeNumber: episode,
+  episodeName: '',
+  road: 1,
+  episodePageUrl: '/play/42-1-3',
+  danDanBangumiID: 7,
+  tier: 'quality',
+  width: 0,
+  height: 1440,
+  sizeBytes: size,
+  hasDanmaku: true,
+  skipSegments: skip,
+);
 
 void main() {
   group('UpscaledEpisodeManifest', () {
@@ -263,11 +268,53 @@ void main() {
       _FakeDownloadManager(),
       DownloadController(
         _FakeRepository(records),
-        _FakeDownloadManager(),
+        DownloadManager(),
         PluginsController(),
       ),
       ShaderAssetService(),
     );
+
+    test('an offered episode is compared with the copy already here', () async {
+      final dir = await Directory.systemTemp.createTemp('kazumi_import_');
+      addTearDown(() => dir.delete(recursive: true));
+      const skip = SkipSegments(
+        opening: SkipRange(80, 170, SkipSource.fingerprint),
+      );
+      final video = File(path.join(dir.path, 'video.mp4'))
+        ..writeAsBytesSync(List.filled(10, 0));
+      final (record, imported) = _manifest(episode: 3).toDownloadEntities();
+      imported
+        ..status = DownloadStatus.completed
+        ..localM3u8Path = video.path
+        ..skipSegments = skip.encode();
+      final (_, original) = _manifest(episode: 4).toDownloadEntities();
+      original
+        ..preUpscaled = false
+        ..status = DownloadStatus.completed
+        ..localM3u8Path = video.path;
+      record.episodes
+        ..[3] = imported
+        ..[4] = original;
+      final controller = controllerWith([record]);
+
+      UpscaledImportState stateOf({
+        required int episode,
+        int size = 10,
+        SkipSegments skip = skip,
+      }) => controller.importState(
+        _manifest(episode: episode, size: size, skip: skip),
+      );
+      expect(stateOf(episode: 3), UpscaledImportState.upToDate);
+      expect(
+        stateOf(episode: 3, skip: SkipSegments.empty),
+        UpscaledImportState.skipTimesOnly,
+      );
+      expect(stateOf(episode: 3, size: 11), UpscaledImportState.replaces);
+      expect(stateOf(episode: 4), UpscaledImportState.replaces);
+      expect(stateOf(episode: 5), UpscaledImportState.fresh);
+      imported.status = DownloadStatus.downloading;
+      expect(stateOf(episode: 3), UpscaledImportState.replaces);
+    });
 
     test('LAN share finds an episode by id as the listing has it', () async {
       final dir = await Directory.systemTemp.createTemp('kazumi_share_');
@@ -351,6 +398,13 @@ class _FakeRepository implements IDownloadRepository {
   @override
   DownloadRecord? getRecord(String key) =>
       records.where((r) => r.key == key).firstOrNull;
+
+  @override
+  DownloadEpisode? getEpisode(
+    int bangumiId,
+    String pluginName,
+    int episodeNumber,
+  ) => getRecord('${pluginName}_$bangumiId')?.episodes[episodeNumber];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
