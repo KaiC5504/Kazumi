@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/pages/download/cloud_bake_sheets.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_estimate.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
@@ -123,6 +124,43 @@ void main() {
     );
     expect(stop.onPressed, isNotNull);
     expect(find.text('云端 GPU 启动超时，改用本机烘焙'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('stop asks first and only stops on 停止', (tester) async {
+    var stops = 0;
+    final session = Observable<CloudBakeSessionView?>(
+      CloudBakeSessionView(
+        phase: CloudBakePhase.finishing,
+        cloudDone: 0,
+        localDone: 0,
+        failed: 0,
+        total: 1,
+        startedAt: DateTime.now(),
+        pricePerHour: 1.09,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [KazumiDialog.observer],
+        home: Scaffold(
+          body: CloudBakeBanner(session: session, onStop: () async => stops++),
+        ),
+      ),
+    );
+    Future<void> tap(Finder finder) async {
+      await tester.tap(finder);
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    await tap(find.widgetWithText(TextButton, '停止'));
+    expect(find.text('停止云端烘焙？'), findsOneWidget);
+    await tap(find.text('继续烘焙'));
+    expect(find.text('停止云端烘焙？'), findsNothing);
+    expect(stops, 0);
+    await tap(find.widgetWithText(TextButton, '停止'));
+    await tap(find.widgetWithText(FilledButton, '停止'));
+    expect(stops, 1);
     await tester.pumpWidget(const SizedBox());
   });
 }
