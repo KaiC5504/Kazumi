@@ -68,7 +68,6 @@ class UpscaleController {
   final List<(String, int)> _bakeQueue = [];
   bool _baking = false;
   UpscaleBaker? _activeBaker;
-  String? _activeKey;
   (String, int)? _activeItem;
   final List<(String, int)> _uploadQueue = [];
   bool _uploading = false;
@@ -148,7 +147,7 @@ class UpscaleController {
       return false;
     }
     if (episode.downloadDirectory.isEmpty) return false;
-    final dir = path.join(episode.downloadDirectory, 'upscaled');
+    final dir = _upscaledDir(episode);
     final marker = File(path.join(dir, cloudBakeMarkerFileName));
     final video = File(path.join(dir, upscaledVideoFileName));
     if (!marker.existsSync() || !video.existsSync()) return false;
@@ -168,26 +167,19 @@ class UpscaleController {
     return true;
   }
 
+  static String _upscaledDir(DownloadEpisode episode) =>
+      path.join(episode.downloadDirectory, 'upscaled');
+
   /// Runs the same follow-up a local bake gets: skip detection, then the
   /// auto export if it's on.
   Future<void> _finishAdopted(List<(String, int)> adopted) async {
     for (final recordKey in {for (final (key, _) in adopted) key}) {
       _downloadController.syncRecord(recordKey);
-      try {
-        await analyzeSkips(recordKey);
-      } catch (e) {
-        KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
-      }
+      await _analyzeSkipsQuietly(recordKey);
     }
-    if (!GStorage.getSetting(SettingsKeys.upscaleAutoExport) ||
-        GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isEmpty) {
-      return;
-    }
+    if (!_autoExportOn) return;
     for (final (recordKey, episodeNumber) in adopted) {
-      final error = await export(recordKey, episodeNumber);
-      if (error != null) {
-        KazumiLogger().w('UpscaleController: auto export failed: $error');
-      }
+      await _autoExport(recordKey, episodeNumber);
     }
   }
 
@@ -199,6 +191,11 @@ class UpscaleController {
     return (info, error);
   }
 
+  Future<(FfmpegInfo?, String?)> _ensureFfmpeg() async {
+    final ffmpeg = _ffmpeg;
+    return ffmpeg != null ? (ffmpeg, null) : await detectFfmpeg();
+  }
+
   /// Returns an error message, or null once the episode is queued.
   Future<String?> enqueueBake(String recordKey, int episodeNumber) async {
     if (!canBake) return '仅支持在电脑端烘焙';
@@ -208,12 +205,10 @@ class UpscaleController {
     }
     if (episode.preUpscaled) return '该集已是超分版本';
     if (cloudHolds(recordKey, episodeNumber)) return '该集正在云端烘焙';
-    if (_ffmpeg == null) {
-      final (info, error) = await detectFfmpeg();
-      if (info == null) return error ?? '未找到可用的 ffmpeg';
-    }
+    final (ffmpeg, error) = await _ensureFfmpeg();
+    if (ffmpeg == null) return error ?? '未找到可用的 ffmpeg';
     if (_bakeQueue.contains((recordKey, episodeNumber)) ||
-        _activeKey == progressKey(recordKey, episodeNumber)) {
+        _activeItem == (recordKey, episodeNumber)) {
       return null;
     }
     _bakeQueue.add((recordKey, episodeNumber));
@@ -225,8 +220,7 @@ class UpscaleController {
   }
 
   Future<void> cancelBake(String recordKey, int episodeNumber) async {
-    final key = progressKey(recordKey, episodeNumber);
-    if (_activeKey == key) {
+    if (_activeItem == (recordKey, episodeNumber)) {
       _activeBaker?.cancel();
       return;
     }
@@ -256,11 +250,9 @@ class UpscaleController {
     if (!hasRunpodKey) {
       throw const CloudBakeException('请先在下载设置中填写 Runpod API Key');
     }
-    final ffmpeg = _ffmpeg;
-    if (ffmpeg != null) return ffmpeg;
-    final (info, error) = await detectFfmpeg();
-    if (info == null) throw CloudBakeException(error ?? '未找到可用的 ffmpeg');
-    return info;
+    final (ffmpeg, error) = await _ensureFfmpeg();
+    if (ffmpeg == null) throw CloudBakeException(error ?? '未找到可用的 ffmpeg');
+    return ffmpeg;
   }
 
   /// What a cloud bake of [recordKey] would take: every episode that still
@@ -283,7 +275,7 @@ class UpscaleController {
                   e.upscaleStatus != UpscaleStatus.done &&
                   (episodeNumber != null ||
                       !_bakeQueue.contains((recordKey, e.episodeNumber))) &&
-                  _activeKey != progressKey(recordKey, e.episodeNumber) &&
+                  _activeItem != (recordKey, e.episodeNumber) &&
                   !cloudHolds(recordKey, e.episodeNumber),
             )
             .toList()
@@ -291,17 +283,14 @@ class UpscaleController {
     if (episodes.isEmpty) {
       throw CloudBakeException(episodeNumber == null ? '没有可烘焙的剧集' : '该集无法上云烘焙');
     }
+    final durations = await _durationsSec(ffmpeg, episodes);
     return [
-      for (final e in episodes)
+      for (final (i, e) in episodes.indexed)
         CloudJob(
           recordKey: recordKey,
           episodeNumber: e.episodeNumber,
-          durationSec: await _durationSec(ffmpeg, e),
-          outputPath: path.join(
-            e.downloadDirectory,
-            'upscaled',
-            upscaledVideoFileName,
-          ),
+          durationSec: durations[i],
+          outputPath: path.join(_upscaledDir(e), upscaledVideoFileName),
           cloudOnly: episodeNumber != null,
           bytes: _sourceBytes(e),
         ),
@@ -311,7 +300,7 @@ class UpscaleController {
   /// HLS downloads are remuxed before upload, which keeps their size.
   static int _sourceBytes(DownloadEpisode episode) {
     final input = episode.localM3u8Path;
-    if (!input.toLowerCase().endsWith('.m3u8')) {
+    if (!isHlsInput(input)) {
       try {
         return File(input).lengthSync();
       } on FileSystemException {
@@ -321,25 +310,50 @@ class UpscaleController {
     return episode.totalBytes;
   }
 
-  Future<int> _durationSec(FfmpegInfo ffmpeg, DownloadEpisode episode) async =>
-      await UpscaleBaker.probeDurationUs(
-        ffmpeg.executable,
-        episode.localM3u8Path,
-      ) ~/
-      1000000;
+  /// A few at a time: a whole season at once would start an ffmpeg process
+  /// per episode.
+  static Future<List<int>> _durationsSec(
+    FfmpegInfo ffmpeg,
+    List<DownloadEpisode> episodes,
+  ) async {
+    final durations = List.filled(episodes.length, 0);
+    var next = 0;
+    Future<void> probe() async {
+      while (next < episodes.length) {
+        final i = next++;
+        durations[i] =
+            await UpscaleBaker.probeDurationUs(
+              ffmpeg.executable,
+              episodes[i].localM3u8Path,
+            ) ~/
+            1000000;
+      }
+    }
+
+    await Future.wait([
+      for (var i = 0; i < 4 && i < episodes.length; i++) probe(),
+    ]);
+    return durations;
+  }
 
   /// Bake time the laptop already owes: the rest of the episode on the GPU
   /// and everything queued behind it.
   Future<int> _localBusySec(FfmpegInfo ffmpeg) async {
-    var media = 0.0;
     final active = _activeItem;
-    for (final (recordKey, episodeNumber) in [?active, ..._bakeQueue]) {
-      final episode = _repository.getRecord(recordKey)?.episodes[episodeNumber];
-      if (episode == null) continue;
-      var sec = (await _durationSec(ffmpeg, episode)).toDouble();
-      if (sec <= 0) sec = CloudBakeRates.unknownDurationSec.toDouble();
-      if ((recordKey, episodeNumber) == active) {
-        sec *= 1 - (bakeProgress[progressKey(recordKey, episodeNumber)] ?? 0);
+    final owed = <((String, int), DownloadEpisode)>[
+      for (final item in [?active, ..._bakeQueue])
+        if (_repository.getRecord(item.$1)?.episodes[item.$2] case final e?)
+          (item, e),
+    ];
+    final durations = await _durationsSec(ffmpeg, [
+      for (final (_, e) in owed) e,
+    ]);
+    var media = 0.0;
+    for (final (i, (item, _)) in owed.indexed) {
+      // Same stand-in as the cloud estimate for a length ffmpeg can't read.
+      var sec = CloudLoad(durations[i]).durationSec.toDouble();
+      if (item == active) {
+        sec *= 1 - (bakeProgress[progressKey(item.$1, item.$2)] ?? 0);
       }
       media += sec;
     }
@@ -410,7 +424,7 @@ class UpscaleController {
   /// Drops what the laptop started or finished while the caller awaited.
   List<CloudJob> _notOnLaptop(List<CloudJob> jobs) => [
     for (final job in jobs)
-      if (_activeKey != progressKey(job.recordKey, job.episodeNumber) &&
+      if (_activeItem != (job.recordKey, job.episodeNumber) &&
           _repository
                   .getRecord(job.recordKey)
                   ?.episodes[job.episodeNumber]
@@ -531,12 +545,8 @@ class UpscaleController {
         ?.episodes[job.episodeNumber];
     if (episode == null) throw const CloudBakeException('剧集已被删除');
     final input = episode.localM3u8Path;
-    if (!input.toLowerCase().endsWith('.m3u8')) return (File(input), false);
-    final output = path.join(
-      episode.downloadDirectory,
-      'upscaled',
-      'cloud_input.mkv',
-    );
+    if (!isHlsInput(input)) return (File(input), false);
+    final output = path.join(_upscaledDir(episode), 'cloud_input.mkv');
     await Directory(path.dirname(output)).create(recursive: true);
     final result = await Process.run(
       ffmpeg.executable,
@@ -555,10 +565,7 @@ class UpscaleController {
     '-y',
     '-loglevel',
     'error',
-    '-allowed_extensions',
-    'ALL',
-    '-protocol_whitelist',
-    'file,crypto,data',
+    ...hlsInputFlags(input),
     '-i',
     input,
     '-map',
@@ -642,7 +649,6 @@ class UpscaleController {
 
     final key = progressKey(recordKey, episodeNumber);
     final baker = UpscaleBaker();
-    _activeKey = key;
     _activeItem = (recordKey, episodeNumber);
     _activeBaker = baker;
     runInAction(() => bakeProgress[key] = 0);
@@ -650,11 +656,7 @@ class UpscaleController {
       e.upscaleStatus = UpscaleStatus.baking;
     });
 
-    final output = path.join(
-      episode.downloadDirectory,
-      'upscaled',
-      upscaledVideoFileName,
-    );
+    final output = path.join(_upscaledDir(episode), upscaledVideoFileName);
     final int targetHeight = GStorage.getSetting(
       SettingsKeys.upscaleBakeHeight,
     );
@@ -690,7 +692,6 @@ class UpscaleController {
       return LocalBakeOutcome.failed;
     } finally {
       runInAction(() => bakeProgress.remove(key));
-      _activeKey = null;
       _activeItem = null;
       _activeBaker = null;
     }
@@ -707,21 +708,30 @@ class UpscaleController {
       e.upscaledVideoPath = output;
       e.upscaledHeight = height;
     });
+    await _analyzeSkipsQuietly(recordKey);
+    if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
+        canUploadToLibrary) {
+      enqueueUpload(recordKey, episodeNumber);
+    }
+    if (_autoExportOn) await _autoExport(recordKey, episodeNumber);
+  }
+
+  Future<void> _analyzeSkipsQuietly(String recordKey) async {
     try {
       await analyzeSkips(recordKey);
     } catch (e) {
       KazumiLogger().w('UpscaleController: skip analysis failed', error: e);
     }
-    if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
-        canUploadToLibrary) {
-      enqueueUpload(recordKey, episodeNumber);
-    }
-    if (GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
-        GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty) {
-      final error = await export(recordKey, episodeNumber);
-      if (error != null) {
-        KazumiLogger().w('UpscaleController: auto export failed: $error');
-      }
+  }
+
+  bool get _autoExportOn =>
+      GStorage.getSetting(SettingsKeys.upscaleAutoExport) &&
+      GStorage.getSetting(SettingsKeys.upscaleExportDirectory).isNotEmpty;
+
+  Future<void> _autoExport(String recordKey, int episodeNumber) async {
+    final error = await export(recordKey, episodeNumber);
+    if (error != null) {
+      KazumiLogger().w('UpscaleController: auto export failed: $error');
     }
   }
 
@@ -744,13 +754,7 @@ class UpscaleController {
       final files = await _bakedFiles(record, episode);
       final manifest = files.manifest;
       final danmakuPath = files.danmakuPath;
-      final dir = Directory(
-        path.join(
-          exportRoot,
-          upscaledExportFolderName,
-          upscaledExportDirName(manifest),
-        ),
-      );
+      final dir = Directory(_exportDir(exportRoot, manifest));
       await dir.create(recursive: true);
 
       // Write the manifest last so a half-copied folder is never importable.
@@ -765,8 +769,6 @@ class UpscaleController {
         expectedBytes: manifest.sizeBytes,
         onProgress: (p) => runInAction(() => exportProgress[key] = p),
       );
-      final existing = File(target);
-      if (await existing.exists()) await existing.delete();
       await File(partial).rename(target);
       if (danmakuPath != null) {
         await File(
@@ -783,6 +785,15 @@ class UpscaleController {
     }
   }
 
+  static String _exportDir(
+    String exportRoot,
+    UpscaledEpisodeManifest manifest,
+  ) => path.join(
+    exportRoot,
+    upscaledExportFolderName,
+    upscaledExportDirName(manifest),
+  );
+
   /// Fingerprints the record's episodes that don't have one yet, then
   /// re-detects openings and endings across all of them, since a new episode
   /// gives the earlier ones something to match against. Returns how many
@@ -794,10 +805,7 @@ class UpscaleController {
   }
 
   Future<int?> _analyzeSkips(String recordKey) async {
-    var ffmpeg = _ffmpeg;
-    if (ffmpeg == null) {
-      (ffmpeg, _) = await detectFfmpeg();
-    }
+    final (ffmpeg, _) = await _ensureFfmpeg();
     if (ffmpeg == null || !ffmpeg.chromaprint) {
       KazumiLogger().w(
         'UpscaleController: ffmpeg lacks chromaprint, skip detection off',
@@ -900,12 +908,7 @@ class UpscaleController {
       hasDanmaku: false,
     );
     final file = File(
-      path.join(
-        exportRoot,
-        upscaledExportFolderName,
-        upscaledExportDirName(probe),
-        upscaledManifestFileName,
-      ),
+      path.join(_exportDir(exportRoot, probe), upscaledManifestFileName),
     );
     if (!await file.exists()) return;
     try {
@@ -968,6 +971,11 @@ class UpscaleController {
       GStorage.getSetting(SettingsKeys.libraryServer).isNotEmpty &&
       GStorage.getSetting(SettingsKeys.libraryAdminKey).isNotEmpty;
 
+  LibraryApi _libraryAdminApi() => LibraryApi(
+    GStorage.getSetting(SettingsKeys.libraryServer),
+    GStorage.getSetting(SettingsKeys.libraryAdminKey),
+  );
+
   /// Returns an error message, or null once the episode is queued.
   String? enqueueUpload(String recordKey, int episodeNumber) {
     if (!canUploadToLibrary) return '请先在下载设置中填写片库服务器和上传密钥';
@@ -1003,10 +1011,7 @@ class UpscaleController {
     if (!canUploadToLibrary) return Future.value();
     return _libraryRefresh.run(() async {
       try {
-        final api = LibraryApi(
-          GStorage.getSetting(SettingsKeys.libraryServer),
-          GStorage.getSetting(SettingsKeys.libraryAdminKey),
-        );
+        final api = _libraryAdminApi();
         final ids = [for (final e in await api.episodes()) e.id];
         runInAction(() {
           libraryIds
@@ -1065,10 +1070,7 @@ class UpscaleController {
     final record = _repository.getRecord(recordKey);
     final episode = record?.episodes[episodeNumber];
     if (record == null || episode == null) return;
-    final api = LibraryApi(
-      GStorage.getSetting(SettingsKeys.libraryServer),
-      GStorage.getSetting(SettingsKeys.libraryAdminKey),
-    );
+    final api = _libraryAdminApi();
     final files = await _bakedFiles(record, episode);
     final manifest = files.manifest;
     final danmakuPath = files.danmakuPath;

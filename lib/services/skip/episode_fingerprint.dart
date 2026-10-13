@@ -115,12 +115,7 @@ class EpisodeFingerprint {
       '-y',
       '-loglevel',
       'error',
-      if (input.toLowerCase().endsWith('.m3u8')) ...[
-        '-allowed_extensions',
-        'ALL',
-        '-protocol_whitelist',
-        'file,crypto,data',
-      ],
+      ...hlsInputFlags(input),
       if (start > 0) ...['-ss', start.toStringAsFixed(3)],
       '-i',
       input,
