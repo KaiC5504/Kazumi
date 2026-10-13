@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
-import 'package:kazumi/bean/appbar/sys_app_bar.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
@@ -134,36 +133,27 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: SysAppBar(
-        needTopOffset: false,
-        toolbarHeight: 72,
-        title: Text(
-          '追番',
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Tooltip(
-              message: '同步收藏',
-              child: StateActionButton.tonal(
-                text: '同步',
-                onPressed:
-                    _syncDialogOpen || _pendingIds.isNotEmpty ? null : _sync,
-                icon: Icons.sync_rounded,
-              ),
-            ),
-          ),
-        ],
-      ),
       body: SafeArea(
         top: false,
         bottom: false,
         child: Observer(
           builder: (context) => CollectLibraryView(
+            title: '追番',
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Tooltip(
+                  message: '同步收藏',
+                  child: StateActionButton.tonal(
+                    text: '同步',
+                    onPressed: _syncDialogOpen || _pendingIds.isNotEmpty
+                        ? null
+                        : _sync,
+                    icon: Icons.sync_rounded,
+                  ),
+                ),
+              ),
+            ],
             entries: collectController.collectibles.toList(),
             showRating: GStorage.getSetting(SettingsKeys.showRating),
             watchProgress: _watchProgress,

@@ -163,3 +163,59 @@ class _CollectSortMenu extends StatelessWidget {
     );
   }
 }
+
+/// Phone title bar: sort and layout share one menu so the controls row can go.
+class _CollectViewMenu extends StatelessWidget {
+  const _CollectViewMenu({
+    required this.sort,
+    required this.layout,
+    required this.onSort,
+    required this.onLayout,
+  });
+
+  final CollectSort sort;
+  final CollectLayout layout;
+  final ValueChanged<CollectSort> onSort;
+  final ValueChanged<CollectLayout> onLayout;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget heading(String text) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Text(
+            text,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        );
+    return KazumiMenuButton(
+      menuChildren: [
+        heading('排序'),
+        for (final value in CollectSort.values)
+          KazumiMenuItem(
+            selected: sort == value,
+            onPressed: () => onSort(value),
+            label: value.label,
+          ),
+        const Divider(),
+        heading('布局'),
+        for (final value in [CollectLayout.cards, CollectLayout.list])
+          KazumiMenuItem(
+            selected: layout == value,
+            leadingIcon: Icon(value == CollectLayout.list
+                ? Icons.view_list_rounded
+                : Icons.grid_view_rounded),
+            onPressed: () => onLayout(value),
+            label: '${value.label}布局',
+          ),
+      ],
+      builder: (context, toggle) => IconButton(
+        tooltip: '排序与布局',
+        onPressed: toggle,
+        icon: const Icon(Icons.tune_rounded),
+      ),
+    );
+  }
+}

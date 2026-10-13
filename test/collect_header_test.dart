@@ -1,0 +1,168 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce/hive.dart';
+import 'package:kazumi/modules/bangumi/bangumi_item.dart';
+import 'package:kazumi/modules/bangumi/bangumi_tag.dart';
+import 'package:kazumi/modules/collect/collect_layout.dart';
+import 'package:kazumi/modules/collect/collect_module.dart';
+import 'package:kazumi/modules/collect/collect_type.dart';
+import 'package:kazumi/pages/collect/collect_library_view.dart';
+import 'package:kazumi/services/storage/storage.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+const _statusBar = 47.0;
+
+void main() {
+  late Directory directory;
+
+  // The title bar reads window settings.
+  setUpAll(() async {
+    directory = await Directory.systemTemp.createTemp('kazumi_collect_test_');
+    PathProviderPlatform.instance = _TestPaths(directory.path);
+    Hive.init(directory.path);
+    await GStorage.init();
+  });
+
+  tearDownAll(() async {
+    await Hive.close();
+    await directory.delete(recursive: true);
+  });
+
+  Future<void> pumpLibrary(
+    WidgetTester tester, {
+    required Size size,
+    TargetPlatform platform = TargetPlatform.iOS,
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: _statusBar);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: platform),
+        home: Scaffold(
+          body: CollectLibraryView(
+            title: '追番',
+            entries: [
+              for (var i = 1; i <= 40; i++)
+                CollectedBangumi(
+                  _item(i),
+                  DateTime(2026, 10, 1).subtract(Duration(minutes: i)),
+                  CollectType.watching.value,
+                ),
+            ],
+            showRating: false,
+            layout: CollectLayout.list,
+            onLayoutChanged: (_) {},
+            canEdit: (_) => true,
+            onOpen: (_) {},
+            onChangeType: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Finder watchingList() => find.byKey(
+    PageStorageKey('collect-results-${CollectType.watching.value}'),
+  );
+
+  double tabsTop(WidgetTester tester) => tester.getTopLeft(_tab('在看')).dy;
+
+  group('追番 on a phone', () {
+    testWidgets('the title bar scrolls away and the tabs stay pinned', (
+      tester,
+    ) async {
+      await pumpLibrary(tester, size: const Size(390, 844));
+      expect(find.text('追番').hitTestable(), findsOneWidget);
+      final restingTabs = tabsTop(tester);
+
+      await tester.drag(watchingList(), const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsNothing);
+      expect(tabsTop(tester), restingTabs - 72);
+      expect(tabsTop(tester), greaterThan(_statusBar));
+      expect(_tab('在看').hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('a small scroll back up does not bring the title back', (
+      tester,
+    ) async {
+      await pumpLibrary(tester, size: const Size(390, 844));
+      await tester.drag(watchingList(), const Offset(0, -600));
+      await tester.pumpAndSettle();
+      await tester.drag(watchingList(), const Offset(0, 120));
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsNothing);
+
+      await tester.fling(watchingList(), const Offset(0, 3000), 4000);
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('sort and layout live in one menu next to search', (
+      tester,
+    ) async {
+      await pumpLibrary(tester, size: const Size(390, 844));
+      expect(find.byTooltip('搜索收藏'), findsOneWidget);
+      await tester.tap(find.byTooltip('排序与布局'));
+      await tester.pumpAndSettle();
+      expect(find.text('番剧名称'), findsOneWidget);
+      expect(find.text('列表布局'), findsOneWidget);
+      expect(find.text('卡片布局'), findsOneWidget);
+    });
+
+    testWidgets('the first show starts below the header', (tester) async {
+      await pumpLibrary(tester, size: const Size(390, 844));
+      final header = tester.getBottomLeft(_tab('在看')).dy;
+      expect(tester.getTopLeft(find.text('条目 1')).dy, greaterThan(header));
+    });
+  });
+
+  testWidgets('a wide window keeps the full header with a search bar', (
+    tester,
+  ) async {
+    await pumpLibrary(
+      tester,
+      size: const Size(1280, 800),
+      platform: TargetPlatform.windows,
+    );
+    expect(find.text('追番'), findsOneWidget);
+    expect(find.byType(SearchBar), findsOneWidget);
+    expect(find.byTooltip('排序与布局'), findsNothing);
+  });
+}
+
+BangumiItem _item(int id) {
+  return BangumiItem(
+    id: id,
+    type: 2,
+    name: 'subject $id',
+    nameCn: '条目 $id',
+    summary: '',
+    airDate: '2026-01-01',
+    airWeekday: 4,
+    rank: 0,
+    images: const {'large': '', 'common': '', 'medium': '', 'small': ''},
+    tags: const <BangumiTag>[],
+    alias: const [],
+    ratingScore: 0,
+    votes: 0,
+    votesCount: const [],
+    info: '',
+  );
+}
+
+class _TestPaths extends PathProviderPlatform {
+  _TestPaths(this.path);
+  final String path;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
+}
+
+Finder _tab(String label) =>
+    find.descendant(of: find.byType(TabBar), matching: find.text(label));

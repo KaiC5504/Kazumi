@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:kazumi/bean/appbar/sys_app_bar.dart';
 import 'package:kazumi/bean/card/network_img_layer.dart';
 import 'package:kazumi/bean/widget/empty_state_widget.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
@@ -24,6 +26,8 @@ const _collectCategories = <CollectType?>[
 class CollectLibraryView extends StatefulWidget {
   const CollectLibraryView({
     super.key,
+    required this.title,
+    this.actions = const [],
     required this.entries,
     required this.showRating,
     this.watchProgress = const {},
@@ -34,6 +38,8 @@ class CollectLibraryView extends StatefulWidget {
     required this.onLayoutChanged,
   });
 
+  final String title;
+  final List<Widget> actions;
   final List<CollectedBangumi> entries;
   final bool showRating;
   final Map<int, String> watchProgress;
@@ -64,6 +70,10 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   CollectSort _sort = CollectSort.recentlyChanged;
   String _query = '';
   bool _searchExpanded = false;
+  // Phone header below the status bar, measured; the guess covers frame one.
+  double _compactHeaderHeight = _titleBarHeight + 56;
+
+  static const _titleBarHeight = 72.0;
 
   @override
   void didChangeDependencies() {
@@ -167,103 +177,85 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
           final width = constraints.maxWidth.clamp(0.0, 1560.0);
           final inset =
               (constraints.maxWidth - width) / 2 + (compact ? 16.0 : 32.0);
-          final header = _header(query, compact: compact);
+          if (compact) {
+            return PageStorage(
+              bucket: _resultsStorage,
+              child: _compactLibrary(query, inset: inset, paged: paged),
+            );
+          }
+          final header = _header(query);
+          final library = paged
+              ? Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: inset),
+                      child: header,
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          for (final type in _collectCategories)
+                            HeroMode(
+                              enabled: type == _selectedType,
+                              child: _results(query, type, inset: inset),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : _results(query, _selectedType, inset: inset, header: header);
           return PageStorage(
             bucket: _resultsStorage,
-            child: paged
-                ? Column(
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: inset),
-                        child: header,
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          controller: _tabController,
-                          children: [
-                            for (final type in _collectCategories)
-                              HeroMode(
-                                enabled: type == _selectedType,
-                                child: _results(query, type, inset: inset),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : _results(query, _selectedType, inset: inset, header: header),
+            child: Column(
+              children: [
+                _titleBar(query, compact: false),
+                Expanded(child: library),
+              ],
+            ),
           );
         }),
       ),
     );
   }
 
-  Widget _header(CollectLibraryQuery query, {required bool compact}) {
+  Widget _header(CollectLibraryQuery query) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            Expanded(
-              child: _CollectCategories(
-                key: _categoriesKey,
-                controller: _tabController,
-                count: query.count,
+            Expanded(child: _categories(query)),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 16),
+              child: Text(
+                '${query.count(_selectedType)} 部',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ),
-            if (!compact)
-              Padding(
-                padding: const EdgeInsetsDirectional.only(start: 16),
-                child: Text(
-                  '${query.count(_selectedType)} 部',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ),
           ],
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            if (!compact)
-              Expanded(
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 360),
-                    child: _searchBar(),
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: Text(
-                  '${query.count(_selectedType)} 部',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: _searchBar(),
                 ),
               ),
+            ),
             const SizedBox(width: 12),
             _CollectSortMenu(
               value: _sort,
-              showLabel: !compact,
-              onChanged: (value) => setState(() {
-                _sort = value;
-                _resetResults();
-              }),
+              showLabel: true,
+              onChanged: _changeSort,
             ),
-            if (compact)
-              IconButton(
-                tooltip: _searchExpanded ? '收起搜索' : '搜索收藏',
-                isSelected: _searchExpanded,
-                selectedIcon: const Icon(Icons.search_off_rounded),
-                icon: const Icon(Icons.search_rounded),
-                onPressed: _searchExpanded ? _closeSearch : _focusSearch,
-              ),
             const SizedBox(width: 8),
             _CollectLayoutSwitch(
               value: widget.layout,
@@ -271,13 +263,156 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
             ),
           ],
         ),
-        if (compact && _searchExpanded) ...[
-          const SizedBox(height: 12),
-          _searchBar(),
-        ],
         const SizedBox(height: 20),
       ],
     );
+  }
+
+  Widget _categories(CollectLibraryQuery query) => _CollectCategories(
+        key: _categoriesKey,
+        controller: _tabController,
+        count: query.count,
+      );
+
+  void _changeSort(CollectSort sort) => setState(() {
+        _sort = sort;
+        _resetResults();
+      });
+
+  Widget _titleBar(CollectLibraryQuery query, {required bool compact}) {
+    final theme = Theme.of(context);
+    final title = Text(
+      widget.title,
+      style:
+          theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+    );
+    return SysAppBar(
+      needTopOffset: false,
+      toolbarHeight: _titleBarHeight,
+      // On phones the count moves up here from the controls row it replaces.
+      title: compact
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                title,
+                const SizedBox(width: 8),
+                Text(
+                  '${query.count(_selectedType)} 部',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            )
+          : title,
+      actions: [
+        if (compact) ...[
+          IconButton(
+            tooltip: _searchExpanded ? '收起搜索' : '搜索收藏',
+            isSelected: _searchExpanded,
+            selectedIcon: const Icon(Icons.search_off_rounded),
+            icon: const Icon(Icons.search_rounded),
+            onPressed: _searchExpanded ? _closeSearch : _focusSearch,
+          ),
+          _CollectViewMenu(
+            sort: _sort,
+            layout: widget.layout,
+            onSort: _changeSort,
+            onLayout: widget.onLayoutChanged,
+          ),
+          const SizedBox(width: 4),
+        ],
+        ...widget.actions,
+      ],
+    );
+  }
+
+  /// Phones: the title bar scrolls away with the list while the category tabs
+  /// stay pinned under the status bar. It comes back only at the top of the
+  /// list, never on a small scroll up.
+  Widget _compactLibrary(CollectLibraryQuery query,
+      {required double inset, required bool paged}) {
+    final colors = Theme.of(context).colorScheme;
+    final statusBar = MediaQuery.paddingOf(context).top;
+    final top = statusBar + _compactHeaderHeight;
+    final header = ColoredBox(
+      color: colors.surface,
+      child: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _titleBar(query, compact: true),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: inset),
+              child: _categories(query),
+            ),
+            if (_searchExpanded)
+              Padding(
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
+                child: _searchBar(),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: paged
+              ? TabBarView(
+                  controller: _tabController,
+                  children: [
+                    for (final type in _collectCategories)
+                      HeroMode(
+                        enabled: type == _selectedType,
+                        child: _results(query, type, inset: inset, top: top),
+                      ),
+                  ],
+                )
+              : _results(query, _selectedType, inset: inset, top: top),
+        ),
+        Positioned(
+          top: statusBar,
+          left: 0,
+          right: 0,
+          child: ClipRect(
+            child: ListenableBuilder(
+              listenable: _scrollControllers[_selectedType]!,
+              builder: (context, child) => Transform.translate(
+                offset: Offset(0, -_titleBarCollapse()),
+                child: child,
+              ),
+              child: _HeightReporter(
+                onHeight: (height) {
+                  if (mounted && height != _compactHeaderHeight) {
+                    setState(() => _compactHeaderHeight = height);
+                  }
+                },
+                child: header,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: statusBar,
+          child: ColoredBox(color: colors.surface),
+        ),
+      ],
+    );
+  }
+
+  double _titleBarCollapse() {
+    final positions = _scrollControllers[_selectedType]!.positions;
+    if (positions.isEmpty || !positions.first.hasPixels) return 0;
+    return positions.first.pixels.clamp(0.0, _titleBarHeight);
   }
 
   Widget _searchBar() => Semantics(
@@ -309,7 +444,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       );
 
   Widget _results(CollectLibraryQuery query, CollectType? type,
-      {required double inset, Widget? header}) {
+      {required double inset, Widget? header, double top = 0}) {
     return LayoutBuilder(builder: (context, constraints) {
       final entries = query.results(type, _sort);
       final contentWidth = constraints.maxWidth - inset * 2;
@@ -321,6 +456,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
           semanticChildCount: entries.length,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           slivers: [
+            if (top > 0) SliverToBoxAdapter(child: SizedBox(height: top)),
             if (header != null)
               SliverPadding(
                 padding: EdgeInsets.symmetric(horizontal: inset),
@@ -461,5 +597,37 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       icon: searching ? Icons.search_off_rounded : Icons.video_library_outlined,
       title: title,
     );
+  }
+}
+
+class _HeightReporter extends SingleChildRenderObjectWidget {
+  const _HeightReporter({required this.onHeight, super.child});
+
+  final ValueChanged<double> onHeight;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderHeightReporter(onHeight);
+
+  @override
+  void updateRenderObject(
+          BuildContext context, _RenderHeightReporter renderObject) =>
+      renderObject.onHeight = onHeight;
+}
+
+class _RenderHeightReporter extends RenderProxyBox {
+  _RenderHeightReporter(this.onHeight);
+
+  ValueChanged<double> onHeight;
+  double? _reported;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final height = size.height;
+    if (height == _reported) return;
+    _reported = height;
+    // Layout can't set state, so the list padding follows a frame later.
+    WidgetsBinding.instance.addPostFrameCallback((_) => onHeight(height));
   }
 }
