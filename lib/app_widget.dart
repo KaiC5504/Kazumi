@@ -174,6 +174,7 @@ class _AppWidgetState extends State<AppWidget>
   @override
   void onTrayIconMouseDown() {
     windowManager.show();
+    windowManager.focus();
   }
 
   @override
@@ -266,9 +267,38 @@ class _AppWidgetState extends State<AppWidget>
     _syncWindowsTitleBarBrightness(themeProvider);
   }
 
+  // On Windows the tray icon only exists while the window is hidden, so the app
+  // sits in either the taskbar or the tray, never both.
+  @override
+  void onWindowEvent(String eventName) {
+    if (!Platform.isWindows) return;
+    if (eventName == 'hide') {
+      _setTrayIconVisible(true);
+    } else if (eventName == 'show') {
+      _setTrayIconVisible(false);
+    }
+  }
+
+  bool _trayIconVisible = false;
+  Future<void> _trayIconUpdate = Future.value();
+
+  void _setTrayIconVisible(bool visible) {
+    _trayIconUpdate = _trayIconUpdate.then((_) async {
+      if (_trayIconVisible == visible) return;
+      _trayIconVisible = visible;
+      if (visible) {
+        await trayManager.setIcon('assets/images/logo/logo_lanczos.ico');
+      } else {
+        await trayManager.destroy();
+      }
+    }).catchError((e) {
+      KazumiLogger().w('Tray: toggle icon failed', error: e);
+    });
+  }
+
   Future<void> _handleTray() async {
     if (Platform.isWindows) {
-      await trayManager.setIcon('assets/images/logo/logo_lanczos.ico');
+      // The icon is added on hide; tooltip and menu are kept for when it is.
     } else if (Platform.environment.containsKey('FLATPAK_ID') ||
         Platform.environment.containsKey('SNAP')) {
       await trayManager.setIcon('io.github.Predidit.Kazumi');
