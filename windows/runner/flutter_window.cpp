@@ -4,6 +4,7 @@
 #include "shortcut_utils.h"
 
 #include <optional>
+#include <string>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -32,6 +33,18 @@ LRESULT CALLBACK FlutterViewSubclassProc(HWND hwnd, UINT message,
   return DefSubclassProc(hwnd, message, wparam, lparam);
 }
 
+bool AccessibilityMarkerExists() {
+  wchar_t exe_path[MAX_PATH];
+  DWORD length = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+  if (length == 0 || length == MAX_PATH) {
+    return false;
+  }
+  std::wstring marker(exe_path, length);
+  marker.resize(marker.find_last_of(L'\\') + 1);
+  marker += L"allow-accessibility";
+  return GetFileAttributesW(marker.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -56,7 +69,10 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   HWND flutter_view = flutter_controller_->view()->GetNativeWindow();
-  SetWindowSubclass(flutter_view, FlutterViewSubclassProc, 0, 0);
+  // UI automation tools need the tree; the marker accepts the seek-bar crash.
+  if (!AccessibilityMarkerExists()) {
+    SetWindowSubclass(flutter_view, FlutterViewSubclassProc, 0, 0);
+  }
   SetChildContent(flutter_view);
 
   // Removed automatic window show to let window_manager plugin control visibility
