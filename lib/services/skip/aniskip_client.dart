@@ -20,7 +20,7 @@ class AniSkipClient {
       'https://rhilip.github.io/BangumiExtLinker/data/anime_map.json';
   static const _mapMaxAge = Duration(days: 7);
 
-  Map<int, int>? _malIds;
+  Future<Map<int, int>>? _malIds;
 
   Future<SkipSegments> lookup(
     int bangumiId,
@@ -47,8 +47,15 @@ class AniSkipClient {
   }
 
   Future<int?> malIdFor(int bangumiId) async {
-    final ids = _malIds ??= await _loadMap();
-    return ids[bangumiId];
+    // Overlapping lookups share one download. A throw isn't kept, so the
+    // next lookup tries again.
+    final load = _malIds ??= _loadMap();
+    try {
+      return (await load)[bangumiId];
+    } catch (_) {
+      if (identical(_malIds, load)) _malIds = null;
+      rethrow;
+    }
   }
 
   Future<Map<int, int>> _loadMap() async {

@@ -183,7 +183,8 @@ class PlayerController implements Disposable {
     }
     final initialization = _initializations.begin();
 
-    syncplay.onEpisodeLoading('${params.bangumiId}[${params.episode}]',
+    syncplay.onEpisodeLoading(
+        syncPlayFileName(params.bangumiId, params.episode),
         Duration(seconds: params.offset));
     videoUrl = params.videoUrl;
     isLocalPlayback = params.isLocalPlayback;
@@ -417,8 +418,7 @@ class PlayerController implements Disposable {
   }
 
   Future<void> _shutdownResources() async {
-    unawaited(_netWatch?.cancel());
-    _netWatch = null;
+    _stopNetWatch();
     await Future.wait([
       _releasePlaybackResources(),
       syncplay.dispose(),
@@ -471,6 +471,11 @@ class PlayerController implements Disposable {
 
   StreamSubscription<List<ConnectivityResult>>? _netWatch;
 
+  void _stopNetWatch() {
+    unawaited(_netWatch?.cancel());
+    _netWatch = null;
+  }
+
   static NetKind netKindOf(List<ConnectivityResult> r) {
     if (r.contains(ConnectivityResult.wifi)) return NetKind.wifi;
     if (r.contains(ConnectivityResult.ethernet)) return NetKind.ethernet;
@@ -515,7 +520,6 @@ class PlayerController implements Disposable {
 
   void setSyncPlayCurrentPosition(
       {bool? forceSyncPlaying, double? forceSyncPosition}) {
-    syncplay.onPlayerTick();
     syncplay.setCurrentPosition(
       forceSyncPlaying: forceSyncPlaying,
       forceSyncPosition: forceSyncPosition,
@@ -539,8 +543,7 @@ class PlayerController implements Disposable {
   }
 
   Future<void> exitSyncPlayRoom() async {
-    unawaited(_netWatch?.cancel());
-    _netWatch = null;
+    _stopNetWatch();
     await syncplay.exitRoom();
     // Rooms pin 1.0×; outside one the anime's own speed applies again.
     final speed = AnimeSpeedStore.speedFor(bangumiId, inRoom: false);

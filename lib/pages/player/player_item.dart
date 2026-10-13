@@ -1308,6 +1308,7 @@ class _PlayerItemState extends State<PlayerItem>
         case EndStep.giveUp:
           videoPageController.reportPlaybackFailure('网络中断，重连失败');
       }
+      playerController.syncplay.onPlayerTick();
       playerController.setSyncPlayCurrentPosition();
     });
   }

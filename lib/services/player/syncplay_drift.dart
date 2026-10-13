@@ -4,12 +4,9 @@ import 'dart:collection';
 /// stands in for the usual delay, so one message held up by packet loss
 /// doesn't skew the position estimate, and can be recognised as late.
 class SyncplayRttWindow {
-  SyncplayRttWindow({this.size = 10});
+  static const size = 10;
 
-  final int size;
   final ListQueue<double> _samples = ListQueue();
-
-  bool get isEmpty => _samples.isEmpty;
 
   double get median {
     if (_samples.isEmpty) return 0;

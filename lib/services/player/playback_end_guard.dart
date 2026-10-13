@@ -58,14 +58,13 @@ class PlaybackEndGuard {
       fileKey == _fileKey ? _lastGood : Duration.zero;
 
   void onEpisodeStarted(String fileKey) {
-    if (fileKey != _fileKey) {
+    final newFile = fileKey != _fileKey;
+    if (newFile) {
       _fileKey = fileKey;
-      _incidents = 0;
-      _attempts = 0;
-      _inIncident = false;
       _lastGood = Duration.zero;
-    } else if (_gaveUp) {
-      // The user tapped retry after the error: a fresh start.
+    }
+    // Retrying after the error is a fresh start too.
+    if (newFile || _gaveUp) {
       _incidents = 0;
       _attempts = 0;
       _inIncident = false;

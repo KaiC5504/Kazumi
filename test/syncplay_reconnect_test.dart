@@ -1,8 +1,13 @@
 @Timeout(Duration(minutes: 30))
 library;
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
+import 'package:kazumi/services/player/syncplay_drift.dart';
 import 'package:kazumi/services/player/syncplay_watchdog.dart';
+import 'package:kazumi/services/storage/storage.dart';
 
 import 'support/syncplay_sim.dart';
 
@@ -408,5 +413,103 @@ void main() {
       // Waiting out the goodbye's echo would take 20 s at this clock speed.
       expect(clock.seconds - before, lessThan(2));
     });
+  });
+
+  test('leaving while a quiet reconnect undoes a nudge keeps nothing of the '
+      'room', () async {
+    clock = VirtualClock(_speed);
+    server = await SimSyncplayServer.start(clock);
+    her = SimViewer(
+      'her',
+      clock,
+      network: NetworkProfile.sameWifi,
+      episodeLength: 1440,
+    );
+    viewers.add(her);
+    await her.join(server, at: 60);
+
+    // His player, with a speed change that can take a while to apply, as
+    // mpv's setRate can.
+    var anchor = 60.0;
+    var anchorAt = server.openedAt;
+    var rate = 1.0;
+    double position() => anchor + (clock.seconds - anchorAt) * rate;
+    Duration at(double seconds) =>
+        Duration(microseconds: (seconds * 1e6).round());
+    final rates = <double>[];
+    Completer<void>? slowRate;
+    late final PlayerSyncPlayController sync;
+    sync = PlayerSyncPlayController(
+      bangumiId: () => 1,
+      currentEpisode: () => 1,
+      currentRoad: () => 0,
+      playing: () => true,
+      currentPosition: () => at(position()),
+      playerPosition: () => at(position()),
+      duration: () => at(1440),
+      completed: () => false,
+      pause: ({bool enableSync = true}) async {},
+      play: ({bool enableSync = true}) async {},
+      seek: (Duration to, {bool enableSync = true}) async {
+        anchor = to.inMicroseconds / 1e6;
+        anchorAt = clock.seconds;
+      },
+      setRateFactor: (double factor) async {
+        anchor = position();
+        anchorAt = clock.seconds;
+        rate = factor;
+        rates.add(factor);
+        await slowRate?.future;
+      },
+      clock: clock.now,
+    );
+    final tick = Timer.periodic(clock.real(1), (_) {
+      sync.onPlayerTick();
+      sync.setCurrentPosition();
+    });
+    try {
+      server.expect(NetworkProfile.sameWifi);
+      await GStorage.putSetting(
+        SettingsKeys.syncPlayEndPoint,
+        '127.0.0.1:${server.port}',
+      );
+      await sync.createRoom(
+        'room',
+        'kai',
+        (int episode, {int currentRoad = 0, int offset = 0}) async {},
+      );
+      sync.onNetwork(NetKind.wifi);
+      await clock.until(
+        () => server.fileOf('kai') != null,
+        timeout: 10,
+        what: 'him to catch up and announce',
+      );
+      // Ahead of her by enough to be slowed down, not enough to wait.
+      anchor += 5;
+      await clock.until(
+        () => rates.contains(SyncDriftCorrector.slowRate),
+        timeout: 15,
+        what: 'a nudge',
+      );
+      sync.followEpisode = 2;
+      expect(sync.peers, contains('her'));
+
+      slowRate = Completer<void>();
+      sync.onNetwork(NetKind.cellular);
+      expect(sync.reconnectAttempts, 1);
+      expect(rates.last, 1.0, reason: 'the reconnect is undoing the nudge');
+      await sync.exitRoom();
+      slowRate.complete();
+      await clock.wait(2);
+
+      expect(sync.inRoom, isFalse);
+      expect(sync.hasSession, isFalse);
+      expect(sync.peers, isEmpty);
+      expect(sync.followEpisode, isNull);
+    } finally {
+      tick.cancel();
+      await sync.dispose();
+      await stop();
+    }
   });
 }

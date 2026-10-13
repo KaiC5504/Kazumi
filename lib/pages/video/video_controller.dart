@@ -432,15 +432,14 @@ abstract class _VideoPageController with Store implements Disposable {
     return urls[_remoteHostOffset % urls.length];
   }
 
-  /// Moves streamed episodes to the next host; returns the one that failed.
-  String? rotateRemoteHost() {
+  /// Moves streamed episodes to the next host and reports the one that
+  /// failed.
+  void rotateRemoteHost() {
     final key = resolveEpisode(playbackEpisode)?.historyEpisodeNumber;
-    final urls = key == null ? null : _remoteVideoUrls[key];
-    if (urls == null || urls.length < 2) return null;
-    final failed = urls[_remoteHostOffset % urls.length];
+    if (key == null || (_remoteVideoUrls[key]?.length ?? 0) < 2) return;
+    final failed = _remoteUrlFor(key)!;
     _remoteHostOffset++;
     _offlineHooks?.onStreamHostFailed(failed);
-    return failed;
   }
 
   Future<void> changeEpisode(

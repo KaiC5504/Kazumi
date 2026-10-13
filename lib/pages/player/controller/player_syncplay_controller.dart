@@ -16,6 +16,10 @@ import 'package:mobx/mobx.dart';
 
 part 'player_syncplay_controller.g.dart';
 
+/// The name the room knows an episode by. Peers parse the ids back out of
+/// it, so it is part of the wire format.
+String syncPlayFileName(int bangumiId, int episode) => '$bangumiId[$episode]';
+
 class PlayerSyncPlayController = _PlayerSyncPlayController
     with _$PlayerSyncPlayController;
 
@@ -97,9 +101,9 @@ abstract class _PlayerSyncPlayController with Store {
   // The episode's length before that reload emptied the player.
   Duration? _reloadingLength;
 
-  // The backoff stops counting as running once its last attempt is spent,
-  // but that attempt still needs time to land before giving up.
-  bool get reconnecting => _backoff.running || _backoff.exhausted;
+  // Still true once the last attempt is spent: that attempt needs time to
+  // land before giving up.
+  bool get reconnecting => _backoff.started;
   /// Sent as chat on a deliberate exit so the others show 离开了 at once;
   /// a dropped connection still waits out the leave debounce. Builds that
   /// don't know it show it as a chat line, hence the readable text.
@@ -109,9 +113,6 @@ abstract class _PlayerSyncPlayController with Store {
   int get reconnectAttempts => _reconnectAttempts;
   @visibleForTesting
   Iterable<String> get peers => _peerFiles.keys;
-
-  @visibleForTesting
-  bool get waitingForPeers => _waitingForPeers;
 
   /// Episode another watcher moved on to while this one was near the end of
   /// the current one; the player goes there once this episode finishes.
@@ -203,21 +204,7 @@ abstract class _PlayerSyncPlayController with Store {
     syncplayController = null;
     syncplayRoom = '';
     syncplayClientRtt = 0;
-    final keepFollow = followEpisode;
-    final keepAnnounced = _announcedFile;
-    final keepReloadingAt = _reloadingAt;
-    final keepPeerFiles = Map.of(_peerFiles);
-    await _resetRoomState();
-    if (quiet) {
-      followEpisode = keepFollow;
-      _announcedFile = keepAnnounced;
-      _reloadingAt = keepReloadingAt;
-      // Peers only announce a file when it changes, so the new connection
-      // won't hear which episode they are on. Without this a peer waiting
-      // at the next episode looks like it's in ours, and the catch-up jump
-      // lands at its position.
-      _peerFiles.addAll(keepPeerFiles);
-    }
+    await _resetRoomState(keepEpisode: quiet);
     await previousClient?.disconnect();
     if (session.isStale) {
       return;
@@ -231,8 +218,7 @@ abstract class _PlayerSyncPlayController with Store {
           icon: Icons.error_outline_rounded, bottom: true);
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
       if (!reconnecting) {
-        _leaveRoomState();
-        speedLocked = rejoining;
+        _joinFailed(rejoining: rejoining);
       }
       return;
     }
@@ -313,12 +299,10 @@ abstract class _PlayerSyncPlayController with Store {
               }
               setPlayingBangumi();
             } else {
-              _pendingLeft.remove(message['username']);
-              _peerFiles.putIfAbsent(message['username'],
-                  () => _leftFiles.remove(message['username']));
+              _pendingLeft.remove(named);
+              _peerFiles.putIfAbsent(named, () => _leftFiles.remove(named));
               if (!quiet) {
-                GlassNotice.show('已跟上 ${message['username']} 的进度',
-                    icon: Icons.sync_rounded);
+                GlassNotice.show('已跟上 $named 的进度', icon: Icons.sync_rounded);
               }
               _announceWhenCaughtUp = true;
             }
@@ -364,20 +348,19 @@ abstract class _PlayerSyncPlayController with Store {
             }
             // A peer back from a dead socket can rejoin while the server
             // still holds the old connection, so no 'left' came first.
-            final known = _peerFiles.containsKey(message['username']);
+            final known = _peerFiles.containsKey(name);
             if (known) {
-              _ghosts.update(message['username'], (n) => n + 1,
-                  ifAbsent: () => 1);
+              _ghosts.update(name, (n) => n + 1, ifAbsent: () => 1);
             }
-            final wasAway = _pendingLeft.remove(message['username']) != null;
-            final lastFile = _leftFiles.remove(message['username']);
-            if (message['username'] != client.username && !known) {
+            final wasAway = _pendingLeft.remove(name) != null;
+            final lastFile = _leftFiles.remove(name);
+            if (name != client.username && !known) {
               // Back within the leave debounce: still on the same file.
-              _peerFiles[message['username']] = wasAway ? lastFile : null;
-            }
-            if (!wasAway && !known && message['username'] != client.username) {
-              GlassNotice.show('${message['username']} 加入了',
-                  icon: Icons.person_add_alt_1_rounded);
+              _peerFiles[name] = wasAway ? lastFile : null;
+              if (!wasAway) {
+                GlassNotice.show('$name 加入了',
+                    icon: Icons.person_add_alt_1_rounded);
+              }
             }
           }
         },
@@ -394,9 +377,7 @@ abstract class _PlayerSyncPlayController with Store {
               setBy != client.username &&
               !_isOwnGhost(setBy, client)) {
             _peerFiles[setBy] = message['name'];
-            if (_waitingForPeers && _peersBehind().isEmpty) {
-              _stopWaiting(caughtUp: setBy);
-            }
+            _stopWaitingIfCaughtUp(caughtUp: setBy);
           }
           RegExp regExp = RegExp(r'(\d+)\[(\d+)\]');
           Match? match = regExp.firstMatch(message['name']);
@@ -410,8 +391,7 @@ abstract class _PlayerSyncPlayController with Store {
                     '${setBy ?? '对方'} 已在第 $episode 话，本集播完后跟上',
                     icon: Icons.skip_next_rounded);
               } else {
-                GlassNotice.show(
-                    '${message['setBy'] ?? '对方'} 切换到第 $episode 话',
+                GlassNotice.show('${setBy ?? '对方'} 切换到第 $episode 话',
                     icon: Icons.skip_next_rounded);
                 changeEpisode(episode, currentRoad: currentRoad());
               }
@@ -475,19 +455,20 @@ abstract class _PlayerSyncPlayController with Store {
           }
           // Positions from another episode, or from a player sitting at the
           // end of this one, say nothing about how far apart we are.
-          if (_peersElsewhere().isNotEmpty || completed()) {
+          if (_anyPeerElsewhere() || completed()) {
             unawaited(_stopNudge());
             _stopWaitingForRoom(resume: false);
             return;
           }
+          final double roomPosition = message['calculatedPositon'].toDouble();
+          final double drift =
+              playerPosition().inMilliseconds / 1000 - roomPosition;
           if (_waitingForRoom) {
-            final behind = playerPosition().inMilliseconds / 1000 -
-                message['calculatedPositon'].toDouble();
             if (message['paused'] || message['doSeek'] || playing()) {
               // The room paused or seeked, or play was pressed: whatever
               // happens next is handled as usual.
               _stopWaitingForRoom(resume: false);
-            } else if (behind < SyncDriftCorrector.settled) {
+            } else if (drift < SyncDriftCorrector.settled) {
               _stopWaitingForRoom(resume: true);
               return;
             } else {
@@ -509,9 +490,6 @@ abstract class _PlayerSyncPlayController with Store {
               }
             }
           }
-          final double roomPosition = message['calculatedPositon'].toDouble();
-          final double drift =
-              playerPosition().inMilliseconds / 1000 - roomPosition;
           if (message['doSeek']) {
             _jumpTo(roomPosition);
             return;
@@ -551,8 +529,7 @@ abstract class _PlayerSyncPlayController with Store {
           if (decision.seek) {
             KazumiLogger()
                 .i('SyncPlay: drift ${drift.toStringAsFixed(2)}s, seeking');
-            seek(Duration(milliseconds: (roomPosition * 1000).toInt()),
-                enableSync: false);
+            _jumpTo(roomPosition);
           }
         },
       );
@@ -576,8 +553,7 @@ abstract class _PlayerSyncPlayController with Store {
       if (reconnecting) {
         return;
       }
-      _leaveRoomState();
-      speedLocked = rejoining;
+      _joinFailed(rejoining: rejoining);
       GlassNotice.show(
         '连不上同步服务器',
         icon: Icons.link_off_rounded,
@@ -616,10 +592,8 @@ abstract class _PlayerSyncPlayController with Store {
     _lastTickAt = now;
     for (final entry in _pendingLeft.entries.toList()) {
       final away = now.difference(entry.value);
-      if (away >= const Duration(seconds: 5) &&
-          _waitingForPeers &&
-          _peersBehind().isEmpty) {
-        _stopWaiting();
+      if (away >= const Duration(seconds: 5)) {
+        _stopWaitingIfCaughtUp();
       }
       if (away >= const Duration(seconds: 15)) {
         _pendingLeft.remove(entry.key);
@@ -633,7 +607,11 @@ abstract class _PlayerSyncPlayController with Store {
       return;
     }
     if (syncplayController == null) return;
-    switch (_watchdog.onTick()) {
+    _act(_watchdog.onTick(), now);
+  }
+
+  void _act(WatchAction action, DateTime now) {
+    switch (action) {
       case WatchAction.none:
         break;
       case WatchAction.probe:
@@ -667,7 +645,6 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   void _giveUp() {
-    _backoff.reset();
     _reconnectNoticeShown = false;
     final room = _room!, user = _username!, change = _changeEpisode!;
     unawaited(_closeRoom());
@@ -703,22 +680,14 @@ abstract class _PlayerSyncPlayController with Store {
   void onResumed(Duration background) {
     _backgrounded = false;
     if (syncplayController == null && !reconnecting) return;
-    switch (_watchdog.onResumed(background)) {
-      case WatchAction.none:
-        break;
-      case WatchAction.probe:
-        unawaited(requestSync());
-      case WatchAction.reconnect:
-        _beginReconnect();
-        _driveReconnect(clock());
-    }
+    _act(_watchdog.onResumed(background), clock());
   }
 
   bool _isCurrentConnection(AsyncSession session, SyncplayClient client) {
     return session.isActive && identical(syncplayController, client);
   }
 
-  String _currentFile() => "${bangumiId()}[${currentEpisode()}]";
+  String _currentFile() => syncPlayFileName(bangumiId(), currentEpisode());
 
   // Syncplay makes a taken name unique by appending underscores.
   static String _baseName(String name) =>
@@ -754,16 +723,14 @@ abstract class _PlayerSyncPlayController with Store {
     _leftFiles.remove(name);
     _peerFiles.remove(name);
     _ghosts.remove(name);
-    if (_waitingForPeers && _peersBehind().isEmpty) {
-      _stopWaiting();
-    }
+    _stopWaitingIfCaughtUp();
     GlassNotice.show('$name 离开了', icon: Icons.person_remove_rounded);
   }
 
-  List<String> _peersElsewhere() => [
-        for (final entry in _peerFiles.entries)
-          if (entry.value != null && entry.value != _currentFile()) entry.key
-      ];
+  bool _anyPeerElsewhere() {
+    final mine = _currentFile();
+    return _peerFiles.values.any((file) => file != null && file != mine);
+  }
 
   /// Watchers still on an earlier episode of this show.
   List<String> _peersBehind() {
@@ -847,14 +814,26 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   void _showWaiting() {
+    _showWaitNotice('${_peersBehind().join('、')} 还在上一话，等 TA 跟上',
+        onGiveUp: _stopWaiting, duration: const Duration(hours: 1));
+  }
+
+  void _showWaitNotice(String text,
+      {required VoidCallback onGiveUp, required Duration duration}) {
     GlassNotice.show(
-      '${_peersBehind().join('、')} 还在上一话，等 TA 跟上',
+      text,
       icon: Icons.hourglass_top_rounded,
       bottom: true,
       actionLabel: '不等了',
-      onAction: _stopWaiting,
-      duration: const Duration(hours: 1),
+      onAction: onGiveUp,
+      duration: duration,
     );
+  }
+
+  void _stopWaitingIfCaughtUp({String? caughtUp}) {
+    if (_waitingForPeers && _peersBehind().isEmpty) {
+      _stopWaiting(caughtUp: caughtUp);
+    }
   }
 
   void _stopWaiting({String? caughtUp}) {
@@ -862,15 +841,12 @@ abstract class _PlayerSyncPlayController with Store {
       return;
     }
     _waitingForPeers = false;
-    _drift.holdOff();
     if (caughtUp != null) {
       GlassNotice.show('$caughtUp 跟上了', icon: Icons.sync_rounded);
     } else {
       GlassNotice.hide();
     }
-    if (!playing()) {
-      play(enableSync: false);
-    }
+    _resumeLocally();
   }
 
   void _startWaitingForRoom(SyncplayClient client, String? slowest) {
@@ -880,14 +856,9 @@ abstract class _PlayerSyncPlayController with Store {
         (slowest == null || slowest.isEmpty || slowest == client.username)
             ? '对方'
             : slowest;
-    GlassNotice.show(
-      '等 $who 跟上…',
-      icon: Icons.hourglass_top_rounded,
-      bottom: true,
-      actionLabel: '不等了',
-      onAction: () => _stopWaitingForRoom(resume: true),
-      duration: const Duration(minutes: 10),
-    );
+    _showWaitNotice('等 $who 跟上…',
+        onGiveUp: () => _stopWaitingForRoom(resume: true),
+        duration: const Duration(minutes: 10));
   }
 
   void _stopWaitingForRoom({required bool resume}) {
@@ -897,32 +868,45 @@ abstract class _PlayerSyncPlayController with Store {
     _waitingForRoom = false;
     GlassNotice.hide();
     if (resume) {
-      _drift.holdOff();
-      if (!playing()) {
-        play(enableSync: false);
-      }
+      _resumeLocally();
+    }
+  }
+
+  void _resumeLocally() {
+    _drift.holdOff();
+    if (!playing()) {
+      play(enableSync: false);
     }
   }
 
   /// Lets the server count this player when working out where the room is;
   /// the room position is the slowest player that has a file.
   Future<void> _announceFile(SyncplayClient client) async {
-    _announcedFile = _currentFile();
-    await _runBestEffortSync(
-        () => client.setSyncPlayPlaying(_currentFile(), 10800, 220514438));
+    final file = _announcedFile = _currentFile();
+    await _runBestEffortSync(() => _sendFile(client, file));
   }
 
-  Future<void> _resetRoomState() async {
+  // Placeholder duration and size, as upstream has always sent them.
+  static Future<void> _sendFile(SyncplayClient client, String file) =>
+      client.setSyncPlayPlaying(file, 10800, 220514438);
+
+  Future<void> _resetRoomState({bool keepEpisode = false}) async {
     if (_waitingForPeers) {
       _waitingForPeers = false;
       GlassNotice.hide();
     }
     _stopWaitingForRoom(resume: false);
     _announceWhenCaughtUp = false;
-    _peerFiles.clear();
-    followEpisode = null;
-    _announcedFile = null;
-    _reloadingAt = null;
+    // A quiet reconnect keeps the peers' files: they only announce one when
+    // it changes, so the new connection won't hear which episode they are
+    // on. Without them a peer waiting at the next episode looks like it's in
+    // ours, and the catch-up jump lands at its position.
+    if (!keepEpisode) {
+      _peerFiles.clear();
+      followEpisode = null;
+      _announcedFile = null;
+      _reloadingAt = null;
+    }
     await _stopNudge();
   }
 
@@ -952,7 +936,7 @@ abstract class _PlayerSyncPlayController with Store {
       await _stopNudge();
     }
     await _runBestEffortSync(() async {
-      await client.setSyncPlayPlaying(file, 10800, 220514438);
+      await _sendFile(client, file);
       if (!identical(syncplayController, client)) {
         return;
       }
@@ -1076,6 +1060,13 @@ abstract class _PlayerSyncPlayController with Store {
     _room = null;
     _ticker?.cancel();
     _ticker = null;
+  }
+
+  // Leaves the speed lock as the join found it: still held when retrying a
+  // room that ended in 同步中断.
+  void _joinFailed({required bool rejoining}) {
+    _leaveRoomState();
+    speedLocked = rejoining;
   }
 
   Future<void> dispose() async {

@@ -35,8 +35,10 @@ class SkipRange {
       (other.end - end).abs() < 0.05 &&
       other.source == source;
 
+  // == tolerates 0.05 s and isn't transitive, so no bucketing of start/end
+  // can agree with it.
   @override
-  int get hashCode => Object.hash(start.round(), end.round(), source);
+  int get hashCode => source.hashCode;
 
   @override
   String toString() =>
@@ -53,9 +55,6 @@ class SkipSegments {
   static const empty = SkipSegments();
 
   bool get isEmpty => opening == null && ending == null;
-
-  SkipRange? operator [](SkipKind kind) =>
-      kind == SkipKind.opening ? opening : ending;
 
   /// The segment playing at [seconds], if any.
   (SkipKind, SkipRange)? activeAt(double seconds) {
