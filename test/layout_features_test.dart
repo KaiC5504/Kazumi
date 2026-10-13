@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/modules/bangumi/bangumi_tag.dart';
 import 'package:kazumi/modules/collect/collect_layout.dart';
@@ -216,7 +217,7 @@ void main() {
         for (final label in [
           '历史记录',
           '离线下载',
-          '一起看',
+          if (!kPublicBuild) '一起看',
           '规则设置',
           ...classic ? ['外观设置', '播放设置', '弹幕设置'] : ['外观', '播放', '弹幕'],
           '同步备份',
@@ -226,7 +227,11 @@ void main() {
           await tester.tap(find.text(label));
           await tester.pump();
         }
-        expect(opened, MyDestination.values.toSet());
+        expect(
+          opened,
+          {...MyDestination.values}
+            ..removeWhere((d) => kPublicBuild && d == MyDestination.together),
+        );
       });
 
       testWidgets('$style keeps the 继续观看 row', (tester) async {
