@@ -297,8 +297,6 @@ class LibraryController implements OfflinePlaybackHooks {
       });
       scheduleRouteCheckOnce();
       return null;
-    } on LibraryException catch (e) {
-      return e.message;
     } catch (e) {
       return '$e';
     }
@@ -340,8 +338,6 @@ class LibraryController implements OfflinePlaybackHooks {
       final key = await LibraryApi.redeem(defaultLibraryServer, code);
       showInvite(LibraryInvite(server: defaultLibraryServer, key: key));
       return null;
-    } on LibraryException catch (e) {
-      return e.message;
     } catch (e) {
       return '$e';
     }
@@ -396,8 +392,6 @@ class LibraryController implements OfflinePlaybackHooks {
           ..clear()
           ..addAll(list);
       });
-    } on LibraryException catch (e) {
-      runInAction(() => error.value = e.message);
     } catch (e) {
       runInAction(() => error.value = '$e');
     } finally {
