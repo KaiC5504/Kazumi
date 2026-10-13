@@ -558,17 +558,13 @@ class _RoomCard extends StatelessWidget {
 
   String _statusOf(LibraryMember member) {
     if (!member.watching) return '在大厅';
-    final episode = controller.episodes
-        .where((e) => e.id == member.episodeId)
-        .firstOrNull;
+    final episode = controller.byId(member.episodeId);
     if (episode == null) return '正在看';
     return '正在看 ${episode.manifest.displayEpisodeName}';
   }
 
   void _joinMember(BuildContext context, LibraryMember member) {
-    final episode = controller.episodes
-        .where((e) => e.id == member.episodeId)
-        .firstOrNull;
+    final episode = controller.byId(member.episodeId);
     if (episode == null) {
       controller.refresh();
       return;

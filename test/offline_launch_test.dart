@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/services/download/offline_launch.dart';
+import 'package:kazumi/services/library/library_playback.dart';
 
 DownloadEpisode done(int n, {bool up = false}) => DownloadEpisode(
   n,
@@ -48,4 +49,27 @@ void main() {
       isTrue,
     );
   });
+
+  test('streamed episodes and the hooks reach the player', () {
+    final record = DownloadRecord(7, 'X', 'cover', 'p', {}, DateTime(2026));
+    final hooks = _Hooks();
+    final args = buildOfflineArgs(
+      record: record,
+      episodeNumber: 1,
+      road: 0,
+      completed: const [],
+      remoteVideoUrls: {
+        1: ['https://hk.example.com/episodes/a/video.mp4'],
+      },
+      hooks: hooks,
+    );
+    expect(args.remoteVideoUrls[1], hasLength(1));
+    expect(args.hooks, same(hooks));
+    expect(args.bangumiItem.images['large'], 'cover');
+  });
+}
+
+class _Hooks implements OfflinePlaybackHooks {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
