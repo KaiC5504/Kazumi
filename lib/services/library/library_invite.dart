@@ -43,6 +43,4 @@ class LibraryInvite {
     if (key.isEmpty) return null;
     return LibraryInvite(server: uri.origin, key: key);
   }
-
-  String get webLink => '$server/join#k=${Uri.encodeComponent(key)}';
 }

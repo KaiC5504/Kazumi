@@ -1,6 +1,7 @@
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/video/video_playback_args.dart';
+import 'package:kazumi/services/library/library_playback.dart';
 
 class LocalSource {
   LocalSource(this.record, this.completed);
@@ -25,6 +26,8 @@ OfflineVideoPlaybackArgs buildOfflineArgs({
   required int episodeNumber,
   required int road,
   required List<DownloadEpisode> completed,
+  Map<int, List<String>> remoteVideoUrls = const {},
+  OfflinePlaybackHooks? hooks,
 }) {
   final bangumiItem = BangumiItem(
     id: record.bangumiId,
@@ -49,5 +52,7 @@ OfflineVideoPlaybackArgs buildOfflineArgs({
     episodeNumber: episodeNumber,
     road: road,
     downloadedEpisodes: completed,
+    remoteVideoUrls: remoteVideoUrls,
+    hooks: hooks,
   );
 }

@@ -52,9 +52,6 @@ class MirrorSet {
     return best ?? pool.first;
   }
 
-  /// Bytes per second last measured for [url], smoothed.
-  double? speedOf(String url) => _speed[url];
-
   void reportSuccess(String url, int bytes, Duration took) {
     if (bytes <= 0 || took <= Duration.zero) return;
     final speed =

@@ -7,15 +7,14 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_modular/flutter_modular.dart';
-import 'package:kazumi/modules/bangumi/bangumi_item.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
-import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/download/mirror_selector.dart';
+import 'package:kazumi/services/download/offline_launch.dart';
 import 'package:kazumi/services/library/host_router.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_invite.dart';
@@ -93,7 +92,6 @@ class LibraryController implements OfflinePlaybackHooks {
   String get displayName =>
       GStorage.getSetting(SettingsKeys.libraryDisplayName);
   bool get wifiOnly => GStorage.getSetting(SettingsKeys.libraryWifiOnly);
-  String? get playingId => _playingId;
 
   String get deviceId {
     var id = GStorage.getSetting(SettingsKeys.libraryDeviceId);
@@ -108,9 +106,7 @@ class LibraryController implements OfflinePlaybackHooks {
     return id;
   }
 
-  LibraryApi? get _api => isConfigured
-      ? LibraryApi(server, key, apiHost: router.order.first)
-      : null;
+  LibraryApi? get _api => isConfigured ? LibraryApi(server, key) : null;
 
   /// Lobby calls go through the chosen host; one retry on the other host
   /// when it can't be reached.
@@ -222,12 +218,10 @@ class LibraryController implements OfflinePlaybackHooks {
     SettingsKeys.libraryMirrors,
   ).split('\n').where((m) => m.isNotEmpty).toList();
 
-  List<Uri> _hostsFor(LibraryApi api) => router.order;
-
   List<String>? _mirrorUrlsFor(String url) {
     final api = _api;
     if (api == null || !api.ownsUrl(url)) return null;
-    return [for (final host in _hostsFor(api)) LibraryApi.rehost(url, host)];
+    return [for (final host in router.order) LibraryApi.rehost(url, host)];
   }
 
   Future<void> init() async {
@@ -390,8 +384,7 @@ class LibraryController implements OfflinePlaybackHooks {
   }
 
   Future<void> refresh() async {
-    final api = _api;
-    if (api == null) return;
+    if (!isConfigured) return;
     runInAction(() {
       loading.value = true;
       error.value = null;
@@ -423,7 +416,7 @@ class LibraryController implements OfflinePlaybackHooks {
   }
 
   List<String> _videoUrls(LibraryApi api, LibraryEpisode episode) => [
-    for (final host in _hostsFor(api))
+    for (final host in router.order)
       api.videoUri(episode.id, via: host).toString(),
   ];
 
@@ -443,8 +436,7 @@ class LibraryController implements OfflinePlaybackHooks {
   Future<void> _leaveRoom() async {
     _heartbeat?.cancel();
     _heartbeat = null;
-    final api = _api;
-    if (api == null) return;
+    if (!isConfigured) return;
     // A beat still on the wire would land after the goodbye and put this
     // device straight back in the room.
     await _beatInFlight;
@@ -461,8 +453,7 @@ class LibraryController implements OfflinePlaybackHooks {
   }
 
   Future<void> _beat() async {
-    final api = _api;
-    if (api == null || _beatInFlight != null) return;
+    if (!isConfigured || _beatInFlight != null) return;
     final done = Completer<void>();
     _beatInFlight = done.future;
     try {
@@ -494,20 +485,16 @@ class LibraryController implements OfflinePlaybackHooks {
     if (selection.byDeviceId == deviceId || !_inLobby || _playingId != null) {
       return;
     }
-    var episode = _byId(selection.episodeId);
+    var episode = byId(selection.episodeId);
     if (episode == null) {
       await refresh();
-      episode = _byId(selection.episodeId);
+      episode = byId(selection.episodeId);
     }
     if (episode != null) _remotePicks.add(episode);
   }
 
-  LibraryEpisode? _byId(String id) {
-    for (final e in episodes) {
-      if (e.id == id) return e;
-    }
-    return null;
-  }
+  LibraryEpisode? byId(String? id) =>
+      id == null ? null : episodes.where((e) => e.id == id).firstOrNull;
 
   List<LibraryEpisode> seriesOf(LibraryEpisode episode) =>
       episodes
@@ -563,32 +550,14 @@ class LibraryController implements OfflinePlaybackHooks {
     }
 
     final manifest = episode.manifest;
-    final bangumiItem = BangumiItem(
-      id: manifest.bangumiId,
-      type: 2,
-      name: manifest.bangumiName,
-      nameCn: manifest.bangumiName,
-      summary: '',
-      airDate: '',
-      airWeekday: 0,
-      rank: 0,
-      images: {'large': manifest.bangumiCover},
-      tags: [],
-      alias: [],
-      ratingScore: 0.0,
-      votes: 0,
-      votesCount: [],
-      info: '',
-    );
     if (!context.mounted) return;
     context.pushNamed(
       '/video/',
-      arguments: OfflineVideoPlaybackArgs(
-        bangumiItem: bangumiItem,
-        pluginName: manifest.pluginName,
+      arguments: buildOfflineArgs(
+        record: manifest.toDownloadEntities().$1,
         episodeNumber: manifest.episodeNumber,
         road: manifest.road,
-        downloadedEpisodes: playlist,
+        completed: playlist,
         remoteVideoUrls: remote,
         hooks: this,
       ),
@@ -656,13 +625,7 @@ class LibraryController implements OfflinePlaybackHooks {
     KazumiLogger().w('LibraryController: stream host failed $failedUrl');
     final uri = Uri.tryParse(failedUrl);
     if (uri == null || !isConfigured) return;
-    router.reportFailure(
-      Uri(
-        scheme: uri.scheme,
-        host: uri.host,
-        port: uri.hasPort ? uri.port : null,
-      ),
-    );
+    router.reportFailure(LibraryApi.originOf(uri));
     runInAction(() => routeVersion.value++);
   }
 
@@ -693,7 +656,8 @@ class LibraryController implements OfflinePlaybackHooks {
   /// the first one doesn't have to stream.
   Future<void> prefetchFromLobby() async {
     final seen = <String>{};
-    for (final e in episodes) {
+    // A refresh can replace the list while a download is being queued.
+    for (final e in episodes.toList()) {
       if (!seen.add(e.manifest.recordKey)) continue;
       final next = seriesOf(e).where((s) => !isWatchedByMe(s)).take(1);
       for (final target in next) {
@@ -702,11 +666,12 @@ class LibraryController implements OfflinePlaybackHooks {
     }
   }
 
+  Iterable<LibraryEpisode> _ahead(LibraryEpisode current) => seriesOf(current)
+      .where((e) => e.manifest.episodeNumber > current.manifest.episodeNumber)
+      .take(_prefetchAhead);
+
   Future<void> _prefetchAfter(LibraryEpisode current) async {
-    final ahead = seriesOf(current)
-        .where((e) => e.manifest.episodeNumber > current.manifest.episodeNumber)
-        .take(_prefetchAhead);
-    for (final e in ahead) {
+    for (final e in _ahead(current)) {
       await _download(e);
     }
     await cleanup();
@@ -759,7 +724,7 @@ class LibraryController implements OfflinePlaybackHooks {
     );
     await Directory(targetDir).create(recursive: true);
     if (manifest.hasDanmaku) {
-      for (final host in _hostsFor(api)) {
+      for (final host in router.order) {
         try {
           final bytes = await api.download(
             api.danmakuUri(episode.id, via: host),
@@ -789,29 +754,23 @@ class LibraryController implements OfflinePlaybackHooks {
     final api = _api;
     if (api == null) return;
     final keep = <String>{};
-    final playing = _playingId == null ? null : _byId(_playingId!);
+    final playing = byId(_playingId);
     if (playing != null) {
       keep.add(playing.id);
-      keep.addAll(
-        seriesOf(playing)
-            .where(
-              (e) => e.manifest.episodeNumber > playing.manifest.episodeNumber,
-            )
-            .take(_prefetchAhead)
-            .map((e) => e.id),
-      );
+      keep.addAll(_ahead(playing).map((e) => e.id));
     }
 
     for (final record in _repository.getAllRecords()) {
       for (final local in record.episodes.values.toList()) {
         if (!local.preUpscaled || !api.ownsUrl(local.networkM3u8Url)) continue;
-        final episode = episodes.firstWhere(
-          (e) =>
-              e.manifest.recordKey == record.key &&
-              e.manifest.episodeNumber == local.episodeNumber,
-          orElse: () => _orphan,
-        );
-        if (identical(episode, _orphan) || keep.contains(episode.id)) continue;
+        final episode = episodes
+            .where(
+              (e) =>
+                  e.manifest.recordKey == record.key &&
+                  e.manifest.episodeNumber == local.episodeNumber,
+            )
+            .firstOrNull;
+        if (episode == null || keep.contains(episode.id)) continue;
         if (!isWatchedByMe(episode)) continue;
         await _downloadController.deleteEpisode(
           record.bangumiId,
@@ -821,17 +780,6 @@ class LibraryController implements OfflinePlaybackHooks {
       }
     }
   }
-
-  static final _orphan = LibraryEpisode(
-    id: '',
-    manifest: UpscaledEpisodeManifest.fromJson(const {
-      'version': 1,
-      'bangumiId': 0,
-      'pluginName': '',
-      'episodeNumber': 0,
-    }),
-    watchedBy: const [],
-  );
 
   void dispose() {
     _linkSubscription?.cancel();

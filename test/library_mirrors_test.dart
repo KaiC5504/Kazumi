@@ -46,20 +46,6 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
   });
 
-  group('LibraryApi.hostOrder', () {
-    test('relays first until ranked', () {
-      expect(LibraryApi.hostOrder(server, [hk], const []), [hk, server]);
-    });
-
-    test('no relays leaves just the server', () {
-      expect(LibraryApi.hostOrder(server, const [], const []), [server]);
-    });
-
-    test('a measured ranking wins', () {
-      expect(LibraryApi.hostOrder(server, [hk], [server, hk]), [server, hk]);
-    });
-  });
-
   group('MirrorRegistry', () {
     tearDown(MirrorRegistry.reset);
 
@@ -67,8 +53,7 @@ void main() {
       final api = LibraryApi('kazumi.kaic5504.com', 'secret');
       MirrorRegistry.expand = (url) => api.ownsUrl(url)
           ? [
-              for (final host in LibraryApi.hostOrder(server, [hk], const []))
-                LibraryApi.rehost(url, host),
+              for (final host in [hk, server]) LibraryApi.rehost(url, host),
             ]
           : null;
 
