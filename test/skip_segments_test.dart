@@ -40,6 +40,18 @@ void main() {
       expect(SkipSegments.decode('not json'), SkipSegments.empty);
     });
 
+    test('ranges within the tolerance are equal and hash alike', () {
+      const a = SkipRange(10.48, 90.52, SkipSource.aniskip);
+      const b = SkipRange(10.52, 90.48, SkipSource.aniskip);
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect({a, b}, hasLength(1));
+      expect(
+        const SkipSegments(opening: a).hashCode,
+        const SkipSegments(opening: b).hashCode,
+      );
+    });
+
     test('finds the segment playing now', () {
       expect(segments.activeAt(100), isNull);
       expect(segments.activeAt(140)?.$1, SkipKind.opening);
