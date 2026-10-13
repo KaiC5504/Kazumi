@@ -1,4 +1,5 @@
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
+import 'package:kazumi/bean/widget/source_quality_badge.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -9,6 +10,10 @@ import 'package:kazumi/services/storage/storage.dart';
 ///
 /// Names already handed out are remembered, so a rule the user deletes stays
 /// deleted; only rules newly added to the catalog get installed later.
+///
+/// The first sync on a device orders every rule by measured quality, so the
+/// 播放来源 sheet lists the best sources first. Later syncs keep the user's
+/// order.
 Future<({int installed, int updated})> syncOfficialRules(
   PluginsController controller, {
   required bool updateExisting,
@@ -28,6 +33,13 @@ Future<({int installed, int updated})> syncOfficialRules(
       installed++;
       present.add(key);
     }
+  }
+
+  if (known.isEmpty && installed > 0) {
+    await _applyOrder(
+      controller,
+      sortByQuality(controller.pluginList.toList(), (plugin) => plugin.name),
+    );
   }
 
   // Failed installs stay unknown so the next launch retries them.
@@ -67,6 +79,20 @@ Future<void> syncOfficialRulesWithFeedback(
       error: error,
       stackTrace: stackTrace,
     );
+  }
+}
+
+// One rule at a time through onReorder: plugins_controller.dart stays as
+// upstream has it.
+Future<void> _applyOrder(
+  PluginsController controller,
+  List<Plugin> target,
+) async {
+  for (var i = 0; i < target.length; i++) {
+    final from = controller.pluginList.indexWhere(
+      (p) => p.name == target[i].name,
+    );
+    if (from > i) await controller.onReorder(from, i);
   }
 }
 

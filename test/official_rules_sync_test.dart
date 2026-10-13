@@ -70,7 +70,29 @@ void main() {
     final result = await syncOfficialRules(c, updateExisting: false);
 
     expect(result.installed, 2);
-    expect(names(c), ['dm84', 'AGE', 'MXdm']);
+    expect(names(c), unorderedEquals(['dm84', 'AGE', 'MXdm']));
+  });
+
+  test('the first sync puts the best measured sources first', () async {
+    catalog = {'akianime': '1.0', 'ezdmw': '1.0', 'AGE': '1.5'};
+    final c = controller()..pluginList.add(plugin('baimao', '1.0'));
+
+    await syncOfficialRules(c, updateExisting: false);
+
+    // Measured first, untested next, blocked last.
+    expect(names(c), ['AGE', 'ezdmw', 'baimao', 'akianime']);
+  });
+
+  test('later syncs keep the order the user chose', () async {
+    final c = controller();
+    await syncOfficialRules(c, updateExisting: false);
+    await c.onReorder(c.pluginList.length - 1, 0);
+    final chosen = names(c);
+    catalog['akianime'] = '1.0';
+
+    await syncOfficialRules(c, updateExisting: false);
+
+    expect(names(c), [...chosen, 'akianime']);
   });
 
   test('does not bring back a rule the user deleted', () async {
@@ -110,14 +132,15 @@ void main() {
 
   test('updates outdated rules only when asked', () async {
     final c = controller()..pluginList.add(plugin('AGE', '1.0'));
+    String age() => c.pluginList.firstWhere((p) => p.name == 'AGE').version;
 
     var result = await syncOfficialRules(c, updateExisting: false);
     expect(result.updated, 0);
-    expect(c.pluginList.first.version, '1.0');
+    expect(age(), '1.0');
 
     result = await syncOfficialRules(c, updateExisting: true);
     expect(result.updated, 1);
-    expect(c.pluginList.first.version, '1.5');
+    expect(age(), '1.5');
   });
 }
 
