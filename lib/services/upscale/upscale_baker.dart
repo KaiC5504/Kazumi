@@ -36,6 +36,18 @@ class UpscaleBakeException implements Exception {
 
 class UpscaleBakeCancelled implements Exception {}
 
+bool isHlsInput(String input) => input.toLowerCase().endsWith('.m3u8');
+
+/// ffmpeg won't open an HLS download's local segments and keys without these.
+List<String> hlsInputFlags(String input) => isHlsInput(input)
+    ? const [
+        '-allowed_extensions',
+        'ALL',
+        '-protocol_whitelist',
+        'file,crypto,data',
+      ]
+    : const [];
+
 /// Renders Kazumi's quality-tier Anime4K chain into a standalone HEVC file
 /// with ffmpeg's libplacebo filter, so weaker devices can play it without
 /// running the shaders live.
@@ -140,34 +152,28 @@ class UpscaleBaker {
     final tmpOutput = '$output.tmp.mp4';
     await Directory(path.dirname(output)).create(recursive: true);
     try {
+      final durationUs = await probeDurationUs(ffmpeg.executable, input);
+      Future<void> run({required bool copyAudio}) => _run(
+        ffmpeg,
+        input,
+        tmpOutput,
+        shaderPath,
+        targetHeight,
+        durationUs,
+        onProgress,
+        copyAudio: copyAudio,
+      );
       try {
-        await _run(
-          ffmpeg,
-          input,
-          tmpOutput,
-          shaderPath,
-          targetHeight,
-          onProgress,
-          copyAudio: true,
-        );
+        await run(copyAudio: true);
       } on UpscaleBakeException catch (e) {
         if (_cancelled) rethrow;
         // Some sources carry audio the mp4 muxer rejects as-is.
         KazumiLogger().w(
           'UpscaleBaker: retrying with re-encoded audio after: ${e.message}',
         );
-        await _run(
-          ffmpeg,
-          input,
-          tmpOutput,
-          shaderPath,
-          targetHeight,
-          onProgress,
-          copyAudio: false,
-        );
+        await run(copyAudio: false);
       }
-      final finalFile = File(output);
-      if (await finalFile.exists()) await finalFile.delete();
+      // Replaces an earlier bake; rename overwrites on Windows too.
       await File(tmpOutput).rename(output);
     } finally {
       final tmp = File(tmpOutput);
@@ -187,6 +193,7 @@ class UpscaleBaker {
     String output,
     String shaderPath,
     int targetHeight,
+    int durationUs,
     void Function(double progress) onProgress, {
     required bool copyAudio,
   }) async {
@@ -207,12 +214,7 @@ class UpscaleBaker {
       'error',
       '-init_hw_device',
       'vulkan',
-      if (input.toLowerCase().endsWith('.m3u8')) ...[
-        '-allowed_extensions',
-        'ALL',
-        '-protocol_whitelist',
-        'file,crypto,data',
-      ],
+      ...hlsInputFlags(input),
       '-i',
       input,
       '-map',
@@ -234,7 +236,6 @@ class UpscaleBaker {
       output,
     ];
 
-    final duration = await probeDurationUs(ffmpeg.executable, input);
     KazumiLogger().i('UpscaleBaker: ${ffmpeg.executable} ${args.join(' ')}');
 
     // Filtergraph escaping of Windows paths is fragile, so run next to the
@@ -254,9 +255,9 @@ class UpscaleBaker {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-          if (duration > 0 && line.startsWith('out_time_us=')) {
+          if (durationUs > 0 && line.startsWith('out_time_us=')) {
             final us = int.tryParse(line.substring('out_time_us='.length));
-            if (us != null) onProgress((us / duration).clamp(0.0, 1.0));
+            if (us != null) onProgress((us / durationUs).clamp(0.0, 1.0));
           }
         })
         .asFuture<void>();
@@ -278,12 +279,7 @@ class UpscaleBaker {
   static Future<int> probeDurationUs(String exe, String input) async {
     final result = await Process.run(exe, [
       '-hide_banner',
-      if (input.toLowerCase().endsWith('.m3u8')) ...[
-        '-allowed_extensions',
-        'ALL',
-        '-protocol_whitelist',
-        'file,crypto,data',
-      ],
+      ...hlsInputFlags(input),
       '-i',
       input,
     ]);
@@ -295,16 +291,8 @@ class UpscaleBaker {
     final m = int.parse(match.group(2)!);
     final s = int.parse(match.group(3)!);
     final frac = match.group(4)!;
-    final fracUs = (int.parse(frac) * 1000000) ~/ _pow10(frac.length);
+    final fracUs = int.parse(frac.padRight(6, '0').substring(0, 6));
     return ((h * 3600 + m * 60 + s) * 1000000) + fracUs;
-  }
-
-  static int _pow10(int n) {
-    var v = 1;
-    for (var i = 0; i < n; i++) {
-      v *= 10;
-    }
-    return v;
   }
 
   void cancel() {

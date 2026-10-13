@@ -6,18 +6,6 @@ import 'dart:math';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 
-class SharedUpscaledEpisode {
-  const SharedUpscaledEpisode({
-    required this.manifest,
-    required this.videoPath,
-    this.danmakuPath,
-  });
-
-  final UpscaledEpisodeManifest manifest;
-  final String videoPath;
-  final String? danmakuPath;
-}
-
 String generateLanShareToken() {
   final random = Random.secure();
   return List.generate(6, (_) => random.nextInt(10)).join();
@@ -25,13 +13,16 @@ String generateLanShareToken() {
 
 /// Serves baked episodes to other Kazumi devices on the same network.
 class LanShareServer {
-  LanShareServer(this._episodes);
+  LanShareServer(this._episodes, this._find);
 
-  final List<SharedUpscaledEpisode> Function() _episodes;
+  final List<UpscaledEpisodeFiles> Function() _episodes;
+
+  /// Looks up one episode by share id. A pull requests every part of the
+  /// video separately, so this must not rebuild the whole list.
+  final UpscaledEpisodeFiles? Function(String shareId) _find;
   HttpServer? _server;
   String _token = '';
 
-  bool get isRunning => _server != null;
   int? get port => _server?.port;
 
   Future<void> start(String token, {int port = lanSharePort}) async {
@@ -134,13 +125,6 @@ class LanShareServer {
     }
   }
 
-  SharedUpscaledEpisode? _find(String shareId) {
-    for (final episode in _episodes()) {
-      if (episode.manifest.shareId == shareId) return episode;
-    }
-    return null;
-  }
-
   /// Range support lets the receiving download manager resume transfers.
   Future<void> _serveFile(HttpRequest request, File file) async {
     final response = request.response;
@@ -214,16 +198,14 @@ class LanShareClient {
   );
 
   Future<List<UpscaledEpisodeManifest>> listEpisodes() async {
-    final body = await _get(baseUri.replace(path: '/api/episodes'));
+    final body = await download(baseUri.replace(path: '/api/episodes'));
     final json = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
     return (json['episodes'] as List)
         .map((e) => UpscaledEpisodeManifest.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<List<int>> download(Uri uri) => _get(uri);
-
-  Future<List<int>> _get(Uri uri) async {
+  Future<List<int>> download(Uri uri) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
       final request = await client.getUrl(uri);

@@ -9,7 +9,6 @@ import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/lan_share.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
-import 'package:kazumi/services/upscale/upscaled_import_service.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 import 'package:kazumi/utils/format.dart';
 
@@ -43,7 +42,7 @@ Future<void> showUpscaledImportFlow(
   }
   try {
     if (folder == null || !context.mounted) return;
-    final List<UpscaledImportCandidate> candidates;
+    final List<UpscaledEpisodeFiles> candidates;
     try {
       candidates = await service.scan(folder);
     } catch (e) {
@@ -121,16 +120,12 @@ class UpscaledTransferItem {
     UpscaleController controller,
     UpscaledEpisodeManifest manifest,
   ) {
-    final upToDate = controller.isUpToDate(manifest);
-    final skipTimesOnly = controller.onlySkipTimesChanged(manifest);
+    final state = controller.importState(manifest);
     return UpscaledTransferItem(
       manifest: manifest,
-      replaces:
-          !upToDate &&
-          !skipTimesOnly &&
-          controller.isAlreadyDownloaded(manifest),
-      skipTimesOnly: skipTimesOnly,
-      upToDate: upToDate,
+      replaces: state == UpscaledImportState.replaces,
+      skipTimesOnly: state == UpscaledImportState.skipTimesOnly,
+      upToDate: state == UpscaledImportState.upToDate,
     );
   }
 
