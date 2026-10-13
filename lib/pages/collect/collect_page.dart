@@ -16,6 +16,7 @@ import 'package:kazumi/pages/collect/collect_library_view.dart';
 import 'package:kazumi/pages/collect/collect_sync_dialog.dart';
 import 'package:kazumi/pages/collect/collect_watch_progress.dart';
 import 'package:kazumi/repositories/history_repository.dart';
+import 'package:kazumi/services/layout/classic_layout.dart';
 import 'package:kazumi/services/storage/storage.dart';
 
 class CollectPage extends StatefulWidget {
@@ -65,6 +66,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
     _layout = CollectLayout.fromValue(
       GStorage.getSetting(SettingsKeys.defaultCollectLayout),
     );
+    ClassicLayout.listenable.addListener(_onClassicChanged);
     collectController.loadCollectibles();
     _loadWatchProgress();
     _historyChanges = _historyRepository.changes.listen((_) {
@@ -76,8 +78,17 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
     });
   }
 
+  // The tab stays mounted under settings, where 经典布局 also resets the
+  // default layout.
+  void _onClassicChanged() => setState(() {
+        _layout = CollectLayout.fromValue(
+          GStorage.getSetting(SettingsKeys.defaultCollectLayout),
+        );
+      });
+
   @override
   void dispose() {
+    ClassicLayout.listenable.removeListener(_onClassicChanged);
     _historyRefresh?.cancel();
     _historyChanges?.cancel();
     super.dispose();
@@ -159,6 +170,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
             watchProgress: _watchProgress,
             layout: _layout,
             onLayoutChanged: _changeLayout,
+            classic: ClassicLayout.enabled,
             canEdit: (item) =>
                 !_syncDialogOpen && !_pendingIds.contains(item.id),
             onOpen: (item) => context.pushNamed('/info/', arguments: item),

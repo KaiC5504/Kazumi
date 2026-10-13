@@ -73,11 +73,15 @@ class _SearchResultGrid extends StatelessWidget {
     required this.items,
     required this.width,
     required this.showRating,
+    this.classic = false,
   });
 
   final List<BangumiItem> items;
   final double width;
   final bool showRating;
+
+  /// 经典布局: three columns on phones, five, then six, as before the redesign.
+  final bool classic;
 
   @override
   Widget build(BuildContext context) {
@@ -101,14 +105,17 @@ class _SearchResultGrid extends StatelessWidget {
     final titleHeight = textHeight('番剧\n番剧\n番剧', titleStyle);
     final metadataHeight = math.max(_SearchResultCard.ratingIconSize,
         textHeight('0.0 0000', textTheme.labelMedium!));
-    final columns = math.max(2, (width / 180).floor());
-    final cardWidth = (width - (columns - 1) * 12) / columns;
+    final columns = classic
+        ? (width > 840 ? 6 : (width > 600 ? 5 : 3))
+        : math.max(2, (width / 180).floor());
+    final spacing = classic ? 8.0 : 12.0;
+    final cardWidth = (width - (columns - 1) * spacing) / columns;
 
     return SliverGrid.builder(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 20,
+          crossAxisSpacing: spacing,
+          mainAxisSpacing: classic ? 12 : 20,
           mainAxisExtent: cardWidth / _SearchResultCard.coverAspectRatio +
               titleHeight +
               metadataHeight +

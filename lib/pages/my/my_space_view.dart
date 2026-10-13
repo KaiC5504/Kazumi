@@ -10,6 +10,7 @@ import 'package:kazumi/build_flavor.dart';
 import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/modules/my/watch_stats.dart';
 import 'package:kazumi/pages/history/history_controller.dart';
+import 'package:kazumi/services/layout/classic_layout.dart';
 import 'package:kazumi/services/player/history_playback_service.dart';
 import 'package:kazumi/services/plugin/rule_engine_models.dart'
     show RuleCancelToken;
@@ -47,20 +48,23 @@ class MySpaceView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _RecentHistory(
+    return ValueListenableBuilder<bool>(
+      valueListenable: ClassicLayout.listenable,
+      builder: (context, classic, _) => _RecentHistory(
         recent: recent,
         builder: (context, recent) =>
             LayoutBuilder(builder: (context, constraints) {
       final inset = constraints.maxWidth < 600 ? 16.0 : 32.0;
       final width = constraints.maxWidth - inset * 2;
       final largeText = MediaQuery.textScalerOf(context).scale(16) > 24;
-      final wide = width >= 840 && !largeText;
+      // 经典布局 keeps the list at every width instead of the large tiles.
+      final wide = width >= 840 && !largeText && !classic;
       return SingleChildScrollView(
         key: const PageStorageKey('my-space'),
         padding: EdgeInsets.fromLTRB(inset, 12, inset, 32),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1120),
+            constraints: BoxConstraints(maxWidth: classic ? 760 : 1120),
             child: wide
                 ? _WideSpaceLayout(
                     stats: stats, onOpen: onOpen, recent: recent)
@@ -73,7 +77,8 @@ class MySpaceView extends StatelessWidget {
           ),
         ),
       );
-    }));
+    })),
+    );
   }
 }
 

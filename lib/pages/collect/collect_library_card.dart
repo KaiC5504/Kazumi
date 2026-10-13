@@ -9,6 +9,7 @@ class _CollectPosterCard extends StatelessWidget {
     this.watchProgress,
     required this.onOpen,
     required this.onChangeType,
+    this.classic = false,
   });
 
   final CollectedBangumi entry;
@@ -17,6 +18,12 @@ class _CollectPosterCard extends StatelessWidget {
   final String? watchProgress;
   final VoidCallback onOpen;
   final ValueChanged<CollectType>? onChangeType;
+
+  /// 经典布局: cover and title only, the status menu on the cover.
+  final bool classic;
+
+  static double classicExtent(double width, TextScaler scaler) =>
+      width / _coverRatio + 12 + _titleHeight(scaler, compact: true);
 
   static const _coverRatio = 0.65;
   static bool _isCompact(double width) => width < 160;
@@ -80,6 +87,85 @@ class _CollectPosterCard extends StatelessWidget {
             ),
           ),
         );
+
+    final semanticsLabel = [
+      title,
+      type.label,
+      if (year != null) '$year 年',
+      if (hasRating) '${item.ratingScore.toStringAsFixed(1)} 分',
+      ?watchProgress,
+    ].join('，');
+
+    if (classic) {
+      return Material(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: Semantics(
+          button: true,
+          label: semanticsLabel,
+          child: InkWell(
+            onTap: onOpen,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AspectRatio(
+                  aspectRatio: _coverRatio,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ExcludeSemantics(child: _CollectCover(item: item)),
+                      if (watchProgress != null)
+                        PositionedDirectional(
+                          start: 6,
+                          end: 6,
+                          bottom: 6,
+                          child: ExcludeSemantics(
+                            child: Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: _CollectProgressBadge(
+                                label: watchProgress!,
+                                compact: true,
+                              ),
+                            ),
+                          ),
+                        ),
+                      PositionedDirectional(
+                        top: 4,
+                        end: 4,
+                        child: _CollectEntryMenu(
+                          entry: entry,
+                          onChanged: onChangeType,
+                          overlay: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  child: ExcludeSemantics(
+                    child: SizedBox(
+                      height: _titleHeight(scaler, compact: true),
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontSize: 13,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return LayoutBuilder(builder: (context, constraints) {
       final compact = _isCompact(constraints.maxWidth);
@@ -186,13 +272,7 @@ class _CollectPosterCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: Semantics(
           button: true,
-          label: [
-            title,
-            type.label,
-            if (year != null) '$year 年',
-            if (hasRating) '${item.ratingScore.toStringAsFixed(1)} 分',
-            ?watchProgress,
-          ].join('，'),
+          label: semanticsLabel,
           child: InkWell(
             onTap: onOpen,
             child: Column(
@@ -445,10 +525,14 @@ class _CollectEntryMenu extends StatelessWidget {
     required this.entry,
     required this.onChanged,
     this.showStatusLabel = false,
+    this.overlay = false,
   });
   final CollectedBangumi entry;
   final ValueChanged<CollectType>? onChanged;
   final bool showStatusLabel;
+
+  /// A small button that sits on a cover.
+  final bool overlay;
 
   @override
   Widget build(BuildContext context) {
@@ -496,6 +580,22 @@ class _CollectEntryMenu extends StatelessWidget {
                   icon: const Icon(Icons.expand_more_rounded, size: 18),
                   label: Text(type.label),
                 ),
+              )
+            : overlay
+            ? IconButton.filledTonal(
+                tooltip: '管理《$title》 · ${type.label}',
+                onPressed: toggle,
+                style: IconButton.styleFrom(
+                  backgroundColor:
+                      colors.surfaceContainerHigh.withValues(alpha: 0.85),
+                  foregroundColor: colors.onSurface,
+                  minimumSize: const Size(32, 32),
+                  fixedSize: const Size(32, 32),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+                icon: const Icon(Icons.more_horiz_rounded, size: 18),
               )
             : IconButton(
                 tooltip: '管理《$title》 · ${type.label}',

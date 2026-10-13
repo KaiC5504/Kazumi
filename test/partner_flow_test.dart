@@ -24,6 +24,7 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/pages/settings/interface_settings.dart';
 import 'package:kazumi/pages/video/episode_layout.dart';
 import 'package:kazumi/pages/video/episode_selection_panel.dart';
 import 'package:kazumi/modules/roads/road_module.dart';
@@ -34,6 +35,7 @@ import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/repositories/history_repository.dart';
 import 'package:kazumi/repositories/danmaku_shield_repository.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/services/layout/classic_layout.dart';
 import 'package:kazumi/services/library/library_playback.dart';
 import 'package:kazumi/request/apis/plugin_catalog_api.dart';
 import 'package:kazumi/request/config/api_endpoints.dart';
@@ -728,6 +730,63 @@ void main() {
         expect(opened, MyDestination.together);
       });
     }
+  });
+
+  group('经典布局', () {
+    Future<void> useClassic(WidgetTester tester, bool enabled) =>
+        tester.runAsync(() => ClassicLayout.set(enabled));
+
+    setUp(ClassicLayout.debugReset);
+    tearDown(() async {
+      await GStorage.resetSettings([
+        ClassicLayout.setting,
+        EpisodeLayout.setting,
+      ]);
+      ClassicLayout.debugReset();
+    });
+
+    testWidgets('is off in her app, so 界面设置 shows it off', (tester) async {
+      tester.view.physicalSize = const Size(400, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        const MaterialApp(home: InterfaceSettingsPage()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('经典布局'), findsOneWidget);
+      // 界面风格 is the first section, so its switch is the first one.
+      expect(tester.widgetList<Switch>(find.byType(Switch)).first.value, isFalse);
+    });
+
+    testWidgets('我的 keeps 一起看 in the list layout at 1200 px', (
+      tester,
+    ) async {
+      await useClassic(tester, true);
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      MyDestination? opened;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MySpaceView(
+              stats: const WatchStats(),
+              onOpen: (d) => opened = d,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('数据与应用'), findsOneWidget);
+      await tester.tap(find.text('一起看'));
+      expect(opened, MyDestination.together);
+    });
+
+    testWidgets('turning it on preselects the episode grid', (tester) async {
+      await useClassic(tester, true);
+      expect(EpisodeLayout.saved, EpisodeLayout.grid);
+      await useClassic(tester, false);
+      expect(EpisodeLayout.saved, EpisodeLayout.auto);
+    });
   });
 
   group('episode grid on the video page', () {

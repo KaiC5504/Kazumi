@@ -4,6 +4,7 @@ import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_dropdown_tile.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/modules/collect/collect_layout.dart';
+import 'package:kazumi/services/layout/classic_layout.dart';
 import 'package:kazumi/services/reminder/episode_reminder_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/utils/device.dart';
@@ -81,6 +82,26 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
       title: Text('界面设置'),
       body: SettingsList(
         sections: [
+          SettingsSection(title: Text('界面风格'), tiles: [
+            ValueListenableBuilder<bool>(
+              valueListenable: ClassicLayout.listenable,
+              builder: (context, classic, _) => SettingsTile.switchTile(
+                leading: Icons.view_comfy_alt_rounded,
+                onToggle: (value) async {
+                  await ClassicLayout.set(value ?? !classic);
+                  if (mounted) {
+                    setState(() => _defaultCollectLayout =
+                        CollectLayout.fromValue(GStorage.getSetting(
+                            SettingsKeys.defaultCollectLayout)));
+                  }
+                },
+                title: const Text('经典布局'),
+                description: const Text(
+                    '更紧凑的旧版排布：追番和搜索用小海报网格，选集用网格，我的页面用列表'),
+                initialValue: classic,
+              ),
+            ),
+          ]),
           SettingsSection(title: Text('启动'), tiles: [
             SettingsDropdownTile<String>(
               leading: Icons.home_rounded,

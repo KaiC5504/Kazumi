@@ -34,6 +34,8 @@ void main() {
     WidgetTester tester, {
     required Size size,
     TargetPlatform platform = TargetPlatform.iOS,
+    CollectLayout layout = CollectLayout.list,
+    bool classic = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -54,7 +56,8 @@ void main() {
                 ),
             ],
             showRating: false,
-            layout: CollectLayout.list,
+            layout: layout,
+            classic: classic,
             onLayoutChanged: (_) {},
             canEdit: (_) => true,
             onOpen: (_) {},
@@ -119,6 +122,50 @@ void main() {
       await pumpLibrary(tester, size: const Size(390, 844));
       final header = tester.getBottomLeft(_tab('在看')).dy;
       expect(tester.getTopLeft(find.text('条目 1')).dy, greaterThan(header));
+    });
+  });
+
+  group('经典布局 card grid', () {
+    int columns(WidgetTester tester) {
+      final first = tester.getTopLeft(find.text('条目 1')).dy;
+      var count = 0;
+      for (var i = 1; i <= 12; i++) {
+        final title = find.text('条目 $i');
+        if (title.evaluate().isEmpty) break;
+        if (tester.getTopLeft(title).dy != first) break;
+        count++;
+      }
+      return count;
+    }
+
+    for (final (size, expected) in [
+      (const Size(390, 844), 3),
+      (const Size(800, 1280), 5),
+      (const Size(1280, 800), 6),
+    ]) {
+      testWidgets('${size.width.toInt()} px wide shows $expected columns', (
+        tester,
+      ) async {
+        await pumpLibrary(
+          tester,
+          size: size,
+          layout: CollectLayout.cards,
+          classic: true,
+        );
+        expect(columns(tester), expected);
+      });
+    }
+
+    testWidgets('each poster keeps its status menu', (tester) async {
+      await pumpLibrary(
+        tester,
+        size: const Size(390, 844),
+        layout: CollectLayout.cards,
+        classic: true,
+      );
+      await tester.tap(find.byTooltip('管理《条目 1》 · 在看'));
+      await tester.pumpAndSettle();
+      expect(find.text('取消收藏'), findsOneWidget);
     });
   });
 

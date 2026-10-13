@@ -36,6 +36,7 @@ class CollectLibraryView extends StatefulWidget {
     required this.canEdit,
     required this.layout,
     required this.onLayoutChanged,
+    this.classic = false,
   });
 
   final String title;
@@ -48,6 +49,9 @@ class CollectLibraryView extends StatefulWidget {
   final bool Function(BangumiItem) canEdit;
   final CollectLayout layout;
   final ValueChanged<CollectLayout> onLayoutChanged;
+
+  /// 经典布局: the old dense poster grid for the card layout.
+  final bool classic;
 
   @override
   State<CollectLibraryView> createState() => _CollectLibraryViewState();
@@ -95,7 +99,10 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   @override
   void didUpdateWidget(covariant CollectLibraryView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.layout != widget.layout) _resetResults();
+    if (oldWidget.layout != widget.layout ||
+        oldWidget.classic != widget.classic) {
+      _resetResults();
+    }
   }
 
   @override
@@ -544,6 +551,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
 
   Widget _grid(List<CollectedBangumi> entries, double contentWidth,
       {required CollectType? type}) {
+    if (widget.classic) return _classicGrid(entries, contentWidth);
     final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
     final spacing = portrait ? (contentWidth < 600 ? 8.0 : 12.0) : 16.0;
     final scaler = MediaQuery.textScalerOf(context);
@@ -569,6 +577,37 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
         entry: entries[index],
         showRating: widget.showRating,
         showStatus: type == null,
+        watchProgress: widget.watchProgress[entries[index].bangumiItem.id],
+        onOpen: () => widget.onOpen(entries[index].bangumiItem),
+        onChangeType: _changeTypeFor(entries[index]),
+      ),
+    );
+  }
+
+  /// Columns as before the redesign: three on phones, five, then six.
+  Widget _classicGrid(List<CollectedBangumi> entries, double contentWidth) {
+    const spacing = 8.0;
+    final columns = contentWidth > 840
+        ? 6
+        : contentWidth > 600
+            ? 5
+            : 3;
+    final width = (contentWidth - spacing * (columns - 1)) / columns;
+    return SliverGrid.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        mainAxisExtent: _CollectPosterCard.classicExtent(
+            width, MediaQuery.textScalerOf(context)),
+      ),
+      itemCount: entries.length,
+      itemBuilder: (context, index) => _CollectPosterCard(
+        key: ValueKey('collect-${entries[index].bangumiItem.id}'),
+        entry: entries[index],
+        showRating: false,
+        showStatus: false,
+        classic: true,
         watchProgress: widget.watchProgress[entries[index].bangumiItem.id],
         onOpen: () => widget.onOpen(entries[index].bangumiItem),
         onChangeType: _changeTypeFor(entries[index]),

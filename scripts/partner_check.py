@@ -165,6 +165,7 @@ PIPELINE_TESTS = ["uv", "run", "--no-project", "--quiet", "--with", "pyyaml==6.0
 # behaviour tests in partner_flow_test.dart.
 TESTED_EDITS = {
     "lib/pages/my/my_space_view.dart",
+    "lib/pages/settings/interface_settings.dart",
     "lib/services/update/testflight_update.dart",
     "lib/request/config/api_endpoints.dart",
 }
