@@ -1,12 +1,22 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce/hive.dart';
+import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/repositories/download_repository.dart';
+import 'package:kazumi/services/download/download_manager.dart';
+import 'package:kazumi/services/download/mirror_selector.dart';
 import 'package:kazumi/services/download/parted_transfer.dart';
 import 'package:kazumi/services/library/library_api.dart';
+import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
+import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 void main() {
   group('LibraryInvite.parse', () {
@@ -84,6 +94,112 @@ void main() {
       expect(state.members.single.watching, isTrue);
       expect(state.selection?.seq, 3);
       expect(state.selection?.byDeviceId, '');
+    });
+  });
+
+  // The resumable upload only retries a LibraryException; anything else
+  // aborts the whole upload instead of resuming it.
+  group('LibraryApi.upload reports a dropped upload as LibraryException', () {
+    late Directory tmp;
+    late File source;
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('kazumi_upload_test');
+      source = File('${tmp.path}/video.mp4')..writeAsBytesSync([1, 2, 3]);
+    });
+    tearDown(() => tmp.delete(recursive: true));
+
+    test('when the server never answers', () async {
+      final stalled = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      stalled.listen((request) => request.drain<void>());
+      addTearDown(() => stalled.close(force: true));
+      final api = LibraryApi(
+        'http://127.0.0.1:${stalled.port}',
+        'k',
+        responseTimeout: const Duration(milliseconds: 300),
+      );
+      await expectLater(
+        api.upload('id', upscaledVideoFileName, source, offset: 0),
+        throwsA(isA<LibraryException>()),
+      );
+    });
+
+    test('when the TLS handshake fails', () async {
+      final plain = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      plain.listen((socket) {
+        socket.listen(
+          (_) => socket.write('HTTP/1.1 400 Bad Request\r\n\r\n'),
+          onError: (_) {},
+        );
+      });
+      addTearDown(plain.close);
+      final api = LibraryApi('https://127.0.0.1:${plain.port}', 'k');
+      await expectLater(
+        api.upload('id', upscaledVideoFileName, source, offset: 0),
+        throwsA(isA<LibraryException>()),
+      );
+    });
+  });
+
+  group('LibraryController', () {
+    late Directory hive;
+    late HttpServer server;
+    var listed = <Map<String, dynamic>>[];
+
+    Map<String, dynamic> episode(int bangumiId) => {
+      'id': 'ep-$bangumiId',
+      'version': 1,
+      'bangumiId': bangumiId,
+      'pluginName': 'p',
+      'bangumiName': 'B$bangumiId',
+      'episodeNumber': 1,
+    };
+
+    setUpAll(() async {
+      hive = await Directory.systemTemp.createTemp('kazumi_library_hive');
+      PathProviderPlatform.instance = _TestPaths(hive.path);
+      Hive.init(hive.path);
+      await GStorage.init();
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        await request.drain<void>();
+        request.response.write(
+          jsonEncode(
+            request.uri.path == '/api/episodes' ? {'episodes': listed} : {},
+          ),
+        );
+        await request.response.close();
+      });
+      await GStorage.putSetting<String>(
+        SettingsKeys.libraryServer,
+        'http://127.0.0.1:${server.port}',
+      );
+      await GStorage.putSetting<String>(SettingsKeys.libraryKey, 'k');
+      await GStorage.putSetting<String>(SettingsKeys.libraryDisplayName, 'me');
+      await GStorage.putSetting<bool>(SettingsKeys.libraryWifiOnly, false);
+    });
+    tearDownAll(() async {
+      await server.close(force: true);
+      await Hive.close();
+      await hive.delete(recursive: true);
+    });
+    tearDown(MirrorRegistry.reset);
+
+    test('a refresh during a lobby prefetch does not stop it', () async {
+      final downloads = _FakeDownloads();
+      final manager = _FakeManager(hive.path);
+      final c = LibraryController(_FakeRepository(), downloads, manager);
+      listed = [episode(1), episode(2)];
+      await c.refresh();
+
+      final prefetch = c.prefetchFromLobby();
+      await manager.firstAsked.future;
+      listed = [episode(1), episode(2), episode(3)];
+      await c.refresh();
+      expect(c.episodes, hasLength(3));
+      manager.release.complete();
+
+      await prefetch;
+      expect(downloads.queued, containsAll([1, 2]));
     });
   });
 
@@ -353,4 +469,58 @@ void main() {
           reason: 'the admin key can list the library too');
     });
   }, skip: url == null ? 'KAZUMI_LIBRARY_TEST_URL not set' : false);
+}
+
+class _TestPaths extends PathProviderPlatform {
+  _TestPaths(this.path);
+  final String path;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => path;
+}
+
+class _FakeRepository implements IDownloadRepository {
+  @override
+  DownloadRecord? getRecord(String key) => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeDownloads implements DownloadController {
+  final queued = <int>[];
+
+  @override
+  Future<void> enqueuePreUpscaled(
+    DownloadRecord record,
+    DownloadEpisode episode,
+  ) async => queued.add(record.bangumiId);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Holds the first download until [release] completes.
+class _FakeManager implements IDownloadManager {
+  _FakeManager(this.dir);
+
+  final String dir;
+  final firstAsked = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<String> episodeDirectoryFor(
+    int bangumiId,
+    String pluginName,
+    int episodeNumber,
+  ) async {
+    if (!firstAsked.isCompleted) {
+      firstAsked.complete();
+      await release.future;
+    }
+    return '$dir/$bangumiId/$episodeNumber';
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

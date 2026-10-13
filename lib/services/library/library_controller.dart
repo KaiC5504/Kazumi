@@ -693,7 +693,8 @@ class LibraryController implements OfflinePlaybackHooks {
   /// the first one doesn't have to stream.
   Future<void> prefetchFromLobby() async {
     final seen = <String>{};
-    for (final e in episodes) {
+    // A refresh can replace the list while a download is being queued.
+    for (final e in episodes.toList()) {
       if (!seen.add(e.manifest.recordKey)) continue;
       final next = seriesOf(e).where((s) => !isWatchedByMe(s)).take(1);
       for (final target in next) {

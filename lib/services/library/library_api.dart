@@ -119,6 +119,7 @@ class LibraryApi {
     this.key, {
     this.apiHost,
     this.relayTimeout = const Duration(seconds: 8),
+    this.responseTimeout = const Duration(seconds: 30),
   }) : baseUri = normalizeServer(server);
 
   final Uri baseUri;
@@ -131,6 +132,7 @@ class LibraryApi {
   /// A relay that accepts but stalls shouldn't hold a lobby call for the
   /// full timeout before the caller falls back to [baseUri].
   final Duration relayTimeout;
+  final Duration responseTimeout;
 
   static Uri normalizeServer(String server) {
     var value = server.trim();
@@ -312,7 +314,7 @@ class LibraryApi {
     final client = _client();
     try {
       final request = await client.getUrl(uri);
-      final response = await request.close().timeout(_responseTimeout);
+      final response = await request.close().timeout(responseTimeout);
       _check(response);
       final bytes = <int>[];
       await for (final chunk in response) {
@@ -363,7 +365,7 @@ class LibraryApi {
           return chunk;
         }),
       );
-      final response = await request.close().timeout(_responseTimeout);
+      final response = await request.close().timeout(responseTimeout);
       final body = await utf8.decodeStream(response);
       if (response.statusCode == HttpStatus.conflict) {
         throw LibraryException('上传位置不一致', statusCode: response.statusCode);
@@ -374,6 +376,10 @@ class LibraryApi {
       throw const LibraryException('上传中断');
     } on HttpException {
       throw const LibraryException('上传中断');
+    } on TlsException {
+      throw const LibraryException('上传中断');
+    } on TimeoutException {
+      throw const LibraryException('上传超时');
     } finally {
       client.close(force: true);
     }
@@ -423,7 +429,7 @@ class LibraryApi {
           return chunk;
         }),
       );
-      final response = await request.close().timeout(_responseTimeout);
+      final response = await request.close().timeout(responseTimeout);
       await response.drain<void>();
       _check(response);
     } on SocketException {
@@ -446,8 +452,6 @@ class LibraryApi {
     );
   }
 
-  static const _responseTimeout = Duration(seconds: 30);
-
   HttpClient _client() =>
       HttpClient()..connectionTimeout = const Duration(seconds: 10);
 
@@ -469,7 +473,7 @@ class LibraryApi {
         request.write(jsonEncode(body));
       }
       final response = await request.close().timeout(
-        viaRelay ? relayTimeout : _responseTimeout,
+        viaRelay ? relayTimeout : responseTimeout,
       );
       final text = await utf8.decodeStream(response);
       _check(response);
