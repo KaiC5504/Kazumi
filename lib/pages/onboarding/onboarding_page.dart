@@ -10,7 +10,6 @@ import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/onboarding/steps/disclaimer_step.dart';
 import 'package:kazumi/pages/onboarding/steps/mirror_settings_step.dart';
-import 'package:kazumi/pages/onboarding/steps/plugin_shop_step.dart';
 import 'package:kazumi/pages/onboarding/steps/update_source_step.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/services/logging/logger.dart';
@@ -35,8 +34,7 @@ class OnboardingPage extends StatefulWidget {
 enum _OnboardingStep {
   welcome('使用约定'),
   updates('更新来源'),
-  mirrors('访问加速'),
-  rules('添加规则');
+  mirrors('访问加速');
 
   const _OnboardingStep(this.label);
 
@@ -48,8 +46,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final _steps = [
     _OnboardingStep.welcome,
     if (Platform.isAndroid) _OnboardingStep.updates,
+    // No rules step: every official rule installs after the disclaimer.
     _OnboardingStep.mirrors,
-    _OnboardingStep.rules,
   ];
   int _currentIndex = 0;
   bool _agreed = false;
@@ -82,7 +80,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
             },
           ),
         _OnboardingStep.mirrors => const MirrorSettingsStep(),
-        _OnboardingStep.rules => PluginShopStep(controller: _pluginsController),
       };
 
   String get _primaryLabel => !_agreed
@@ -135,6 +132,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
       KazumiDialog.showToast(context: context, message: '初始化规则失败');
       return false;
     }
+    unawaited(syncOfficialRulesWithFeedback(
+      _pluginsController,
+      updateExisting: true,
+    ));
     if (!mounted) return false;
     setState(() {
       _agreed = true;
@@ -144,10 +145,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Future<void> _finish() async {
-    unawaited(syncOfficialRulesWithFeedback(
-      _pluginsController,
-      updateExisting: true,
-    ));
     final myController = widget.myController;
     unawaited(runStartupUpdateCheck(
       isEnabled: () =>
