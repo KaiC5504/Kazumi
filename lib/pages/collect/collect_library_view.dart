@@ -297,9 +297,10 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       needTopOffset: false,
       toolbarHeight: _titleBarHeight,
       // On phones the count moves up here from the controls row it replaces.
+      // Filling the title slot keeps it at the start: iOS centres app bar
+      // titles, which left a gap beside three actions.
       title: compact
           ? Row(
-              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [

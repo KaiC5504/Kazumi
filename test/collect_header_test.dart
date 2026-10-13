@@ -118,6 +118,19 @@ void main() {
       expect(find.text('卡片布局'), findsOneWidget);
     });
 
+    // SysAppBar centres titles on iOS; a title row that fills its slot stays
+    // at the start there too.
+    testWidgets('the title fills its slot so iOS cannot centre it', (
+      tester,
+    ) async {
+      await pumpLibrary(tester, size: const Size(390, 844));
+      final row = find
+          .ancestor(of: find.text('追番'), matching: find.byType(Row))
+          .first;
+      expect(tester.getSize(row).width, greaterThan(200));
+      expect(tester.getTopLeft(find.text('追番')).dx, lessThan(24));
+    });
+
     testWidgets('the first show starts below the header', (tester) async {
       await pumpLibrary(tester, size: const Size(390, 844));
       final header = tester.getBottomLeft(_tab('在看')).dy;
