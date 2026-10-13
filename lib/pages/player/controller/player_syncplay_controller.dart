@@ -203,21 +203,7 @@ abstract class _PlayerSyncPlayController with Store {
     syncplayController = null;
     syncplayRoom = '';
     syncplayClientRtt = 0;
-    final keepFollow = followEpisode;
-    final keepAnnounced = _announcedFile;
-    final keepReloadingAt = _reloadingAt;
-    final keepPeerFiles = Map.of(_peerFiles);
-    await _resetRoomState();
-    if (quiet) {
-      followEpisode = keepFollow;
-      _announcedFile = keepAnnounced;
-      _reloadingAt = keepReloadingAt;
-      // Peers only announce a file when it changes, so the new connection
-      // won't hear which episode they are on. Without this a peer waiting
-      // at the next episode looks like it's in ours, and the catch-up jump
-      // lands at its position.
-      _peerFiles.addAll(keepPeerFiles);
-    }
+    await _resetRoomState(keepEpisode: quiet);
     await previousClient?.disconnect();
     if (session.isStale) {
       return;
@@ -912,17 +898,23 @@ abstract class _PlayerSyncPlayController with Store {
         () => client.setSyncPlayPlaying(_currentFile(), 10800, 220514438));
   }
 
-  Future<void> _resetRoomState() async {
+  Future<void> _resetRoomState({bool keepEpisode = false}) async {
     if (_waitingForPeers) {
       _waitingForPeers = false;
       GlassNotice.hide();
     }
     _stopWaitingForRoom(resume: false);
     _announceWhenCaughtUp = false;
-    _peerFiles.clear();
-    followEpisode = null;
-    _announcedFile = null;
-    _reloadingAt = null;
+    // A quiet reconnect keeps the peers' files: they only announce one when
+    // it changes, so the new connection won't hear which episode they are
+    // on. Without them a peer waiting at the next episode looks like it's in
+    // ours, and the catch-up jump lands at its position.
+    if (!keepEpisode) {
+      _peerFiles.clear();
+      followEpisode = null;
+      _announcedFile = null;
+      _reloadingAt = null;
+    }
     await _stopNudge();
   }
 
