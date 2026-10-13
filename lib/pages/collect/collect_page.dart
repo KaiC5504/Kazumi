@@ -23,11 +23,9 @@ class CollectPage extends StatefulWidget {
   const CollectPage({
     super.key,
     required this.controller,
-    required this.historyRepository,
   });
 
   final CollectController controller;
-  final IHistoryRepository historyRepository;
 
   @override
   State<CollectPage> createState() => _CollectPageState();
@@ -38,6 +36,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
   bool get _syncDialogOpen => dialogs.isRunning;
   final Set<int> _pendingIds = {};
   late CollectLayout _layout;
+  final _historyRepository = inject<IHistoryRepository>();
   Map<int, String> _watchProgress = const {};
   StreamSubscription<void>? _historyChanges;
   Timer? _historyRefresh;
@@ -69,7 +68,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
     );
     collectController.loadCollectibles();
     _loadWatchProgress();
-    _historyChanges = widget.historyRepository.changes.listen((_) {
+    _historyChanges = _historyRepository.changes.listen((_) {
       // Playback writes history every few seconds.
       _historyRefresh?.cancel();
       _historyRefresh = Timer(const Duration(milliseconds: 300), () {
@@ -87,7 +86,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
 
   void _loadWatchProgress() {
     _watchProgress =
-        collectWatchProgress(widget.historyRepository.getAllHistories());
+        collectWatchProgress(_historyRepository.getAllHistories());
   }
 
   void _changeLayout(CollectLayout layout) {
