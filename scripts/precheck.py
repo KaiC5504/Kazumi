@@ -22,6 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+import partner_check  # noqa: E402
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -71,7 +72,7 @@ def last_passed_build() -> str | None:
         return shipped["headSha"]
     try:
         import codemagic
-        builds = codemagic.call(f"/builds?appId={codemagic.app_id()}").get("builds", [])
+        builds = codemagic.builds()
     except BaseException as e:  # codemagic.py exits via SystemExit without a token
         print(f"  (Codemagic unreachable: {e})")
         return None
@@ -205,9 +206,7 @@ def main() -> int:
     if pipeline:
         print("\n$ python -m unittest (build pipeline)", flush=True)
         pipeline_tests = subprocess.run(
-            ["uv", "run", "--no-project", "--quiet", "--with", "pyyaml==6.0.3", "python", "-m",
-             "unittest", "discover", "-s", "test/ci", "-p", "test_*.py"],
-            cwd=ROOT, shell=sys.platform == "win32",
+            partner_check.PIPELINE_TESTS, cwd=ROOT, shell=sys.platform == "win32",
         )
         if pipeline_tests.returncode:
             failed.append("pipeline tests")

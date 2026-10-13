@@ -25,11 +25,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codemagic  # noqa: E402  (FROZEN fallback; owns the partner_check.py stamp and the HK writer)
+import codemagic  # noqa: E402  (FROZEN fallback; reads the partner_check stamp, writes latest.json)
 
 REPO = "KaiC5504/Kazumi"
 WORKFLOW = "testflight.yaml"
@@ -47,7 +46,7 @@ MANIFEST = "testflight-build.json"
 # The workflow's run-name starts with one of these.
 UPLOAD = "TestFlight upload"
 DRY_RUN = "TestFlight dry run"
-FIELDS = "databaseId,displayTitle,status,conclusion,headSha,headBranch,event,createdAt,url"
+FIELDS = "databaseId,displayTitle,status,conclusion,headSha,headBranch,event,url"
 # A background watch outlives short network trouble; this many failed polls in a row
 # ends it.
 WATCH_RETRIES = 5
@@ -98,7 +97,7 @@ def report(run_: dict) -> None:
             marker = ("x" if step_state in {"failure", "cancelled", "timed_out"}
                       else "-" if step_state in {"skipped", "pending", "queued"} else "+")
             print(f"  {marker} {step['name']}: {step_state}")
-    if run_["status"] == "completed" and run_["conclusion"] != "success":
+    if failed(run_):
         log = subprocess.run(["gh", "run", "view", str(run_["databaseId"]), "-R", REPO,
                               "--log-failed"], capture_output=True, text=True,
                              encoding="utf-8", errors="replace").stdout
@@ -177,7 +176,7 @@ def cmd_start(argv: list[str]) -> int:
         print(f"origin/main is {behind} commit(s) behind upstream/main. Merge upstream, "
               "rerun the checks, push, and start again.")
         return 1
-    if not codemagic.partner_check_passed("main"):
+    if not codemagic.partner_check_passed("main", fetch=False):
         print("origin/main hasn't passed scripts/partner_check.py. Check out that exact "
               "commit, run it, and start again.")
         return 1
@@ -249,38 +248,6 @@ def cmd_watch(run_id: str | None) -> int:
         time.sleep(30)
 
 
-# Same file and host as codemagic.py's publish-latest, which stays for the fallback.
-def publish(build: int, version: str, notes: str, required: bool) -> int:
-    if not isinstance(version, str) or not version:
-        # The app ignores a latest.json without a version, so the prompt would never show.
-        raise SystemExit(f"No version for build {build}; not publishing.")
-    previous = {}
-    raw = codemagic.ssh(f"sudo cat {codemagic.LATEST_PATH} 2>/dev/null || true")
-    if raw.strip():
-        previous = json.loads(raw)
-    if previous.get("build", 0) > build:
-        raise SystemExit(f"HK already announces build {previous['build']}, newer than {build}.")
-
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    latest_json = {
-        "build": build,
-        "version": version,
-        "minBuild": build if required else previous.get("minBuild", 0),
-        "requiredSince": now if required else previous.get("requiredSince"),
-        "notes": notes,
-        "publishedAt": now,
-    }
-    body = json.dumps(latest_json, ensure_ascii=False, indent=1) + "\n"
-    path = codemagic.LATEST_PATH
-    codemagic.ssh(f"sudo mkdir -p {Path(path).parent.as_posix()} && "
-                  f"sudo tee {path}.tmp >/dev/null && sudo chmod 644 {path}.tmp && "
-                  f"sudo mv {path}.tmp {path}", stdin=body)
-    print(f"published {version} ({build})" + (" as required" if required else "")
-          + " -> https://hk.kaic5504.com/app/latest.json")
-    print(body)
-    return 0
-
-
 def cmd_publish_latest(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="testflight.py publish-latest")
     parser.add_argument("--required", action="store_true",
@@ -298,7 +265,8 @@ def cmd_publish_latest(argv: list[str]) -> int:
         manifest = json.loads((Path(folder) / MANIFEST).read_text(encoding="utf-8"))
     if manifest.get("sha") != newest["headSha"] or not str(manifest.get("build")).isdigit():
         raise SystemExit(f"Run {newest['databaseId']}'s manifest doesn't match the run.")
-    return publish(int(manifest["build"]), manifest.get("version"), args.notes, args.required)
+    return codemagic.publish(int(manifest["build"]), manifest.get("version"), args.notes,
+                             args.required)
 
 
 def main() -> int:
