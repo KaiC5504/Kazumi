@@ -122,7 +122,12 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     Widget child = NotificationListener<NavigationNotification>(
       // A non-poppable outlet must not override the shell's PopScope state.
       onNotification: (notification) => !notification.canHandlePop,
-      child: RouterOutlet(key: _outletKey),
+      // The nested navigator's ModalBarrier blocks semantics painted before
+      // it; a container keeps the rail in the accessibility tree.
+      child: Semantics(
+        container: true,
+        child: RouterOutlet(key: _outletKey),
+      ),
     );
     if (borderRadius != null) {
       child = ClipRRect(borderRadius: borderRadius, child: child);
