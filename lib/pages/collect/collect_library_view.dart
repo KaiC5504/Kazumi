@@ -550,7 +550,8 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     final textScale = (scaler.scale(14) / 14).clamp(1.0, double.infinity);
     final minWidth =
         (contentWidth < 600 ? 136.0 : 172.0) + 32 * (textScale - 1);
-    final columns = portrait
+    // Only phones keep three: a portrait tablet got 370 px wide posters.
+    final columns = portrait && contentWidth < 600
         ? 3
         : ((contentWidth + spacing) / (minWidth + spacing)).floor().clamp(1, 6);
     final width = (contentWidth - spacing * (columns - 1)) / columns;
