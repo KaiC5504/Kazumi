@@ -8,7 +8,6 @@ class RouteCheckStore {
   final String Function() read;
   final Future<void> Function(String) write;
   Future<RouteCheckResult?>? _inFlight;
-  int runs = 0;
 
   RouteCheckResult? get stored => RouteCheckResult.decode(read());
 
@@ -25,7 +24,6 @@ class RouteCheckStore {
   Future<RouteCheckResult?> _run(
     Future<RouteCheckResult> Function() check,
   ) async {
-    runs++;
     try {
       final result = await check();
       await write(result.encode());

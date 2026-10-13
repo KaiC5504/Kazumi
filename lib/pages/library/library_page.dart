@@ -167,9 +167,7 @@ Future<String?> _askName(BuildContext context, {String initial = ''}) {
         controller: textController,
         autofocus: true,
         maxLength: 16,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-        ),
+        decoration: const InputDecoration(border: OutlineInputBorder()),
       ),
       actions: [
         TextButton(
@@ -540,16 +538,11 @@ class _RoomCard extends StatelessWidget {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _MemberChip(
-                    name: controller.displayName,
-                    status: '我',
-                    online: true,
-                  ),
+                  _MemberChip(name: controller.displayName, status: '我'),
                   for (final member in others)
                     _MemberChip(
                       name: member.name,
                       status: _statusOf(member),
-                      online: true,
                       onJoin: member.watching && member.episodeId != null
                           ? () => _joinMember(context, member)
                           : null,
@@ -585,16 +578,10 @@ class _RoomCard extends StatelessWidget {
 }
 
 class _MemberChip extends StatelessWidget {
-  const _MemberChip({
-    required this.name,
-    required this.status,
-    required this.online,
-    this.onJoin,
-  });
+  const _MemberChip({required this.name, required this.status, this.onJoin});
 
   final String name;
   final String status;
-  final bool online;
   final VoidCallback? onJoin;
 
   @override
@@ -619,12 +606,11 @@ class _MemberChip extends StatelessWidget {
                 foregroundColor: colors.onPrimary,
                 child: Text(initial),
               ),
-              if (online)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: _PulseDot(color: Colors.greenAccent.shade400),
-                ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: _PulseDot(color: Colors.greenAccent.shade400),
+              ),
             ],
           ),
           const SizedBox(width: 10),

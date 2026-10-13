@@ -45,11 +45,10 @@ void main() {
       expect(LibraryInvite.parse('kazumi://abcdef'), isNull);
     });
 
-    test('web link round-trips', () {
-      const invite = LibraryInvite(server: 'https://a.example', key: 'k/1');
-      final parsed = LibraryInvite.parse(invite.webLink);
-      expect(parsed?.server, invite.server);
-      expect(parsed?.key, invite.key);
+    test('decodes the key in a web link', () {
+      final parsed = LibraryInvite.parse('https://a.example/join#k=k%2F1');
+      expect(parsed?.server, 'https://a.example');
+      expect(parsed?.key, 'k/1');
     });
   });
 
@@ -293,12 +292,15 @@ void main() {
         expect(config.room, isNotEmpty);
         expect(config.mirrors, env['KAZUMI_LIBRARY_TEST_MIRRORS']?.split(',') ?? []);
 
-        final sample = await LibraryApi.probe(viewer.videoUri(id), bytes: 1024);
-        expect(sample, isNotNull);
         expect(
-          await LibraryApi.probe(
-              viewer.videoUri(id, via: Uri.parse('http://127.0.0.1:1'))),
-          isNull,
+          await viewer.download(viewer.videoUri(id, via: Uri.parse(url))),
+          bytes,
+        );
+        await expectLater(
+          viewer.download(
+            viewer.videoUri(id, via: Uri.parse('http://127.0.0.1:1')),
+          ),
+          throwsA(isA<LibraryException>()),
         );
 
         await viewer.heartbeat(deviceId: 'phone', name: '她', state: 'lobby');

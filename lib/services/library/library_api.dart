@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 
@@ -137,13 +138,15 @@ class LibraryApi {
   static Uri normalizeServer(String server) {
     var value = server.trim();
     if (!value.contains('://')) value = 'https://$value';
-    final uri = Uri.parse(value);
-    return Uri(
-      scheme: uri.scheme,
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-    );
+    return originOf(Uri.parse(value));
   }
+
+  /// Scheme, host and port only: the form hosts are compared in.
+  static Uri originOf(Uri uri) => Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+  );
 
   /// Media players and the download manager can't always send custom
   /// headers, so file URLs carry the key as a query parameter.
@@ -169,49 +172,9 @@ class LibraryApi {
   /// The same file URL served from [host], token included.
   static String rehost(String url, Uri host) {
     final uri = Uri.parse(url);
-    return Uri(
-      scheme: host.scheme,
-      host: host.host,
-      port: host.hasPort ? host.port : null,
-      path: uri.path,
-      query: uri.hasQuery ? uri.query : null,
-    ).toString();
-  }
-
-  /// Hosts to try for a file, best first. Once [ranked] by a speed probe that
-  /// order wins; before then relays go first, since the viewer they exist for
-  /// is the one on the slow route to the server.
-  static List<Uri> hostOrder(Uri server, List<Uri> relays, List<Uri> ranked) =>
-      ranked.isNotEmpty ? ranked : [...relays, server];
-
-  /// Time to fetch the first [bytes] of [url], or null if it failed.
-  static Future<Duration?> probe(
-    Uri url, {
-    int bytes = 512 * 1024,
-    Duration timeout = const Duration(seconds: 10),
-  }) async {
-    final client = HttpClient()..connectionTimeout = timeout;
-    final watch = Stopwatch()..start();
-    try {
-      final request = await client.getUrl(url);
-      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-${bytes - 1}');
-      final response = await request.close().timeout(timeout);
-      if (response.statusCode != HttpStatus.partialContent &&
-          response.statusCode != HttpStatus.ok) {
-        await response.drain<void>();
-        return null;
-      }
-      var received = 0;
-      await for (final chunk in response.timeout(timeout)) {
-        received += chunk.length;
-        if (received >= bytes) break;
-      }
-      return watch.elapsed;
-    } catch (_) {
-      return null;
-    } finally {
-      client.close(force: true);
-    }
+    return originOf(host)
+        .replace(path: uri.path, query: uri.hasQuery ? uri.query : null)
+        .toString();
   }
 
   /// Trades a short invite code for the library key.
@@ -316,11 +279,11 @@ class LibraryApi {
       final request = await client.getUrl(uri);
       final response = await request.close().timeout(responseTimeout);
       _check(response);
-      final bytes = <int>[];
+      final bytes = BytesBuilder(copy: false);
       await for (final chunk in response) {
-        bytes.addAll(chunk);
+        bytes.add(chunk);
       }
-      return bytes;
+      return bytes.takeBytes();
     } on SocketException {
       throw const LibraryException('无法连接到片库服务器');
     } on TimeoutException {

@@ -93,7 +93,6 @@ class LibraryController implements OfflinePlaybackHooks {
   String get displayName =>
       GStorage.getSetting(SettingsKeys.libraryDisplayName);
   bool get wifiOnly => GStorage.getSetting(SettingsKeys.libraryWifiOnly);
-  String? get playingId => _playingId;
 
   String get deviceId {
     var id = GStorage.getSetting(SettingsKeys.libraryDeviceId);
@@ -656,13 +655,7 @@ class LibraryController implements OfflinePlaybackHooks {
     KazumiLogger().w('LibraryController: stream host failed $failedUrl');
     final uri = Uri.tryParse(failedUrl);
     if (uri == null || !isConfigured) return;
-    router.reportFailure(
-      Uri(
-        scheme: uri.scheme,
-        host: uri.host,
-        port: uri.hasPort ? uri.port : null,
-      ),
-    );
+    router.reportFailure(LibraryApi.originOf(uri));
     runInAction(() => routeVersion.value++);
   }
 
