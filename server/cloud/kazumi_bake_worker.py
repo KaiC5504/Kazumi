@@ -28,6 +28,16 @@ def log(message):
     print(time.strftime('%H:%M:%S'), message, flush=True)
 
 
+def copy(src, dst, n):
+    while n > 0:
+        chunk = src.read(min(1 << 20, n))
+        if not chunk:
+            break
+        dst.write(chunk)
+        n -= len(chunk)
+    return n
+
+
 class Worker:
     def __init__(self, root, token, cap_sec, idle_sec=600, clock=time.monotonic):
         self.root = root
@@ -94,14 +104,8 @@ class Worker:
         d = self.part_dir(ep)
         os.makedirs(d, exist_ok=True)
         tmp = os.path.join(d, '%d.tmp' % index)
-        left = length
         with open(tmp, 'wb') as f:
-            while left > 0:
-                chunk = stream.read(min(1 << 20, left))
-                if not chunk:
-                    break
-                f.write(chunk)
-                left -= len(chunk)
+            left = copy(stream, f, length)
         if left:
             os.remove(tmp)
             raise IOError('part %d ended %d bytes early' % (index, left))
@@ -142,7 +146,7 @@ class Worker:
                         for k, v in self.episodes.items()}
         return {'state': self.state, 'error': self.error,
                 'encoder': self.encoder[0][1] if self.encoder else None,
-                'slots': SLOTS, 'uptimeSec': int(self.clock() - self.started),
+                'uptimeSec': int(self.clock() - self.started),
                 'capSec': self.cap_sec, 'episodes': episodes}
 
     def drop(self, ep):
@@ -329,21 +333,6 @@ def make_handler(worker, terminate):
         def log_message(self, *args):
             pass
 
-        def do_GET(self):
-            self.route('GET')
-
-        def do_HEAD(self):
-            self.route('HEAD')
-
-        def do_PUT(self):
-            self.route('PUT')
-
-        def do_POST(self):
-            self.route('POST')
-
-        def do_DELETE(self):
-            self.route('DELETE')
-
         def reply(self, code, body=None):
             data = json.dumps(body if body is not None else {}).encode()
             self.send_response(code)
@@ -360,7 +349,8 @@ def make_handler(worker, terminate):
         def body(self):
             return self.rfile.read(int(self.headers.get('Content-Length', 0)))
 
-        def route(self, method):
+        def route(self):
+            method = self.command
             if not hmac.compare_digest(self.headers.get('X-Kazumi-Token', ''), worker.token):
                 return self.reply(403, {'error': 'forbidden'})
             worker.touch()
@@ -408,6 +398,8 @@ def make_handler(worker, terminate):
                 log('%s %s failed: %s' % (method, self.path, e))
                 self.reply(500, {'error': str(e)})
 
+        do_GET = do_HEAD = do_PUT = do_POST = do_DELETE = route
+
         def send_output(self, ep):
             path = worker.output(ep)
             if not os.path.exists(path):
@@ -429,13 +421,7 @@ def make_handler(worker, terminate):
                 return
             with open(path, 'rb') as f:
                 f.seek(start)
-                left = end - start
-                while left > 0:
-                    chunk = f.read(min(1 << 20, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
+                copy(f, self.wfile, end - start)
 
     return Handler
 

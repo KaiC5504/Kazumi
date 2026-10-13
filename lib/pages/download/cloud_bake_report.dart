@@ -7,7 +7,7 @@ import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
 /// Show title and episode label for a job, resolved by the caller.
 typedef CloudJobTitle = (String show, String episode) Function(CloudJob job);
 
-String _money(double value) => '\$${value.toStringAsFixed(2)}';
+String cloudMoney(double value) => '\$${value.toStringAsFixed(2)}';
 
 String _duration(int seconds) {
   if (seconds < 60) return '$seconds 秒';
@@ -138,7 +138,7 @@ class CloudBakeReportDialog extends StatelessWidget {
                   const SizedBox(width: 10),
                   _Tile(
                     label: '费用',
-                    value: _money(report.cost),
+                    value: cloudMoney(report.cost),
                     note: 'GPU ${_duration(report.podSec)}',
                   ),
                   const SizedBox(width: 10),
@@ -154,7 +154,7 @@ class CloudBakeReportDialog extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
               child: Text(
                 [
-                  'L40S 悉尼 · ${_money(report.pricePerHour)}/小时',
+                  'L40S 悉尼 · ${cloudMoney(report.pricePerHour)}/小时',
                   ?report.encoder,
                   if (report.cloudMediaSec > 0)
                     saved > 60

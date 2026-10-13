@@ -7,6 +7,7 @@ import 'package:mobx/mobx.dart';
 import 'package:kazumi/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/modules/download/download_module.dart';
+import 'package:kazumi/pages/download/cloud_bake_report.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/upscale/cloud/cloud_bake_session.dart';
 import 'package:kazumi/services/upscale/cloud/runpod_api.dart';
@@ -24,9 +25,32 @@ String cloudStatusText(CloudEpisodePhase phase) {
   };
 }
 
-String _money(double value) => '\$${value.toStringAsFixed(2)}';
-
 String _minutes(int seconds) => '${(seconds / 60).ceil()} 分钟';
+
+Future<bool> _confirm(
+  String title,
+  String content, {
+  required String no,
+  required String yes,
+}) async {
+  final confirmed = await KazumiDialog.show<bool>(
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(content),
+      actions: [
+        TextButton(
+          onPressed: () => KazumiDialog.dismiss(popWith: false),
+          child: Text(no),
+        ),
+        FilledButton(
+          onPressed: () => KazumiDialog.dismiss(popWith: true),
+          child: Text(yes),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
 
 bool _checkKey(BuildContext context, UpscaleController controller) {
   if (controller.hasRunpodKey) return true;
@@ -57,7 +81,7 @@ Future<bool> _joinRunning(
       DateTime.now(),
     );
     final count = episodeNumber == null ? ' · $added 集' : '';
-    final total = projected == null ? '' : ' · 预计共 ${_money(projected)}';
+    final total = projected == null ? '' : ' · 预计共 ${cloudMoney(projected)}';
     KazumiDialog.showToast(message: '已加入云端队列$count$total');
   } on CloudBakeException catch (e) {
     KazumiDialog.showToast(message: e.message);
@@ -293,13 +317,16 @@ class CloudBakeConfirmSheet extends StatelessWidget {
                 const SizedBox(width: 12),
                 _Stat(
                   label: '费用',
-                  value: _money(estimate.cost(price)),
-                  note: '最多 ${_money(estimate.maxCost(price))}',
+                  value: cloudMoney(estimate.cost(price)),
+                  note: '最多 ${cloudMoney(estimate.maxCost(price))}',
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Text('L40S 悉尼 ${_money(price)}/小时 · 按秒计费，做完自动删除 GPU', style: note),
+            Text(
+              'L40S 悉尼 ${cloudMoney(price)}/小时 · 按秒计费，做完自动删除 GPU',
+              style: note,
+            ),
             Text('运行中可在每集旁点 ☁ 继续加入云端队列', style: note),
             if (!quote.includeLocal)
               Text('本机不参与烘焙 (全部烘焙时可在下载设置中开启)', style: note),
@@ -398,7 +425,7 @@ String? projection(CloudBakeSessionView view, DateTime now) {
   final cost = view.projectedCost(now);
   if (remaining == null || cost == null) return null;
   final when = view.phase == CloudBakePhase.waiting ? '启动后约' : '预计还需';
-  return '$when ${_minutes(remaining)} · 共约 ${_money(cost)}';
+  return '$when ${_minutes(remaining)} · 共约 ${cloudMoney(cost)}';
 }
 
 /// Shown above the download list while a cloud bake runs.
@@ -438,23 +465,13 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
   }
 
   Future<void> _stop() async {
-    final confirmed = await KazumiDialog.show<bool>(
-      builder: (context) => AlertDialog(
-        title: const Text('停止云端烘焙？'),
-        content: const Text('会立即删除云端 GPU。云端正在处理的剧集回到未烘焙，本机正在烘焙的那一集会继续。'),
-        actions: [
-          TextButton(
-            onPressed: () => KazumiDialog.dismiss(popWith: false),
-            child: const Text('继续烘焙'),
-          ),
-          FilledButton(
-            onPressed: () => KazumiDialog.dismiss(popWith: true),
-            child: const Text('停止'),
-          ),
-        ],
-      ),
+    final confirmed = await _confirm(
+      '停止云端烘焙？',
+      '会立即删除云端 GPU。云端正在处理的剧集回到未烘焙，本机正在烘焙的那一集会继续。',
+      no: '继续烘焙',
+      yes: '停止',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     setState(() => _stopping = true);
     await widget.onStop();
     if (mounted) setState(() => _stopping = false);
@@ -555,7 +572,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
                         Text(
                           '☁ ${view.cloudDone} · 本机 ${view.localDone} · '
                           '共 ${view.total} 集 · $clock · '
-                          '${_money(view.costAt(now))}',
+                          '${cloudMoney(view.costAt(now))}',
                           style: textTheme.bodySmall?.copyWith(
                             color: colorScheme.onTertiaryContainer,
                           ),
@@ -607,25 +624,13 @@ Future<void> checkLeftoverCloudPods(UpscaleController controller) async {
     final age = created == null
         ? ''
         : '已运行 ${DateTime.now().difference(created).inMinutes} 分钟，';
-    final delete = await KazumiDialog.show<bool>(
-      builder: (context) => AlertDialog(
-        title: const Text('发现仍在运行的云端 GPU'),
-        content: Text(
-          '${pod.name} $age按 ${_money(pod.costPerHour)}/小时计费。是否删除？',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => KazumiDialog.dismiss(popWith: false),
-            child: const Text('保留'),
-          ),
-          FilledButton(
-            onPressed: () => KazumiDialog.dismiss(popWith: true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+    final delete = await _confirm(
+      '发现仍在运行的云端 GPU',
+      '${pod.name} $age按 ${cloudMoney(pod.costPerHour)}/小时计费。是否删除？',
+      no: '保留',
+      yes: '删除',
     );
-    if (delete != true) continue;
+    if (!delete) continue;
     try {
       await controller.deleteCloudPod(pod.id);
       KazumiDialog.showToast(message: '已删除云端 GPU');

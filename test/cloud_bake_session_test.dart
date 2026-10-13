@@ -68,9 +68,6 @@ class FakePodApi implements CloudPodApi {
     deleted.add(id);
     exists = false;
   }
-
-  @override
-  Future<List<CloudPodInfo>> listPods() async => [];
 }
 
 class FakeWorker implements CloudWorker {
@@ -79,6 +76,9 @@ class FakeWorker implements CloudWorker {
   final uploadFailIds = <String>{};
   final uploadFailOnce = <String>{};
   final vanishIds = <String>{};
+  final uploadGates = <String, Completer<void>>{};
+  final uploads = <String>[];
+  final commits = <String>[];
   var shaderFailures = 0;
   var garbledStatusCall = -1;
   final shaders = <String>[];
@@ -122,6 +122,8 @@ class FakeWorker implements CloudWorker {
     if (uploadFailIds.contains(id) || uploadFailOnce.remove(id)) {
       throw const CloudWorkerException('upload broke');
     }
+    uploads.add(id);
+    await uploadGates[id]?.future;
     onProgress?.call(await source.length());
   }
 
@@ -132,6 +134,7 @@ class FakeWorker implements CloudWorker {
     required double durationSec,
     required int height,
   }) async {
+    commits.add(id);
     if (vanishIds.contains(id)) return;
     episodes[id] = failIds.contains(id)
         ? const WorkerEpisode(
@@ -332,6 +335,37 @@ void main() {
       expect(localBaked, isEmpty);
     },
   );
+
+  test('an episode that failed on the pod can be queued again', () async {
+    final worker = FakeWorker()
+      ..failIds.add(id(1))
+      ..bakeForever = true;
+    final s = make(FakePodApi(), worker, includeLocal: false, count: 2);
+    final running = runIt(s);
+    // Episode 2 keeps baking, so the pod is still up for the retry.
+    await until(() => failed.isNotEmpty);
+    worker
+      ..failIds.clear()
+      ..bakeForever = false
+      ..uploadGates[id(1)] = Completer<void>();
+    expect(s.add([job(1)]), isTrue);
+    await until(() => worker.uploads.where((u) => u == id(1)).length == 2);
+    // A few polls while the retry is still uploading, before the pod knows it.
+    final polled = worker.statusCalls;
+    await until(() => worker.statusCalls > polled + 3);
+    worker.uploadGates[id(1)]!.complete();
+    await until(() => worker.commits.where((c) => c == id(1)).length == 2);
+    worker.episodes[id(2)] = const WorkerEpisode(
+      state: 'done',
+      progress: 1,
+      outBytes: 3,
+    );
+    await running;
+    expect(errors, ['云端烘焙失败: boom']);
+    expect(failed, [1]);
+    expect(cloudBaked..sort(), [1, 2]);
+    expect(worker.commits.where((c) => c == id(1)), hasLength(2));
+  });
 
   test('a failed upload is retried, then marked failed, never local', () async {
     final worker = FakeWorker()..uploadFailIds.add(id(1));

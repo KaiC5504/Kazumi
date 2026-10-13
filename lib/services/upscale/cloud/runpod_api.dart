@@ -92,8 +92,6 @@ abstract class CloudPodApi {
   Future<CloudPodInfo?> getPod(String id);
 
   Future<void> deletePod(String id);
-
-  Future<List<CloudPodInfo>> listPods();
 }
 
 /// Runpod REST v2 (https://api.runpod.io/v2/openapi.json).
@@ -176,7 +174,6 @@ class RunpodApi implements CloudPodApi {
     }
   }
 
-  @override
   Future<List<CloudPodInfo>> listPods() async {
     final json = await _request('GET', ['v2', 'pods']);
     return [
