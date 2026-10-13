@@ -36,10 +36,11 @@ class _TimelineOptionsButton extends StatelessWidget {
     );
     final summary = '${sort.label}，'
         '${filterCount > 0 ? '已启用 $filterCount 项筛选' : '未启用筛选'}';
-    final icon = Badge(
-      isLabelVisible: filterCount > 0,
-      label: Text('$filterCount'),
-      child: const Icon(Icons.tune_rounded, size: 20),
+    // Filters here are saved, so a badge would never clear; the icon fills in
+    // instead of showing a red, unread-looking count.
+    final icon = Icon(
+      filterCount > 0 ? Icons.filter_alt_rounded : Icons.tune_rounded,
+      size: 20,
     );
     return Semantics(
       label: _timelineOptionsTitle,
@@ -59,7 +60,13 @@ class _TimelineOptionsButton extends StatelessWidget {
                 style: style,
                 onPressed: onPressed,
                 icon: icon,
-                label: Text(sort.label, maxLines: 1),
+                label: Text(
+                  filterCount > 0
+                      ? '${sort.label} · $filterCount 项筛选'
+                      : sort.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
       ),
     );

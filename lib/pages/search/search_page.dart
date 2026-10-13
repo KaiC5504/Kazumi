@@ -115,6 +115,11 @@ class _SearchPageState extends State<SearchPage> {
     await _applyFilters(result.filterState);
   }
 
+  Future<void> _showHidden() async {
+    await _controller.setNotShowWatchedBangumis(false);
+    await _controller.setNotShowAbandonedBangumis(false);
+  }
+
   Future<void> _imageSearch() async {
     _inputFocus.unfocus();
     final result = await context.pushNamed('/search/image');
@@ -258,9 +263,13 @@ class _SearchPageState extends State<SearchPage> {
         .where((item) =>
             !watched.contains(item.id) && !abandoned.contains(item.id))
         .toList();
+    final hidden = allItems.length - items.length;
     final busy = _controller.isLoading;
     final failed = _controller.isTimeOut;
     final submitted = SearchParser(_submittedQuery!).toFilterState();
+    final filtered = submitted.hasAdvancedFilters ||
+        _controller.notShowWatchedBangumis ||
+        _controller.notShowAbandonedBangumis;
     final summary = _filterSummary(submitted);
 
     return [
@@ -280,24 +289,36 @@ class _SearchPageState extends State<SearchPage> {
                   value: submitted.sort,
                   onChanged: (sort) =>
                       _applyFilters(submitted.copyWith(sort: sort))),
+            // A filled icon instead of a dot: a dot reads as unread and
+            // can't be cleared while a filter the user wants stays on.
             IconButton(
-              tooltip: '筛选番剧',
+              tooltip: filtered ? '筛选番剧（已启用筛选）' : '筛选番剧',
               onPressed: _showFilters,
-              icon: Badge(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  isLabelVisible: submitted.hasAdvancedFilters ||
-                      _controller.notShowWatchedBangumis ||
-                      _controller.notShowAbandonedBangumis,
-                  smallSize: 6,
-                  child: const Icon(Icons.tune_rounded)),
+              isSelected: filtered,
+              selectedIcon: const Icon(Icons.filter_alt_rounded),
+              icon: const Icon(Icons.tune_rounded),
             ),
           ]),
-          Text(
-              busy
-                  ? '正在搜索…'
-                  : '${items.length} 部番剧${items.length < allItems.length ? ' · 隐藏 ${allItems.length - items.length} 部' : ''}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                  busy
+                      ? '正在搜索…'
+                      : '${items.length} 部番剧${hidden > 0 ? ' · 隐藏 $hidden 部' : ''}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              if (!busy && hidden > 0 && items.isNotEmpty)
+                TextButton(
+                  onPressed: _showHidden,
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('显示'),
+                ),
+            ],
+          ),
           if (summary.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(summary,
@@ -324,10 +345,7 @@ class _SearchPageState extends State<SearchPage> {
           title: '这些番剧被筛选隐藏了',
           actions: [
             StateActionButton.tonal(
-              onPressed: () async {
-                await _controller.setNotShowWatchedBangumis(false);
-                await _controller.setNotShowAbandonedBangumis(false);
-              },
+              onPressed: _showHidden,
               icon: Icons.visibility_outlined,
               text: '显示全部',
             ),
