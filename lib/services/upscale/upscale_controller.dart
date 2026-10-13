@@ -45,7 +45,7 @@ class UpscaleController {
     this._downloadController,
     this._shaderAssetService,
   ) {
-    _lanServer = LanShareServer(sharedEpisodes);
+    _lanServer = LanShareServer(sharedEpisodes, sharedEpisode);
   }
 
   final IDownloadRepository _repository;
@@ -741,20 +741,9 @@ class UpscaleController {
     final key = progressKey(recordKey, episodeNumber);
     runInAction(() => exportProgress[key] = 0);
     try {
-      final video = File(episode.upscaledVideoPath);
-      final danmaku = File(
-        path.join(episode.downloadDirectory, upscaledDanmakuFileName),
-      );
-      final hasDanmaku = await danmaku.exists();
-      final size = await video.length();
-      final manifest = UpscaledEpisodeManifest.fromEpisode(
-        record,
-        episode,
-        width: 0,
-        height: episode.upscaledHeight,
-        sizeBytes: size,
-        hasDanmaku: hasDanmaku,
-      );
+      final files = await _bakedFiles(record, episode);
+      final manifest = files.manifest;
+      final danmakuPath = files.danmakuPath;
       final dir = Directory(
         path.join(
           exportRoot,
@@ -771,16 +760,18 @@ class UpscaleController {
       final target = path.join(dir.path, upscaledVideoFileName);
       final partial = '$target.part';
       await importService.copy(
-        video.path,
+        files.videoPath,
         partial,
-        expectedBytes: size,
+        expectedBytes: manifest.sizeBytes,
         onProgress: (p) => runInAction(() => exportProgress[key] = p),
       );
       final existing = File(target);
       if (await existing.exists()) await existing.delete();
       await File(partial).rename(target);
-      if (hasDanmaku) {
-        await danmaku.copy(path.join(dir.path, upscaledDanmakuFileName));
+      if (danmakuPath != null) {
+        await File(
+          danmakuPath,
+        ).copy(path.join(dir.path, upscaledDanmakuFileName));
       }
       await manifestFile.writeAsString(manifest.encode(), flush: true);
       return null;
@@ -904,7 +895,6 @@ class UpscaleController {
     final probe = UpscaledEpisodeManifest.fromEpisode(
       record,
       episode,
-      width: 0,
       height: 0,
       sizeBytes: 0,
       hasDanmaku: false,
@@ -1084,37 +1074,26 @@ class UpscaleController {
       GStorage.getSetting(SettingsKeys.libraryServer),
       GStorage.getSetting(SettingsKeys.libraryAdminKey),
     );
-    final video = File(episode.upscaledVideoPath);
-    final danmaku = File(
-      path.join(episode.downloadDirectory, upscaledDanmakuFileName),
-    );
-    final hasDanmaku = await danmaku.exists();
-    final size = await video.length();
-    final manifest = UpscaledEpisodeManifest.fromEpisode(
-      record,
-      episode,
-      width: 0,
-      height: episode.upscaledHeight,
-      sizeBytes: size,
-      hasDanmaku: hasDanmaku,
-    );
+    final files = await _bakedFiles(record, episode);
+    final manifest = files.manifest;
+    final danmakuPath = files.danmakuPath;
     final id = manifest.shareId;
 
     await uploadInParts(
       api,
       id,
       upscaledVideoFileName,
-      video,
+      File(files.videoPath),
       cancel: cancel,
       onProgress: (sent) =>
-          runInAction(() => uploadProgress[key] = sent / size),
+          runInAction(() => uploadProgress[key] = sent / manifest.sizeBytes),
     );
-    if (hasDanmaku) {
+    if (danmakuPath != null) {
       await _uploadResumable(
         api,
         id,
         upscaledDanmakuFileName,
-        danmaku,
+        File(danmakuPath),
         cancel: cancel,
       );
     }
@@ -1239,7 +1218,7 @@ class UpscaleController {
       null;
 
   Future<void> importCandidate(
-    UpscaledImportCandidate candidate, {
+    UpscaledEpisodeFiles candidate, {
     void Function(double)? onProgress,
   }) async {
     final manifest = candidate.manifest;
@@ -1304,34 +1283,70 @@ class UpscaleController {
     await _saveEpisode(record, episode);
   }
 
-  List<SharedUpscaledEpisode> sharedEpisodes() {
-    final shared = <SharedUpscaledEpisode>[];
-    for (final record in _repository.getAllRecords()) {
-      for (final episode in record.episodes.values) {
-        if (episode.upscaleStatus != UpscaleStatus.done) continue;
-        final video = File(episode.upscaledVideoPath);
-        if (!video.existsSync()) continue;
-        final danmaku = File(
-          path.join(episode.downloadDirectory, upscaledDanmakuFileName),
-        );
-        final hasDanmaku = danmaku.existsSync();
-        shared.add(
-          SharedUpscaledEpisode(
-            manifest: UpscaledEpisodeManifest.fromEpisode(
-              record,
-              episode,
-              width: 0,
-              height: episode.upscaledHeight,
-              sizeBytes: video.lengthSync(),
-              hasDanmaku: hasDanmaku,
-            ),
-            videoPath: video.path,
-            danmakuPath: hasDanmaku ? danmaku.path : null,
-          ),
-        );
-      }
-    }
-    return shared;
+  /// For export and upload; unlike [_sharedFiles] it throws when the video is
+  /// gone, so the user sees why.
+  static Future<UpscaledEpisodeFiles> _bakedFiles(
+    DownloadRecord record,
+    DownloadEpisode episode,
+  ) async {
+    final video = File(episode.upscaledVideoPath);
+    final danmaku = File(
+      path.join(episode.downloadDirectory, upscaledDanmakuFileName),
+    );
+    final hasDanmaku = await danmaku.exists();
+    return UpscaledEpisodeFiles(
+      manifest: UpscaledEpisodeManifest.fromEpisode(
+        record,
+        episode,
+        height: episode.upscaledHeight,
+        sizeBytes: await video.length(),
+        hasDanmaku: hasDanmaku,
+      ),
+      videoPath: video.path,
+      danmakuPath: hasDanmaku ? danmaku.path : null,
+    );
+  }
+
+  List<UpscaledEpisodeFiles> sharedEpisodes() => [
+    for (final record in _repository.getAllRecords())
+      for (final episode in record.episodes.values)
+        ?_sharedFiles(record, episode),
+  ];
+
+  UpscaledEpisodeFiles? sharedEpisode(String shareId) {
+    final parsed = UpscaledEpisodeManifest.parseShareId(shareId);
+    if (parsed == null) return null;
+    final (recordKey, episodeNumber) = parsed;
+    final record = _repository.getRecord(recordKey);
+    final episode = record?.episodes[episodeNumber];
+    if (record == null || episode == null) return null;
+    return _sharedFiles(record, episode);
+  }
+
+  /// Sync because LAN share lists episodes from a sync callback; skips
+  /// episodes whose video is gone instead of failing the whole list.
+  static UpscaledEpisodeFiles? _sharedFiles(
+    DownloadRecord record,
+    DownloadEpisode episode,
+  ) {
+    if (episode.upscaleStatus != UpscaleStatus.done) return null;
+    final video = File(episode.upscaledVideoPath);
+    if (!video.existsSync()) return null;
+    final danmaku = File(
+      path.join(episode.downloadDirectory, upscaledDanmakuFileName),
+    );
+    final hasDanmaku = danmaku.existsSync();
+    return UpscaledEpisodeFiles(
+      manifest: UpscaledEpisodeManifest.fromEpisode(
+        record,
+        episode,
+        height: episode.upscaledHeight,
+        sizeBytes: video.lengthSync(),
+        hasDanmaku: hasDanmaku,
+      ),
+      videoPath: video.path,
+      danmakuPath: hasDanmaku ? danmaku.path : null,
+    );
   }
 
   String lanShareToken() {

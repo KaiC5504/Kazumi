@@ -8,18 +8,6 @@ import 'package:kazumi/services/upscale/upscaled_package.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-class UpscaledImportCandidate {
-  const UpscaledImportCandidate({
-    required this.manifest,
-    required this.videoPath,
-    this.danmakuPath,
-  });
-
-  final UpscaledEpisodeManifest manifest;
-  final String videoPath;
-  final String? danmakuPath;
-}
-
 /// Reads exported episode folders from wherever the user keeps them
 /// (iCloud Drive, OneDrive, a USB drive, a desktop folder).
 class UpscaledImportService {
@@ -41,8 +29,8 @@ class UpscaledImportService {
     }
   }
 
-  Future<List<UpscaledImportCandidate>> scan(String rootPath) async {
-    final candidates = <UpscaledImportCandidate>[];
+  Future<List<UpscaledEpisodeFiles>> scan(String rootPath) async {
+    final candidates = <UpscaledEpisodeFiles>[];
     final manifestDirs = <String>{};
     await for (final entity in Directory(
       rootPath,
@@ -65,7 +53,7 @@ class UpscaledImportService {
           await File(localManifest).readAsString(),
         );
         candidates.add(
-          UpscaledImportCandidate(
+          UpscaledEpisodeFiles(
             manifest: manifest,
             videoPath: path.join(dir, upscaledVideoFileName),
             danmakuPath: manifest.hasDanmaku

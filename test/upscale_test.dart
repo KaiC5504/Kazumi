@@ -92,6 +92,22 @@ void main() {
       expect(Uri.encodeComponent(a), a);
     });
 
+    test('share ids parse back to the episode they name', () {
+      for (final (key, episode) in [
+        ('demo_42', 3),
+        ('demo_42', 12),
+        ('a|b_7', 1),
+        ('欧乐影院_9', 100),
+      ]) {
+        final id = UpscaledEpisodeManifest.shareIdFor(key, episode);
+        expect(UpscaledEpisodeManifest.parseShareId(id), (key, episode));
+      }
+      final padded = '${UpscaledEpisodeManifest.shareIdFor('demo_42', 12)}==';
+      for (final bad in ['', 'x', '!!', '%2F', padded, 'ZGVtbw']) {
+        expect(UpscaledEpisodeManifest.parseShareId(bad), isNull, reason: bad);
+      }
+    });
+
     test('export folder names drop characters Windows and iOS reject', () {
       expect(upscaledExportDirName(_manifest()), '测试_番剧_ 第二季_ - 第3集');
     });
@@ -106,13 +122,13 @@ void main() {
       tmp = await Directory.systemTemp.createTemp('kazumi_lan_');
       video = File(path.join(tmp.path, 'video.mp4'));
       await video.writeAsBytes(List.generate(1000, (i) => i % 256));
+      final shared = UpscaledEpisodeFiles(
+        manifest: _manifest(size: 1000),
+        videoPath: video.path,
+      );
       server = LanShareServer(
-        () => [
-          SharedUpscaledEpisode(
-            manifest: _manifest(size: 1000),
-            videoPath: video.path,
-          ),
-        ],
+        () => [shared],
+        (id) => id == shared.manifest.shareId ? shared : null,
       );
       await server.start('123456', port: 0);
     });
@@ -240,6 +256,52 @@ void main() {
       await home.delete(recursive: true);
     });
 
+    UpscaleController controllerWith([
+      List<DownloadRecord> records = const [],
+    ]) => UpscaleController(
+      _FakeRepository(records),
+      _FakeDownloadManager(),
+      DownloadController(
+        _FakeRepository(records),
+        _FakeDownloadManager(),
+        PluginsController(),
+      ),
+      ShaderAssetService(),
+    );
+
+    test('LAN share finds an episode by id as the listing has it', () async {
+      final dir = await Directory.systemTemp.createTemp('kazumi_share_');
+      addTearDown(() => dir.delete(recursive: true));
+      final (record, baked) = _manifest(episode: 3).toDownloadEntities();
+      final (_, notBaked) = _manifest(episode: 4).toDownloadEntities();
+      final video = File(path.join(dir.path, 'video.mp4'))
+        ..writeAsBytesSync(List.filled(64, 1));
+      baked
+        ..downloadDirectory = dir.path
+        ..upscaleStatus = UpscaleStatus.done
+        ..upscaledVideoPath = video.path
+        ..upscaledHeight = 1440;
+      record.episodes
+        ..[3] = baked
+        ..[4] = notBaked;
+      final controller = controllerWith([record]);
+
+      final listed = controller.sharedEpisodes().single;
+      final found = controller.sharedEpisode(listed.manifest.shareId);
+      expect(found?.manifest.toJson(), listed.manifest.toJson());
+      expect(found?.videoPath, video.path);
+      expect(found?.danmakuPath, isNull);
+      expect(found?.manifest.toJson()['width'], 0);
+
+      for (final id in [
+        UpscaledEpisodeManifest.shareIdFor(record.key, 4),
+        UpscaledEpisodeManifest.shareIdFor('other_1', 3),
+        'not base64!',
+      ]) {
+        expect(controller.sharedEpisode(id), isNull, reason: id);
+      }
+    });
+
     test(
       'a library refresh that failed to start does not block the next',
       () async {
@@ -258,16 +320,7 @@ void main() {
           );
           await request.response.close();
         });
-        final controller = UpscaleController(
-          _FakeRepository(),
-          _FakeDownloadManager(),
-          DownloadController(
-            _FakeRepository(),
-            _FakeDownloadManager(),
-            PluginsController(),
-          ),
-          ShaderAssetService(),
-        );
+        final controller = controllerWith();
 
         await GStorage.putSetting(SettingsKeys.libraryAdminKey, 'admin');
         // The port doesn't parse, so LibraryApi throws before its first await.
@@ -288,8 +341,16 @@ void main() {
 }
 
 class _FakeRepository implements IDownloadRepository {
+  _FakeRepository([this.records = const []]);
+
+  final List<DownloadRecord> records;
+
   @override
-  List<DownloadRecord> getAllRecords() => [];
+  List<DownloadRecord> getAllRecords() => records;
+
+  @override
+  DownloadRecord? getRecord(String key) =>
+      records.where((r) => r.key == key).firstOrNull;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

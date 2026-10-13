@@ -57,7 +57,6 @@ class UpscaledEpisodeManifest {
   factory UpscaledEpisodeManifest.fromEpisode(
     DownloadRecord record,
     DownloadEpisode episode, {
-    required int width,
     required int height,
     required int sizeBytes,
     required bool hasDanmaku,
@@ -73,7 +72,8 @@ class UpscaledEpisodeManifest {
       episodePageUrl: episode.episodePageUrl,
       danDanBangumiID: episode.danDanBangumiID,
       tier: 'quality',
-      width: width,
+      // Never measured or read; kept so the manifest format doesn't change.
+      width: 0,
       height: height,
       sizeBytes: sizeBytes,
       hasDanmaku: hasDanmaku,
@@ -156,6 +156,24 @@ class UpscaledEpisodeManifest {
       .encode(utf8.encode('$recordKey|$episodeNumber'))
       .replaceAll('=', '');
 
+  /// Inverse of [shareIdFor]: null for any id it wouldn't produce.
+  static (String, int)? parseShareId(String id) {
+    try {
+      final text = utf8.decode(base64Url.decode(base64Url.normalize(id)));
+      // Plugin names may contain '|'; the episode number never does.
+      final split = text.lastIndexOf('|');
+      if (split < 0) return null;
+      final recordKey = text.substring(0, split);
+      final episodeNumber = int.tryParse(text.substring(split + 1));
+      if (episodeNumber == null || shareIdFor(recordKey, episodeNumber) != id) {
+        return null;
+      }
+      return (recordKey, episodeNumber);
+    } on FormatException {
+      return null;
+    }
+  }
+
   String get displayEpisodeName =>
       episodeName.isNotEmpty ? episodeName : '第$episodeNumber集';
 
@@ -191,6 +209,20 @@ class UpscaledEpisodeManifest {
     );
     return (record, episode);
   }
+}
+
+/// A baked episode's manifest and where its files are: on this machine for
+/// export, upload and LAN share, or in a folder being imported.
+class UpscaledEpisodeFiles {
+  const UpscaledEpisodeFiles({
+    required this.manifest,
+    required this.videoPath,
+    this.danmakuPath,
+  });
+
+  final UpscaledEpisodeManifest manifest;
+  final String videoPath;
+  final String? danmakuPath;
 }
 
 /// Folder-safe name for an exported episode.
