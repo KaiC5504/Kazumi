@@ -91,7 +91,7 @@ class DownloadEpisode {
   @HiveField(16, defaultValue: false)
   bool preUpscaled;
 
-  /// 桌面端烘焙出的超分视频，原始下载保持不变
+  /// 桌面端烘焙出的超分视频，烘焙完成后取代原始下载
   @HiveField(17, defaultValue: '')
   String upscaledVideoPath;
 
@@ -106,6 +106,13 @@ class DownloadEpisode {
   /// [SkipSegments] JSON, detected on the PC and carried in the manifest.
   @HiveField(20, defaultValue: '')
   String skipSegments;
+
+  /// Imported pre-upscaled, or baked here with the original download
+  /// replaced: either way playback must not add shaders on top.
+  bool get playsUpscaled =>
+      preUpscaled ||
+      (upscaleStatus == UpscaleStatus.done &&
+          localM3u8Path == upscaledVideoPath);
 
   DownloadEpisode(
     this.episodeNumber,

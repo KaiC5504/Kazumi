@@ -538,7 +538,7 @@ abstract class _VideoPageController with Store implements Disposable {
     // An original-quality download of the same episode must not win over the
     // upscaled stream.
     final streamRemote = remoteUrl != null &&
-        (downloadedPath == null || !(downloadedEpisode?.preUpscaled ?? false));
+        (downloadedPath == null || !(downloadedEpisode?.playsUpscaled ?? false));
     final localPath = streamRemote ? remoteUrl : downloadedPath;
     if (localPath == null) {
       _failLoading('该集数未下载');
@@ -574,7 +574,7 @@ abstract class _VideoPageController with Store implements Disposable {
       coverUrl: bangumiItem.images['large'],
       bangumiName:
           bangumiItem.nameCn.isNotEmpty ? bangumiItem.nameCn : bangumiItem.name,
-      preUpscaled: streamRemote || (downloadedEpisode?.preUpscaled ?? false),
+      preUpscaled: streamRemote || (downloadedEpisode?.playsUpscaled ?? false),
       skipSegments: _skipSegmentsFor(
         streamRemote ? null : downloadedEpisode,
         resolvedEpisode.historyEpisodeNumber,

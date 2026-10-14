@@ -211,6 +211,36 @@ void main() {
       expect(exists(p.join('2_b', '1', 'video.mp4')), isTrue);
     });
 
+    test('deleting removes a bake and the original kept beside it', () async {
+      for (final ep in ['3', '4']) {
+        write(p.join('10639_aafun', ep, 'video.mp4'));
+        write(p.join('10639_aafun', ep, 'upscaled', 'video.mp4'));
+        write(p.join('10639_aafun', ep, 'upscaled', 'cloud_baked.json'));
+        write(p.join('10639_aafun', ep, 'skip_fingerprint.json'));
+      }
+      final dir3 = p.join(tmp.path, '10639_aafun', '3');
+      final dir4 = p.join(tmp.path, '10639_aafun', '4');
+      await DownloadManager().deleteEpisodeFiles(
+        10639,
+        'aafun',
+        3,
+        episode: _episode(
+          dir: dir3,
+          video: p.join(dir3, 'video.mp4'),
+          upscaled: p.join(dir3, 'upscaled', 'video.mp4'),
+        ),
+      );
+      expect(exists(p.join('10639_aafun', '3')), isFalse);
+      expect(exists(p.join('10639_aafun', '4', 'video.mp4')), isTrue);
+
+      await DownloadManager().deleteRecordFiles(
+        10639,
+        'aafun',
+        record: show('aafun', dir4),
+      );
+      expect(exists('10639_aafun'), isFalse);
+    });
+
     test(
       'a saved folder that is not an episode folder is never deleted',
       () async {

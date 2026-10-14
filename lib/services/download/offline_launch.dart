@@ -9,7 +9,7 @@ class LocalSource {
   final DownloadRecord record;
   final List<DownloadEpisode> completed;
 
-  bool get preUpscaled => completed.any((e) => e.preUpscaled);
+  bool get preUpscaled => completed.any((e) => e.playsUpscaled);
 }
 
 /// Resumes the last watched episode if it is downloaded, else the lowest one.

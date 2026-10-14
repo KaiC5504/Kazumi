@@ -103,11 +103,13 @@ class UpscaleController {
 
   Future<void> init() async {
     final adopted = <(String, int)>[];
+    final baked = <(String, int)>[];
     for (final record in _repository.getAllRecords()) {
       var changed = false;
       for (final episode in record.episodes.values) {
         if (adoptCloudBake(episode)) {
           adopted.add((record.key, episode.episodeNumber));
+          baked.add((record.key, episode.episodeNumber));
           changed = true;
           continue;
         }
@@ -117,14 +119,24 @@ class UpscaleController {
         final missing =
             episode.upscaleStatus == UpscaleStatus.done &&
             !File(episode.upscaledVideoPath).existsSync();
+        if (missing && episode.localM3u8Path == episode.upscaledVideoPath) {
+          // The bake had replaced the download, so nothing is left to play.
+          episode
+            ..status = DownloadStatus.failed
+            ..errorMessage = '超分文件丢失，请重新下载';
+        }
         if (interrupted || missing) {
           episode.upscaleStatus = UpscaleStatus.none;
           episode.upscaledVideoPath = '';
           changed = true;
+        } else if (episode.upscaleStatus == UpscaleStatus.done) {
+          baked.add((record.key, episode.episodeNumber));
         }
       }
       if (changed) await _repository.putRecord(record);
     }
+    // Older builds kept the original next to every bake.
+    if (baked.isNotEmpty) unawaited(_dropOriginals(baked));
     if (adopted.isNotEmpty) unawaited(_finishAdopted(adopted));
     if (canBake && GStorage.getSetting(SettingsKeys.lanShareEnabled)) {
       try {
@@ -170,6 +182,74 @@ class UpscaleController {
   static String _upscaledDir(DownloadEpisode episode) =>
       path.join(episode.downloadDirectory, 'upscaled');
 
+  static final _originalFile = RegExp(
+    r'^(video\.mp4|playlist\.m3u8|seg_\d+\.ts|key_\d+\.key)(\.tmp)?$',
+  );
+
+  /// Once baked, the original download is only dead weight: playback moves
+  /// to the baked video and the original's files are deleted. Returns
+  /// whether [episode] changed. A file Windows won't delete yet, e.g. one
+  /// the player has open, goes on the next launch.
+  @visibleForTesting
+  static Future<bool> dropOriginal(DownloadEpisode episode) async {
+    if (episode.preUpscaled || episode.upscaleStatus != UpscaleStatus.done) {
+      return false;
+    }
+    final dir = episode.downloadDirectory;
+    final baked = File(episode.upscaledVideoPath);
+    if (!isEpisodeFolder(dir) ||
+        !path.isWithin(dir, baked.path) ||
+        !await baked.exists()) {
+      return false;
+    }
+    final bytes = await baked.length();
+    if (bytes == 0) return false;
+    final changed =
+        episode.localM3u8Path != baked.path || episode.totalBytes != bytes;
+    episode
+      ..localM3u8Path = baked.path
+      ..totalBytes = bytes;
+    await for (final entity in Directory(dir).list(followLinks: false)) {
+      if (entity is! File ||
+          !_originalFile.hasMatch(path.basename(entity.path))) {
+        continue;
+      }
+      try {
+        await entity.delete();
+      } on FileSystemException catch (e) {
+        KazumiLogger().w(
+          'UpscaleController: kept ${entity.path} for now',
+          error: e,
+        );
+      }
+    }
+    return changed;
+  }
+
+  Future<void> _dropOriginals(List<(String, int)> episodes) async {
+    for (final (recordKey, episodeNumber) in episodes) {
+      await _dropOriginal(recordKey, episodeNumber);
+    }
+  }
+
+  Future<void> _dropOriginal(String recordKey, int episodeNumber) async {
+    final record = _repository.getRecord(recordKey);
+    final episode = record?.episodes[episodeNumber];
+    if (record == null || episode == null) return;
+    try {
+      if (!await dropOriginal(episode)) return;
+    } catch (e) {
+      KazumiLogger().w(
+        'UpscaleController: dropping the original failed for '
+        '$recordKey ep$episodeNumber',
+        error: e,
+      );
+      return;
+    }
+    await _repository.putRecord(record);
+    _downloadController.syncRecord(recordKey);
+  }
+
   /// Runs the same follow-up a local bake gets: skip detection, then the
   /// auto export if it's on.
   Future<void> _finishAdopted(List<(String, int)> adopted) async {
@@ -204,6 +284,7 @@ class UpscaleController {
       return '请先完成下载';
     }
     if (episode.preUpscaled) return '该集已是超分版本';
+    if (episode.upscaleStatus == UpscaleStatus.done) return '该集已烘焙超分';
     if (cloudHolds(recordKey, episodeNumber)) return '该集正在云端烘焙';
     final (ffmpeg, error) = await _ensureFfmpeg();
     if (ffmpeg == null) return error ?? '未找到可用的 ffmpeg';
@@ -707,6 +788,7 @@ class UpscaleController {
       e.upscaledVideoPath = output;
       e.upscaledHeight = height;
     });
+    await _dropOriginal(recordKey, episodeNumber);
     await _analyzeSkipsQuietly(recordKey);
     if (GStorage.getSetting(SettingsKeys.libraryAutoUpload) &&
         canUploadToLibrary) {

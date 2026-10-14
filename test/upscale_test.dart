@@ -263,8 +263,9 @@ void main() {
 
     UpscaleController controllerWith([
       List<DownloadRecord> records = const [],
+      _FakeRepository? repository,
     ]) => UpscaleController(
-      _FakeRepository(records),
+      repository ?? _FakeRepository(records),
       _FakeDownloadManager(),
       DownloadController(
         _FakeRepository(records),
@@ -314,6 +315,54 @@ void main() {
       expect(stateOf(episode: 5), UpscaledImportState.fresh);
       imported.status = DownloadStatus.downloading;
       expect(stateOf(episode: 3), UpscaledImportState.replaces);
+    });
+
+    test('launch drops originals kept by older builds', () async {
+      final root = await Directory.systemTemp.createTemp('kazumi_drop_');
+      addTearDown(() => root.delete(recursive: true));
+      String episodeDir(int n) =>
+          path.join(root.path, '${_manifest().bangumiId}_plugin', '$n');
+      File write(int n, String name, String content) =>
+          File(path.join(episodeDir(n), name))
+            ..createSync(recursive: true)
+            ..writeAsStringSync(content);
+
+      final (record, kept) = _manifest(episode: 1).toDownloadEntities();
+      final (_, lost) = _manifest(episode: 2).toDownloadEntities();
+      final original = write(1, 'video.mp4', 'original');
+      final bake = write(1, path.join('upscaled', 'video.mp4'), 'baked');
+      kept
+        ..preUpscaled = false
+        ..status = DownloadStatus.completed
+        ..downloadDirectory = episodeDir(1)
+        ..localM3u8Path = original.path
+        ..upscaleStatus = UpscaleStatus.done
+        ..upscaledVideoPath = bake.path;
+      final gone = path.join(episodeDir(2), 'upscaled', 'video.mp4');
+      lost
+        ..preUpscaled = false
+        ..status = DownloadStatus.completed
+        ..downloadDirectory = episodeDir(2)
+        ..localM3u8Path = gone
+        ..upscaleStatus = UpscaleStatus.done
+        ..upscaledVideoPath = gone;
+      record.episodes
+        ..[1] = kept
+        ..[2] = lost;
+      final repository = _FakeRepository([record]);
+
+      await controllerWith(const [], repository).init();
+      for (var i = 0; i < 100 && repository.puts < 2; i++) {
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(original.existsSync(), isFalse);
+      expect(kept.localM3u8Path, bake.path);
+      expect(kept.totalBytes, 'baked'.length);
+      expect(kept.playsUpscaled, isTrue);
+      expect(lost.status, DownloadStatus.failed);
+      expect(lost.upscaleStatus, UpscaleStatus.none);
+      expect(repository.puts, 2);
     });
 
     test('LAN share finds an episode by id as the listing has it', () async {
@@ -405,6 +454,11 @@ class _FakeRepository implements IDownloadRepository {
     String pluginName,
     int episodeNumber,
   ) => getRecord('${pluginName}_$bangumiId')?.episodes[episodeNumber];
+
+  int puts = 0;
+
+  @override
+  Future<void> putRecord(DownloadRecord record) async => puts++;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
