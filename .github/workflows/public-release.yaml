@@ -1,6 +1,6 @@
 # Fork-only public release: Android arm64 APK + Windows portable zip + unsigned iOS IPA, published as a
 # GitHub Release on this repo. This is the only file that passes KAZUMI_PUBLIC; the
-# TestFlight build (testflight.yaml, and codemagic.yaml as its fallback) never does.
+# TestFlight build (testflight.yaml) never does.
 # Upstream's release.yaml is disabled on the fork (gh workflow disable release.yaml),
 # and scripts/public_check.py --static
 # fails the run if it, or any other push/release-triggered workflow, is enabled.

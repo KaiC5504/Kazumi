@@ -1,5 +1,4 @@
 # Signed iOS build of this fork for TestFlight (internal testing only), since build 33.
-# It does what codemagic.yaml does, which stays as the fallback.
 #
 # Start it with `python scripts/testflight.py start`, never by hand: that checks main
 # passed scripts/partner_check.py and hands its exact commit to this workflow.
@@ -210,8 +209,8 @@ jobs:
           grep -v -e '-----' "$key" | while IFS= read -r line; do echo "::add-mask::$line"; done
           p12_password=$(openssl rand -hex 16)
           echo "::add-mask::$p12_password"
-          # Unlike codemagic.yaml this never creates anything: the same key finds the
-          # certificate and App Store profile Codemagic made, and a wrong key fails
+          # This never creates anything: the same key finds the certificate and App
+          # Store profile Codemagic made before build 33, and a wrong key fails
           # here instead of adding a certificate to the account. Renewal is a one-off.
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \

@@ -1,26 +1,24 @@
 """Runs every automated check that covers the partner's side of the app.
 
 Her path: TestFlight install, invite code, 一起看 with SyncPlay, the update
-prompt and the TestFlight update. `testflight.py start` (and the fallback
-`codemagic.py start`) refuses to build a commit this script hasn't passed.
+prompt and the TestFlight update. `testflight.py start` refuses to build a
+commit this script hasn't passed.
 
     python scripts/partner_check.py
 
 Guards, before any test:
-- The TestFlight build configs (.github/workflows/testflight.yaml, and
-  codemagic.yaml while it is the fallback) never set KAZUMI_PUBLIC, read no
-  dart-define file, and still pass --build-number="$BUILD_NUMBER" (without it
-  her app never prompts for updates). Both build with the Flutter that
-  pubspec.yaml pins and agree on bundle id, version, Xcode, dart-defines,
-  Info.plist keys and the bundle id patch.
+- The TestFlight build (.github/workflows/testflight.yaml) never sets
+  KAZUMI_PUBLIC, reads no dart-define file, still passes
+  --build-number="$BUILD_NUMBER" (without it her app never prompts for
+  updates) and builds with the Flutter that pubspec.yaml pins.
 - No other workflow can reach the TestFlight secrets or upload: the
   environment that holds them limits branches, not workflows.
 - Every compile-time flag read in lib/ is one listed in KNOWN_FLAGS, so a new
   or renamed flag can't slip past the checks below.
 - The fork's own lines in FROZEN files are what they were at the
   `partner-baseline` tag. Upstream's changes don't count; edits made while
-  resolving a merge do. FROZEN includes this script, its tests, both build
-  configs and the scripts that start, check and publish builds.
+  resolving a merge do. FROZEN includes this script, its tests, the build
+  workflow and the scripts that start, check and publish builds.
 - A changed file that a FROZEN file imports must be in TESTED_EDITS, i.e. have
   behaviour tests in partner_flow_test.dart.
 
@@ -30,8 +28,7 @@ Once KAZUMI_PUBLIC is read in lib/, partner_flow_test built with it must fail
 exactly the tests in PUBLIC_MUST_FAIL, which proves those tests run the path
 the flag switches.
 
-On a pass with a clean tree, the commit's tree is recorded for testflight.py
-(and codemagic.py).
+On a pass with a clean tree, the commit's tree is recorded for testflight.py.
 
 A deliberate change to her path fails the frozen guard until it is signed off:
 make sure partner_flow_test.dart covers it, then move the baseline to it.
@@ -98,7 +95,6 @@ DART_TESTS = [
 # Her path. Directories end with "/".
 FROZEN = [
     ".github/workflows/testflight.yaml",
-    "codemagic.yaml",
     "ios/",
     "pubspec.yaml",
     "pubspec.lock",
@@ -140,15 +136,13 @@ FROZEN = [
     "test/ci/",
     *DART_TESTS,
     "scripts/partner_check.py",
-    "scripts/codemagic.py",
     "scripts/testflight.py",
     "scripts/testflight-requirements.txt",
     "scripts/ipa_manifest.py",
     "scripts/precheck.py",
 ]
 
-# The TestFlight build, then codemagic.yaml while it is the fallback.
-BUILD_CONFIGS = (".github/workflows/testflight.yaml", "codemagic.yaml")
+BUILD_CONFIG = ".github/workflows/testflight.yaml"
 
 # What only the TestFlight workflow may touch. Any environment at all, because names
 # are case-insensitive and can come from expressions or YAML anchors.
@@ -215,7 +209,7 @@ def fork_lines(commit: str | None) -> dict[str, Counter]:
     if commit:
         args.append(commit)
     out = git(*args, "--", "lib", "ios", "assets", "test", "scripts", ".github/workflows",
-              "codemagic.yaml", "pubspec.yaml", "pubspec.lock")
+              "pubspec.yaml", "pubspec.lock")
     lines: dict[str, Counter] = {}
     current = None
     for line in out.splitlines():
@@ -249,57 +243,35 @@ def live_lines(text: str) -> str:
     return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
 
 
-def build_settings(live: str) -> dict[str, list[str]]:
-    """What a build config makes of the app; both configs must agree on all of it."""
-    return {
-        "bundle id": re.findall(r"BUNDLE_ID: (\S+)", live),
-        "version": re.findall(r"--build-name=(\S+)", live),
-        "Flutter": re.findall(r"^\s*(?:flutter|flutter-version):\s*['\"]?(\d+\.\d+\.\d+)['\"]?\s*$",
-                              live, re.M),
-        "Xcode": re.findall(r"^\s*(?:xcode|XCODE_VERSION):\s*['\"]?([\w.]+)['\"]?\s*$", live, re.M),
-        "dart-defines": sorted(re.findall(r"--dart-define=(\w+)=", live)),
-        "Info.plist keys": sorted(l.strip() for l in re.findall(r"^\s*set_key \S.*$", live, re.M)),
-        "bundle id patch": [l.strip() for l in
-                            re.findall(r"^\s*sed -i '' .*PRODUCT_BUNDLE_IDENTIFIER.*$", live, re.M)],
-    }
-
-
 def guard_builds() -> list[str]:
-    problems, settings = [], {}
-    for name in BUILD_CONFIGS:
-        path = ROOT / name
-        if not path.exists():
-            if name == BUILD_CONFIGS[0]:
-                problems.append(f"{name} is missing; TestFlight builds come from it")
-            continue
-        text = path.read_text(encoding="utf-8")
-        live = live_lines(text)
-        if "KAZUMI_PUBLIC" in text:
-            problems.append(f"{name} mentions KAZUMI_PUBLIC; her build must never set it")
-        if "dart-define-from-file" in text:
-            problems.append(f"{name} reads a dart-define file; flags must be visible here")
-        if '--build-number="$BUILD_NUMBER"' not in live:
-            problems.append(f'{name} lost --build-number="$BUILD_NUMBER"; '
-                            "her app would never prompt to update")
-        settings[name] = build_settings(live)
-    if len(settings) == len(BUILD_CONFIGS):
-        new, old = (settings[name] for name in BUILD_CONFIGS)
-        problems += [f"{BUILD_CONFIGS[0]} and {BUILD_CONFIGS[1]} disagree on {key}: "
-                     f"{new[key]} vs {old[key]}" for key in new if new[key] != old[key]]
+    path = ROOT / BUILD_CONFIG
+    if not path.exists():
+        return [f"{BUILD_CONFIG} is missing; TestFlight builds come from it"]
+    problems = []
+    text = path.read_text(encoding="utf-8")
+    live = live_lines(text)
+    if "KAZUMI_PUBLIC" in text:
+        problems.append(f"{BUILD_CONFIG} mentions KAZUMI_PUBLIC; her build must never set it")
+    if "dart-define-from-file" in text:
+        problems.append(f"{BUILD_CONFIG} reads a dart-define file; flags must be visible here")
+    if '--build-number="$BUILD_NUMBER"' not in live:
+        problems.append(f'{BUILD_CONFIG} lost --build-number="$BUILD_NUMBER"; '
+                        "her app would never prompt to update")
     # An upstream Flutter bump lands in pubspec.yaml; her build only follows it once
-    # someone changes the configs on purpose.
+    # someone changes the workflow on purpose.
+    flutter = re.findall(r"^\s*flutter-version:\s*['\"]?(\d+\.\d+\.\d+)['\"]?\s*$", live, re.M)
     pubspec = re.search(r"^  flutter: (\S+)", (ROOT / "pubspec.yaml").read_text(encoding="utf-8"),
                         re.M)
     pinned = [pubspec.group(1)] if pubspec else []
-    problems += [f"{name} builds with Flutter {s['Flutter']}, but pubspec.yaml pins {pinned}"
-                 for name, s in settings.items() if s["Flutter"] != pinned]
+    if flutter != pinned:
+        problems.append(f"{BUILD_CONFIG} builds with Flutter {flutter}, but pubspec.yaml pins {pinned}")
     return problems
 
 
 def guard_uploaders() -> list[str]:
-    own = (ROOT / BUILD_CONFIGS[0]).resolve()
+    own = (ROOT / BUILD_CONFIG).resolve()
     return [f"{p.relative_to(ROOT).as_posix()} can reach the TestFlight secrets or upload "
-            f"builds; only {BUILD_CONFIGS[0]} may"
+            f"builds; only {BUILD_CONFIG} may"
             for p in sorted((ROOT / ".github" / "workflows").glob("*.y*ml"))
             if p.resolve() != own
             and TESTFLIGHT_REACH.search(live_lines(p.read_text(encoding="utf-8")))]

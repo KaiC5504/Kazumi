@@ -8,8 +8,7 @@ Static:
   (a non-const read doesn't reliably see the define: it's false under
   `flutter test` and in AOT), and nothing else names the flag or uses
   appFlavor.
-- testflight.yaml, codemagic.yaml, ios-check.yaml and pr.yaml carry no public
-  define.
+- testflight.yaml, ios-check.yaml and pr.yaml carry no public define.
 - Every `flutter build` in public-release.yaml passes
   --dart-define=KAZUMI_PUBLIC=true and --dart-define=KAZUMI_LIBRARY_SERVER=,
   and its DanDanPlay secrets are PUBLIC_ ones.
@@ -66,8 +65,8 @@ PUBLIC_WORKFLOW = "public-release.yaml"
 FLAVOR_FILE = "lib/build_flavor.dart"
 FLAVOR_LINE = "const bool kPublicBuild = bool.fromEnvironment('KAZUMI_PUBLIC');"
 PUBLIC_DEFINES = ("--dart-define=KAZUMI_PUBLIC=true", "--dart-define=KAZUMI_LIBRARY_SERVER=")
-PERSONAL_WORKFLOWS = (".github/workflows/testflight.yaml", "codemagic.yaml",
-                      ".github/workflows/ios-check.yaml", ".github/workflows/pr.yaml")
+PERSONAL_WORKFLOWS = (".github/workflows/testflight.yaml", ".github/workflows/ios-check.yaml",
+                      ".github/workflows/pr.yaml")
 
 # A hunk that adds one of these may drop lines: what it replaces now sits
 # behind the flag.

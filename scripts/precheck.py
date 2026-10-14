@@ -37,8 +37,8 @@ NATIVE_PATTERNS = [
 # The build pipeline's own tests (test/ci) cover these. ios-check.yaml never runs the
 # TestFlight workflow, so a change here is proven by a dry run instead.
 PIPELINE_PATTERN = re.compile(
-    r"^(\.github/workflows/testflight\.yaml|codemagic\.yaml|test/ci/"
-    r"|scripts/(testflight|ipa_manifest|codemagic|partner_check|precheck)\.py"
+    r"^(\.github/workflows/testflight\.yaml|test/ci/"
+    r"|scripts/(testflight|ipa_manifest|partner_check|precheck)\.py"
     r"|scripts/testflight-requirements\.txt)")
 
 # App Store Connect rejected a plain .py with no shebang or exec bit (build 18), so
@@ -60,29 +60,17 @@ def git(*args: str) -> str:
 
 
 def last_passed_build() -> str | None:
-    """Commit of the newest TestFlight build that shipped: GitHub's, else Codemagic's."""
+    """Commit of the newest TestFlight build that shipped."""
     try:
         import testflight
         shipped = testflight.last_shipped()
     except BaseException as e:  # testflight.py exits via SystemExit when gh fails
         print(f"  (no GitHub upload to compare with: {e})")
-        shipped = None
-    if shipped:
-        print(f"  base: TestFlight run {shipped['databaseId']} ({shipped['headSha'][:8]})")
-        return shipped["headSha"]
-    try:
-        import codemagic
-        builds = codemagic.builds()
-    except BaseException as e:  # codemagic.py exits via SystemExit without a token
-        print(f"  (Codemagic unreachable: {e})")
         return None
-    for build in builds:
-        if build.get("status") == "finished":
-            commit = (build.get("commit") or {}).get("hash")
-            if commit:
-                print(f"  base: build {build.get('index')} ({commit[:8]})")
-                return commit
-    return None
+    if not shipped:
+        return None
+    print(f"  base: TestFlight run {shipped['databaseId']} ({shipped['headSha'][:8]})")
+    return shipped["headSha"]
 
 
 def changed_files(base: str) -> list[str]:

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import partner_check as pc  # noqa: E402
 
-WORKFLOW, CODEMAGIC = pc.BUILD_CONFIGS
+WORKFLOW = pc.BUILD_CONFIG
 WORKFLOWS = ".github/workflows"
 
 
@@ -20,7 +20,7 @@ class GuardCase(unittest.TestCase):
     def copy_of_repo(self):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        for name in (*pc.BUILD_CONFIGS, "pubspec.yaml"):
+        for name in (WORKFLOW, "pubspec.yaml"):
             (root / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / name, root / name)
         for workflow in (ROOT / WORKFLOWS).glob("*.y*ml"):
@@ -52,32 +52,16 @@ class BuildConfigGuardTest(GuardCase):
     def problems(self, edit=None):
         return self.guard(pc.guard_builds, edit)
 
-    def test_the_real_configs_agree(self):
+    def test_the_real_workflow_passes(self):
         self.assertEqual([], self.problems())
 
-    def test_version_drift(self):
-        self.assertProblem("version", self.problems(
-            self.rewrite(CODEMAGIC, r"--build-name=\S+", "--build-name=9.9.9")))
-
-    def test_upstream_flutter_bump_needs_both_configs(self):
+    def test_upstream_flutter_bump_needs_the_workflow(self):
         self.assertProblem("pubspec.yaml pins", self.problems(
             self.rewrite("pubspec.yaml", r"^  flutter: \S+", "  flutter: 9.9.9")))
 
-    def test_configs_on_different_flutter(self):
-        self.assertProblem("Flutter", self.problems(
+    def test_workflow_on_a_different_flutter(self):
+        self.assertProblem("pubspec.yaml pins", self.problems(
             self.rewrite(WORKFLOW, r"flutter-version: \S+", "flutter-version: 9.9.9")))
-
-    def test_configs_on_different_xcode(self):
-        self.assertProblem("Xcode", self.problems(
-            self.rewrite(CODEMAGIC, r"xcode: \S+", "xcode: latest")))
-
-    def test_a_dropped_dart_define(self):
-        self.assertProblem("dart-defines", self.problems(
-            self.rewrite(WORKFLOW, r"\n.*--dart-define=DANDANAPI_KEY=.*", "")))
-
-    def test_a_changed_purpose_string(self):
-        self.assertProblem("Info.plist", self.problems(self.rewrite(
-            WORKFLOW, r"(set_key NSCameraUsageDescription string )\"[^\"]*\"", r'\1"changed"')))
 
     def test_public_flag(self):
         self.assertProblem("KAZUMI_PUBLIC", self.problems(self.rewrite(
@@ -89,9 +73,6 @@ class BuildConfigGuardTest(GuardCase):
 
     def test_missing_workflow(self):
         self.assertProblem("missing", self.problems(lambda root: (root / WORKFLOW).unlink()))
-
-    def test_codemagic_can_be_retired(self):
-        self.assertEqual([], self.problems(lambda root: (root / CODEMAGIC).unlink()))
 
 
 class UploaderGuardTest(GuardCase):

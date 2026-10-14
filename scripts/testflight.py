@@ -13,7 +13,7 @@ place; the workflow then refuses to build any other commit. --dry-run signs and 
 the IPA without uploading; --again rebuilds a commit that already shipped.
 
 A run passes once Apple has finished processing the upload, a few minutes before
-testers can install it. codemagic.py and codemagic.yaml stay as the fallback.
+testers can install it.
 """
 
 from __future__ import annotations
@@ -25,10 +25,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codemagic  # noqa: E402  (FROZEN fallback; reads the partner_check stamp, writes latest.json)
+import partner_check  # noqa: E402
 
 REPO = "KaiC5504/Kazumi"
 WORKFLOW = "testflight.yaml"
@@ -50,6 +51,9 @@ FIELDS = "databaseId,displayTitle,status,conclusion,headSha,headBranch,event,url
 # A background watch outlives short network trouble; this many failed polls in a row
 # ends it.
 WATCH_RETRIES = 5
+# The app reads this on every launch (lib/services/update/testflight_update.dart).
+LATEST_HOST = "KaiCHK"
+LATEST_PATH = "/srv/app/latest.json"
 
 
 def run(*args: str) -> str:
@@ -122,6 +126,18 @@ def cmd_status() -> int:
     return 1 if failed(latest[0]) else 0
 
 
+def partner_check_passed() -> bool:
+    """Whether scripts/partner_check.py passed on the tree of origin/main."""
+    tree = git("rev-parse", "origin/main^{tree}")
+    stamp = Path(git("rev-parse", "--git-common-dir")) / partner_check.STAMP
+    try:
+        passed = {line.split()[0] for line in stamp.read_text(encoding="utf-8").splitlines()
+                  if line.strip()}
+    except FileNotFoundError:
+        passed = set()
+    return tree in passed
+
+
 def environment_problems() -> list[str]:
     """The secrets are only as safe as this environment's lock to main."""
     env = json.loads(run("gh", "api", f"repos/{REPO}/environments/{ENVIRONMENT}"))
@@ -176,7 +192,7 @@ def cmd_start(argv: list[str]) -> int:
         print(f"origin/main is {behind} commit(s) behind upstream/main. Merge upstream, "
               "rerun the checks, push, and start again.")
         return 1
-    if not codemagic.partner_check_passed("main", fetch=False):
+    if not partner_check_passed():
         print("origin/main hasn't passed scripts/partner_check.py. Check out that exact "
               "commit, run it, and start again.")
         return 1
@@ -248,6 +264,47 @@ def cmd_watch(run_id: str | None) -> int:
         time.sleep(30)
 
 
+def ssh(command: str, stdin: str | None = None) -> str:
+    result = subprocess.run(
+        ["ssh", LATEST_HOST, command],
+        input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=60,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"ssh {LATEST_HOST} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def publish(build: int, version: str | None, notes: str, required: bool) -> int:
+    """Writes latest.json on HK."""
+    if not isinstance(version, str) or not version:
+        # The app ignores a latest.json without a version, so the prompt would never show.
+        raise SystemExit(f"No version for build {build}; not publishing.")
+    previous = {}
+    raw = ssh(f"sudo cat {LATEST_PATH} 2>/dev/null || true")
+    if raw.strip():
+        previous = json.loads(raw)
+    if previous.get("build", 0) > build:
+        raise SystemExit(f"HK already announces build {previous['build']}, newer than {build}.")
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    latest_json = {
+        "build": build,
+        "version": version,
+        "minBuild": build if required else previous.get("minBuild", 0),
+        "requiredSince": now if required else previous.get("requiredSince"),
+        "notes": notes,
+        "publishedAt": now,
+    }
+    body = json.dumps(latest_json, ensure_ascii=False, indent=1) + "\n"
+    ssh(f"sudo mkdir -p {Path(LATEST_PATH).parent.as_posix()} && "
+        f"sudo tee {LATEST_PATH}.tmp >/dev/null && sudo chmod 644 {LATEST_PATH}.tmp && "
+        f"sudo mv {LATEST_PATH}.tmp {LATEST_PATH}", stdin=body)
+    print(f"published {version} ({build})" + (" as required" if required else "")
+          + " -> https://hk.kaic5504.com/app/latest.json")
+    print(body)
+    return 0
+
+
 def cmd_publish_latest(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="testflight.py publish-latest")
     parser.add_argument("--required", action="store_true",
@@ -265,8 +322,7 @@ def cmd_publish_latest(argv: list[str]) -> int:
         manifest = json.loads((Path(folder) / MANIFEST).read_text(encoding="utf-8"))
     if manifest.get("sha") != newest["headSha"] or not str(manifest.get("build")).isdigit():
         raise SystemExit(f"Run {newest['databaseId']}'s manifest doesn't match the run.")
-    return codemagic.publish(int(manifest["build"]), manifest.get("version"), args.notes,
-                             args.required)
+    return publish(int(manifest["build"]), manifest.get("version"), args.notes, args.required)
 
 
 def main() -> int:

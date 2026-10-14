@@ -100,7 +100,7 @@ class TestflightUpdate {
     'https://beta.itunes.apple.com/v1/app/6818711929',
   );
 
-  /// Codemagic passes `--build-number`; local builds have none and never prompt.
+  /// TestFlight builds pass `--build-number`; local ones have none and never prompt.
   static final int buildNumber = int.tryParse(appBuildNumber ?? '') ?? 0;
 
   static String get versionLabel {
