@@ -47,12 +47,16 @@ import 'package:kazumi/request/core/dio_factory.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/download/mirror_selector.dart';
 import 'package:kazumi/services/library/host_router.dart';
+import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/player/syncplay_endpoint.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/services/update/testflight_update.dart';
 import 'package:logger/logger.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 const librarySite = 'https://kazumi.kaic5504.com';
@@ -1099,6 +1103,69 @@ void main() {
       expect(picked, [(26, 0)]);
     });
   });
+
+  // The PC now deletes an original download once its bake is done. Her phone
+  // never bakes, so none of her downloads may be touched or lose the
+  // shader-free playback they had.
+  group('her library downloads after the bake cleanup', () {
+    late Directory downloads;
+    setUp(
+      () async => downloads = await Directory.systemTemp.createTemp(
+        'kazumi_partner_downloads_',
+      ),
+    );
+    tearDown(() => downloads.delete(recursive: true));
+
+    (DownloadRecord, DownloadEpisode, File) libraryDownload() {
+      final (record, episode) = LibraryEpisode.fromJson(
+        _episodeJson(),
+      ).manifest.toDownloadEntities();
+      final dir = p.join(downloads.path, '${bangumiId}_aafun', '2');
+      final video = File(p.join(dir, 'video.mp4'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('upscaled by the PC');
+      episode
+        ..status = DownloadStatus.completed
+        ..downloadDirectory = dir
+        ..localM3u8Path = video.path
+        ..totalBytes = video.lengthSync();
+      record.episodes[episode.episodeNumber] = episode;
+      return (record, episode, video);
+    }
+
+    test('a library episode still plays without shaders on top', () {
+      final (_, episode, _) = libraryDownload();
+      expect(episode.playsUpscaled, isTrue);
+    });
+
+    test('an original-quality download keeps her shader setting', () {
+      final (_, episode, _) = libraryDownload();
+      episode.preUpscaled = false;
+      expect(episode.playsUpscaled, isFalse);
+    });
+
+    test('opening the app leaves her downloads as they were', () async {
+      final (record, episode, video) = libraryDownload();
+      final repository = _RecordsRepository([record]);
+      await UpscaleController(
+        repository,
+        _FakeDownloadManager(),
+        DownloadController(
+          repository,
+          _FakeDownloadManager(),
+          PluginsController(),
+        ),
+        ShaderAssetService(),
+      ).init();
+      // Cleanup runs after init returns.
+      await Future.delayed(const Duration(milliseconds: 200));
+      expect(video.readAsStringSync(), 'upscaled by the PC');
+      expect(episode.localM3u8Path, video.path);
+      expect(episode.status, DownloadStatus.completed);
+      expect(episode.playsUpscaled, isTrue);
+      expect(repository.puts, 0);
+    });
+  });
 }
 
 Map<String, dynamic> _episodeJson() => {
@@ -1235,6 +1302,26 @@ class _RecordingAdapter implements HttpClientAdapter {
 class _FakeRepository implements IDownloadRepository {
   @override
   List<DownloadRecord> getAllRecords() => [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _RecordsRepository implements IDownloadRepository {
+  _RecordsRepository(this.records);
+
+  final List<DownloadRecord> records;
+  int puts = 0;
+
+  @override
+  List<DownloadRecord> getAllRecords() => records;
+
+  @override
+  DownloadRecord? getRecord(String key) =>
+      records.where((r) => r.key == key).firstOrNull;
+
+  @override
+  Future<void> putRecord(DownloadRecord record) async => puts++;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
