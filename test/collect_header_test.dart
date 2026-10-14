@@ -138,6 +138,25 @@ void main() {
     });
   });
 
+  group('追番 on a tablet', () {
+    for (final size in [const Size(820, 1180), const Size(1180, 820)]) {
+      final orientation = size.width > size.height ? 'landscape' : 'portrait';
+      testWidgets('$orientation: the title bar scrolls away, tabs stay pinned', (
+        tester,
+      ) async {
+        await pumpLibrary(tester, size: size, layout: CollectLayout.cards);
+        expect(find.text('追番').hitTestable(), findsOneWidget);
+        final restingTabs = tabsTop(tester);
+
+        await tester.drag(watchingList(), const Offset(0, -400));
+        await tester.pumpAndSettle();
+        expect(find.text('追番').hitTestable(), findsNothing);
+        expect(tabsTop(tester), restingTabs - 72);
+        expect(_tab('在看').hitTestable(), findsOneWidget);
+      });
+    }
+  });
+
   group('经典布局 card grid', () {
     int columns(WidgetTester tester) {
       final first = tester.getTopLeft(find.text('条目 1')).dy;

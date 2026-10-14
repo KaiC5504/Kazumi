@@ -184,7 +184,9 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
           final width = constraints.maxWidth.clamp(0.0, 1560.0);
           final inset =
               (constraints.maxWidth - width) / 2 + (compact ? 16.0 : 32.0);
-          if (compact) {
+          // Tablets too: a fixed title over a header that scrolls away left
+          // iPads without the category tabs.
+          if (compact || mobile) {
             return PageStorage(
               bucket: _resultsStorage,
               child: _compactLibrary(query, inset: inset, paged: paged),
@@ -337,8 +339,8 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     );
   }
 
-  /// Phones: the title bar scrolls away with the list while the category tabs
-  /// stay pinned under the status bar. It comes back only at the top of the
+  /// Phones and tablets: the title bar scrolls away with the list while the
+  /// category tabs stay pinned under the status bar. It comes back only at the top of the
   /// list, never on a small scroll up.
   Widget _compactLibrary(CollectLibraryQuery query,
       {required double inset, required bool paged}) {
