@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/modules/bangumi/bangumi_item.dart';
@@ -138,13 +139,21 @@ void main() {
     });
   });
 
-  group('追番 on a tablet', () {
-    for (final size in [const Size(820, 1180), const Size(1180, 820)]) {
-      final orientation = size.width > size.height ? 'landscape' : 'portrait';
-      testWidgets('$orientation: the title bar scrolls away, tabs stay pinned', (
+  group('追番 on wider screens', () {
+    for (final (name, size, platform) in [
+      ('iPad portrait', const Size(820, 1180), TargetPlatform.iOS),
+      ('iPad landscape', const Size(1180, 820), TargetPlatform.iOS),
+      ('Windows', const Size(1280, 800), TargetPlatform.windows),
+    ]) {
+      testWidgets('$name: the title bar scrolls away, tabs stay pinned', (
         tester,
       ) async {
-        await pumpLibrary(tester, size: size, layout: CollectLayout.cards);
+        await pumpLibrary(
+          tester,
+          size: size,
+          platform: platform,
+          layout: CollectLayout.cards,
+        );
         expect(find.text('追番').hitTestable(), findsOneWidget);
         final restingTabs = tabsTop(tester);
 
@@ -201,17 +210,19 @@ void main() {
     });
   });
 
-  testWidgets('a wide window keeps the full header with a search bar', (
-    tester,
-  ) async {
+  testWidgets('Ctrl+F opens search on Windows', (tester) async {
     await pumpLibrary(
       tester,
       size: const Size(1280, 800),
       platform: TargetPlatform.windows,
     );
-    expect(find.text('追番'), findsOneWidget);
+    expect(find.byType(SearchBar), findsNothing);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
     expect(find.byType(SearchBar), findsOneWidget);
-    expect(find.byTooltip('排序与布局'), findsNothing);
+    expect(find.byTooltip('排序与布局'), findsOneWidget);
   });
 }
 
