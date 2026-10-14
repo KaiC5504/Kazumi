@@ -37,10 +37,11 @@ void main() {
     TargetPlatform platform = TargetPlatform.iOS,
     CollectLayout layout = CollectLayout.list,
     bool classic = false,
+    double statusBar = _statusBar,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
-    tester.view.padding = const FakeViewPadding(top: _statusBar);
+    tester.view.padding = FakeViewPadding(top: statusBar);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
@@ -209,6 +210,25 @@ void main() {
       expect(find.text('取消收藏'), findsOneWidget);
     });
   });
+
+  testWidgets(
+    'pinned tabs keep a margin from a window edge with no status bar',
+    (tester) async {
+      await pumpLibrary(
+        tester,
+        size: const Size(1280, 800),
+        platform: TargetPlatform.windows,
+        statusBar: 0,
+      );
+      final restingTabs = tabsTop(tester);
+
+      await tester.drag(watchingList(), const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsNothing);
+      expect(tabsTop(tester), restingTabs - 62);
+      expect(_tab('在看').hitTestable(), findsOneWidget);
+    },
+  );
 
   testWidgets('Ctrl+F opens search on Windows', (tester) async {
     await pumpLibrary(

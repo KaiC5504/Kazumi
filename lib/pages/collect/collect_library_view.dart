@@ -79,6 +79,8 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   double _headerHeight = _titleBarHeight + 56;
 
   static const _titleBarHeight = 72.0;
+  // Lines the pinned tabs up with the side rail's search button.
+  static const _pinnedTabsMargin = 10.0;
 
   @override
   void didChangeDependencies() {
@@ -338,7 +340,11 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   double _titleBarCollapse() {
     final positions = _scrollControllers[_selectedType]!.positions;
     if (positions.isEmpty || !positions.first.hasPixels) return 0;
-    return positions.first.pixels.clamp(0.0, _titleBarHeight);
+    // Without a status bar above them the pinned tabs would touch the window
+    // edge; keep the empty bottom strip of the title bar as a margin.
+    final margin =
+        MediaQuery.paddingOf(context).top > 0 ? 0.0 : _pinnedTabsMargin;
+    return positions.first.pixels.clamp(0.0, _titleBarHeight - margin);
   }
 
   Widget _searchBar() => Semantics(
