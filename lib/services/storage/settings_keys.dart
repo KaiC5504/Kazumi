@@ -652,6 +652,11 @@ class SettingsKeys {
     false,
     group: SettingGroup.misc,
   );
+  static const onboardingCompleted = SettingKey<bool>(
+    'onboardingCompleted',
+    false,
+    group: SettingGroup.misc,
+  );
   static const bangumiSyncEnable = SettingKey<bool>(
     _SettingBoxKey.bangumiSyncEnable,
     false,
@@ -840,6 +845,7 @@ class SettingsKeys {
     aniSkipLookup,
     danmakuFailureToast,
     shortcutDialogShown,
+    onboardingCompleted,
     bangumiSyncEnable,
     bangumiAccessToken,
     bangumiAutoMarkWatched,

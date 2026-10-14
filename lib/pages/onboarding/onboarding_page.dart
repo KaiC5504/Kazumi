@@ -5,15 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:kazumi/bean/appbar/sys_app_bar.dart';
-import 'package:kazumi/bean/dialog/dialog_helper.dart';
-import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/onboarding/steps/disclaimer_step.dart';
 import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/onboarding/steps/mirror_settings_step.dart';
 import 'package:kazumi/pages/onboarding/steps/update_source_step.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
-import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/plugin/official_rules_sync.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/startup_update_check.dart';
@@ -54,7 +51,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
   ];
   int _currentIndex = 0;
   bool _agreed = false;
-  bool _installingBundled = false;
   bool _busy = false;
   late bool _useGithubUpdate;
 
@@ -96,8 +92,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
     if (_busy || (!forward && _currentIndex == 0)) return;
     _busy = true;
     try {
-      if (forward && !_agreed && !await _installBundledRules()) return;
-      if (!mounted) return;
+      if (forward && !_agreed) {
+        setState(() => _agreed = true);
+        unawaited(syncOfficialRulesWithFeedback(
+          _pluginsController,
+          updateExisting: true,
+        ));
+      }
       if (forward && _isLastStep) {
         await _finish();
       } else {
@@ -121,34 +122,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
     }
   }
 
-  Future<bool> _installBundledRules() async {
-    setState(() => _installingBundled = true);
-    try {
-      await _pluginsController.copyPluginsToExternalDirectory();
-    } catch (error, stackTrace) {
-      KazumiLogger().e(
-        'Plugin: failed to install bundled rules',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return false;
-      setState(() => _installingBundled = false);
-      KazumiDialog.showToast(context: context, message: '初始化规则失败');
-      return false;
-    }
-    unawaited(syncOfficialRulesWithFeedback(
-      _pluginsController,
-      updateExisting: true,
-    ));
-    if (!mounted) return false;
-    setState(() {
-      _agreed = true;
-      _installingBundled = false;
-    });
-    return true;
-  }
-
   Future<void> _finish() async {
+    await GStorage.putSetting(SettingsKeys.onboardingCompleted, true);
+    if (!mounted) return;
     final myController = widget.myController;
     unawaited(runStartupUpdateCheck(
       isEnabled: () =>
@@ -168,11 +144,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
           minimumSize: const Size(88, 56),
           foregroundColor: theme.colorScheme.onSurfaceVariant,
         ),
-        onPressed: _installingBundled
-            ? null
-            : _currentIndex == 0
-                ? () => exit(0)
-                : () => _navigate(forward: false),
+        onPressed: _currentIndex == 0
+            ? () => exit(0)
+            : () => _navigate(forward: false),
         child: Text(_currentIndex == 0 ? '退出' : '上一步'),
       );
       final primary = FilledButton.icon(
@@ -182,14 +156,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
           textStyle: theme.textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
-        onPressed: _installingBundled ? null : () => _navigate(forward: true),
+        onPressed: () => _navigate(forward: true),
         iconAlignment: IconAlignment.end,
-        icon: _installingBundled
-            ? const LoadingIndicator(size: 24, semanticsLabel: '正在准备内置规则')
-            : Icon(_isLastStep
-                ? Icons.check_rounded
-                : Icons.arrow_forward_rounded),
-        label: Text(_installingBundled ? '正在准备' : _primaryLabel),
+        icon: Icon(
+            _isLastStep ? Icons.check_rounded : Icons.arrow_forward_rounded),
+        label: Text(_primaryLabel),
       );
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),

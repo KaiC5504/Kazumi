@@ -103,18 +103,15 @@ class _InitPageState extends State<InitPage> {
     if (!mounted) {
       return;
     }
-    // First launch: no installed rules yet, hand over to the onboarding flow.
-    // OnboardingPage takes care of navigating to the default page and
-    // triggering the auto update check afterwards.
-    if (pluginsController.pluginList.isEmpty) {
+    // Installs that predate the flag already have rules; don't re-onboard them.
+    // OnboardingPage navigates to the default page and runs the update check.
+    if (!GStorage.getSetting(SettingsKeys.onboardingCompleted) &&
+        pluginsController.pluginList.isEmpty) {
       KazumiLogger().i('InitPage: init took ${initWatch.elapsedMilliseconds}ms');
       context.navigate('/onboarding');
       return;
     }
 
-    if (!mounted) {
-      return;
-    }
     final updateController = myController;
     unawaited(runStartupUpdateCheck(
       isEnabled: () =>
@@ -124,7 +121,7 @@ class _InitPageState extends State<InitPage> {
       },
     ));
     KazumiLogger().i('InitPage: init took ${initWatch.elapsedMilliseconds}ms');
-    _startDefaultPage();
+    context.navigate(GStorage.getSetting(SettingsKeys.defaultStartupPage));
     EpisodeReminderService.instance.onOpen = (id) {
       final c = GStorage.collectibles.get(id);
       final ctx = rootNavigatorKey.currentContext;
@@ -183,15 +180,6 @@ class _InitPageState extends State<InitPage> {
       );
       return result ?? false;
     };
-  }
-
-  void _startDefaultPage() {
-    final defaultStartupPage =
-        GStorage.getSetting(SettingsKeys.defaultStartupPage);
-    if (!mounted) {
-      return;
-    }
-    context.navigate(defaultStartupPage);
   }
 
   // migrate collect from old version (favorites)
@@ -346,7 +334,12 @@ class _InitPageState extends State<InitPage> {
 
   Future<void> _pluginUpdate() async {
     // First launch goes through onboarding, which syncs after the disclaimer.
-    if (pluginsController.pluginList.isEmpty) return;
+    // Once that's done, an empty list still syncs: nothing is bundled, so a
+    // failed first sync would otherwise leave the device without rules.
+    if (!GStorage.getSetting(SettingsKeys.onboardingCompleted) &&
+        pluginsController.pluginList.isEmpty) {
+      return;
+    }
     await syncOfficialRulesWithFeedback(
       pluginsController,
       updateExisting:
