@@ -254,6 +254,26 @@ void main() {
     );
   });
 
+  for (final (name, size, platform) in [
+    ('Windows', const Size(1280, 800), TargetPlatform.windows),
+    ('iPhone', const Size(390, 844), TargetPlatform.iOS),
+  ]) {
+    testWidgets('$name: a scrolled category stays collapsed when shown again', (
+      tester,
+    ) async {
+      await pumpLibrary(tester, size: size, platform: platform);
+      await tester.drag(watchingList(), const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsNothing);
+
+      await tester.tap(_tab('全部'));
+      await tester.pumpAndSettle();
+      await tester.tap(_tab('在看'));
+      await tester.pumpAndSettle();
+      expect(find.text('追番').hitTestable(), findsNothing);
+    });
+  }
+
   testWidgets('Ctrl+F opens search on Windows', (tester) async {
     await pumpLibrary(
       tester,

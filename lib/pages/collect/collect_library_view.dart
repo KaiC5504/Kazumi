@@ -70,6 +70,9 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   final _scrollControllers = {
     for (final type in _collectCategories) type: ScrollController(),
   };
+  // A list coming back on screen restores its offset without a scroll event,
+  // so the header also follows its first layout.
+  final _scrollMetrics = ValueNotifier(0);
   PageStorageBucket _resultsStorage = PageStorageBucket();
   CollectType? _selectedType = CollectType.watching;
   CollectSort _sort = CollectSort.recentlyChanged;
@@ -117,6 +120,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     for (final controller in _scrollControllers.values) {
       controller.dispose();
     }
+    _scrollMetrics.dispose();
     super.dispose();
   }
 
@@ -313,7 +317,8 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
           right: 0,
           child: ClipRect(
             child: ListenableBuilder(
-              listenable: _scrollControllers[_selectedType]!,
+              listenable: Listenable.merge(
+                  [_scrollControllers[_selectedType]!, _scrollMetrics]),
               builder: (context, child) => Transform.translate(
                 offset: Offset(0, -_titleBarCollapse()),
                 child: child,
@@ -383,32 +388,40 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     return LayoutBuilder(builder: (context, constraints) {
       final entries = query.results(type, _sort);
       final contentWidth = constraints.maxWidth - inset * 2;
-      return ScrollbarTheme(
-        data: ScrollbarTheme.of(context).copyWith(crossAxisMargin: 0),
-        child: CustomScrollView(
-          key: PageStorageKey('collect-results-${type?.value ?? 'all'}'),
-          controller: _scrollControllers[type],
-          semanticChildCount: entries.length,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          slivers: [
-            SliverToBoxAdapter(child: SizedBox(height: top)),
-            if (entries.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: inset),
-                  child: _emptyState(query.count(null), type: type),
+      return NotificationListener<ScrollMetricsNotification>(
+        onNotification: (notification) {
+          if (notification.depth == 0 && type == _selectedType) {
+            _scrollMetrics.value++;
+          }
+          return false;
+        },
+        child: ScrollbarTheme(
+          data: ScrollbarTheme.of(context).copyWith(crossAxisMargin: 0),
+          child: CustomScrollView(
+            key: PageStorageKey('collect-results-${type?.value ?? 'all'}'),
+            controller: _scrollControllers[type],
+            semanticChildCount: entries.length,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              SliverToBoxAdapter(child: SizedBox(height: top)),
+              if (entries.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: inset),
+                    child: _emptyState(query.count(null), type: type),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                      inset, 0, inset, 24 + MediaQuery.paddingOf(context).bottom),
+                  sliver: widget.layout == CollectLayout.cards
+                      ? _grid(entries, contentWidth, type: type)
+                      : _list(entries, contentWidth),
                 ),
-              )
-            else
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                    inset, 0, inset, 24 + MediaQuery.paddingOf(context).bottom),
-                sliver: widget.layout == CollectLayout.cards
-                    ? _grid(entries, contentWidth, type: type)
-                    : _list(entries, contentWidth),
-              ),
-          ],
+            ],
+          ),
         ),
       );
     });
