@@ -230,6 +230,30 @@ void main() {
     },
   );
 
+  // Material 3 turns an app bar grey once content scrolls under it, which
+  // showed as a grey strip above the pinned tabs.
+  testWidgets('the title bar keeps the page colour after scrolling', (
+    tester,
+  ) async {
+    await pumpLibrary(
+      tester,
+      size: const Size(1280, 800),
+      platform: TargetPlatform.windows,
+      statusBar: 0,
+    );
+    await tester.drag(watchingList(), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    final bar = tester.widget<Material>(
+      find
+          .descendant(of: find.byType(AppBar), matching: find.byType(Material))
+          .first,
+    );
+    expect(
+      bar.color,
+      Theme.of(tester.element(find.byType(AppBar))).colorScheme.surface,
+    );
+  });
+
   testWidgets('Ctrl+F opens search on Windows', (tester) async {
     await pumpLibrary(
       tester,

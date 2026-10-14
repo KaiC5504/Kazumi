@@ -217,6 +217,9 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     return SysAppBar(
       needTopOffset: false,
       toolbarHeight: _titleBarHeight,
+      // Material 3 greys an app bar with content under it; the bottom strip
+      // stays on screen above the pinned tabs.
+      backgroundColor: theme.colorScheme.surface,
       // Filling the title slot keeps it at the start: iOS centres app bar
       // titles, which left a gap beside three actions.
       title: Row(
