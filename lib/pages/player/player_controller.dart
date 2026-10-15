@@ -319,6 +319,8 @@ class PlayerController implements Disposable {
     } catch (_) {}
   }
 
+  Future<void> setAudioDelay(int ms) => playback.setAudioDelay(ms);
+
   void updateDanmakuSpeed() {
     danmaku.updateDanmakuSpeed(playback.playerSpeed);
   }
