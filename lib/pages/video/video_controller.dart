@@ -28,6 +28,8 @@ import 'package:kazumi/utils/media.dart';
 import 'package:kazumi/utils/async_session.dart';
 import 'package:kazumi/services/platform/display_mode_service.dart';
 import 'package:kazumi/pages/video/video_fullscreen_controller.dart';
+import 'package:kazumi/modules/danmaku/danmaku_module.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 
 part 'video_controller.g.dart';
 
@@ -57,6 +59,14 @@ class VideoEpisodeSelection {
     return 'VideoEpisodeSelection(episode: $episode, road: $road)';
   }
 }
+
+bool danmakuPickAllowed({
+  required VideoEpisodeSelection? loadedFor,
+  required VideoEpisodeSelection openedFor,
+  required VideoEpisodeSelection playingNow,
+  required bool sessionActive,
+}) =>
+    sessionActive && loadedFor == openedFor && playingNow == openedFor;
 
 abstract class _VideoPageController with Store implements Disposable {
   _VideoPageController(
@@ -116,6 +126,18 @@ abstract class _VideoPageController with Store implements Disposable {
   final AsyncSessionOwner _playbackSessions = AsyncSessionOwner();
   final AsyncSessionOwner _danmakuSessions = AsyncSessionOwner();
   final AsyncSessionOwner _commentSessions = AsyncSessionOwner();
+
+  PlayerController? _danmakuPlayer;
+  PlaybackInitParams? _danmakuParams;
+  AsyncSession? _danmakuPlaybackSession;
+  VideoEpisodeSelection? _danmakuSelection;
+
+  void _clearDanmakuContext() {
+    _danmakuPlayer = null;
+    _danmakuParams = null;
+    _danmakuPlaybackSession = null;
+    _danmakuSelection = null;
+  }
 
   @observable
   bool isPip = false;
@@ -458,6 +480,7 @@ abstract class _VideoPageController with Store implements Disposable {
     if (selection != playbackEpisode) _remoteHostOffset = 0;
     _beginEpisodeSwitch(selection);
     _danmakuSessions.cancel();
+    _clearDanmakuContext();
     playerController.danmaku.finishDanmakuLoad();
     _videoSourceService?.cancel();
 
@@ -603,8 +626,13 @@ abstract class _VideoPageController with Store implements Disposable {
   Future<void> _loadPlaybackDanmaku(
     PlayerController playerController,
     PlaybackInitParams params,
-    AsyncSession session,
-  ) async {
+    AsyncSession session, {
+    bool automaticOnly = false,
+  }) async {
+    _danmakuPlayer = playerController;
+    _danmakuParams = params;
+    _danmakuPlaybackSession = session;
+    _danmakuSelection = playbackEpisode;
     final danmakuSession = _danmakuSessions.begin();
     playerController.danmaku.beginDanmakuLoad();
     try {
@@ -612,6 +640,9 @@ abstract class _VideoPageController with Store implements Disposable {
         params.bangumiId,
         params.pluginName,
         params.danmakuEpisodeNumber,
+        bindingEpisode: danmakuBindingEpisode(
+            params.episodeTitle, params.danmakuEpisodeNumber),
+        automaticOnly: automaticOnly,
       );
       if (session.isActive && danmakuSession.isActive) {
         if (result.hasDanmakus) {
@@ -644,6 +675,54 @@ abstract class _VideoPageController with Store implements Disposable {
 
   void cancelAutomaticDanmakuLoad() {
     _danmakuSessions.cancel();
+  }
+
+  /// Remembers a hand-picked match for later episodes. Refuses when the
+  /// episode changed after the sheet opened, so nothing lands on the wrong one.
+  Future<bool> rememberDanmakuPick({
+    required VideoEpisodeSelection openedFor,
+    required int animeId,
+    required String animeTitle,
+    required int episodeId,
+    required List<DanmakuEntry> danmakus,
+  }) async {
+    final params = _danmakuParams;
+    if (params == null ||
+        !danmakuPickAllowed(
+            loadedFor: _danmakuSelection,
+            openedFor: openedFor,
+            playingNow: playbackEpisode,
+            sessionActive: _danmakuPlaybackSession?.isActive ?? false)) {
+      return false;
+    }
+    final binding = DanmakuBinding.fromPick(
+      animeId: animeId,
+      animeTitle: animeTitle,
+      episodeId: episodeId,
+      currentEpisode: danmakuBindingEpisode(
+          params.episodeTitle, params.danmakuEpisodeNumber),
+    );
+    if (binding != null) {
+      await DanmakuBindingStore.remember(params.bangumiId, binding);
+    } else {
+      await DanmakuBindingStore.forget(params.bangumiId);
+    }
+    if (params.isLocalPlayback && danmakus.isNotEmpty) {
+      _danmakuPlayer?.danmaku.saveToCache(params.bangumiId, params.pluginName,
+          params.danmakuEpisodeNumber, danmakus, animeId,
+          danDanEpisodeID: episodeId);
+    }
+    return binding != null;
+  }
+
+  void reloadAutomaticDanmaku() {
+    final player = _danmakuPlayer;
+    final params = _danmakuParams;
+    final session = _danmakuPlaybackSession;
+    if (player == null || params == null || session == null) return;
+    if (!session.isActive) return;
+    unawaited(
+        _loadPlaybackDanmaku(player, params, session, automaticOnly: true));
   }
 
   Future<void> _resolveWithVideoSourceService(

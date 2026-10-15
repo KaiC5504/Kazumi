@@ -19,6 +19,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
 import 'package:flutter/services.dart';
 import 'package:kazumi/services/player/remote.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/bean/appbar/drag_to_move_bar.dart' as dtb;
 import 'package:kazumi/pages/settings/danmaku/danmaku_settings_sheet.dart';
 import 'package:kazumi/utils/constants.dart';
@@ -858,7 +859,11 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                   ],
                   KazumiMenuItem(
                     onPressed: widget.showDanmakuSwitch,
-                    label: '弹幕切换',
+                    label: DanmakuBindingStore.bindingFor(
+                                videoPageController.bangumiItem.id) !=
+                            null
+                        ? '弹幕切换（已记住）'
+                        : '弹幕切换',
                   ),
                   if (compact) _danmakuSettingsMenuItem,
                   KazumiMenuItem(

@@ -40,6 +40,7 @@ import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:kazumi/services/player/anime_speed_store.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/services/player/timed_shutdown_service.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/services/platform/player_menu_service.dart';
@@ -1314,12 +1315,28 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   void showDanmakuSwitch() {
+    final bangumiId = videoPageController.bangumiItem.id;
+    final openedFor = videoPageController.playbackEpisode;
     unawaited(showDanmakuSourceSheet(
       context,
-      bangumiId: videoPageController.bangumiItem.id,
+      bangumiId: bangumiId,
       initialKeyword: videoPageController.title,
       danmakuController: playerController.danmaku,
       onBeforeApply: videoPageController.cancelAutomaticDanmakuLoad,
+      binding: DanmakuBindingStore.bindingFor(bangumiId),
+      onPicked: (anime, episode, danmakus) =>
+          videoPageController.rememberDanmakuPick(
+        openedFor: openedFor,
+        animeId: anime.animeId,
+        animeTitle: anime.animeTitle,
+        episodeId: episode.episodeId,
+        danmakus: danmakus,
+      ),
+      onResetBinding: () async {
+        await DanmakuBindingStore.forget(bangumiId);
+        videoPageController.reloadAutomaticDanmaku();
+        KazumiDialog.showToast(message: '已恢复自动匹配');
+      },
     ));
   }
 
