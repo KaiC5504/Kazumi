@@ -113,7 +113,7 @@ void main() {
     ) async {
       await pumpLibrary(tester, size: const Size(390, 844));
       expect(find.byTooltip('搜索收藏'), findsOneWidget);
-      await tester.tap(find.byTooltip('排序与布局'));
+      await tester.tap(find.byTooltip('排序和布局'));
       await tester.pumpAndSettle();
       expect(find.text('番剧名称'), findsOneWidget);
       expect(find.text('列表布局'), findsOneWidget);
@@ -286,7 +286,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
     expect(find.byType(SearchBar), findsOneWidget);
-    expect(find.byTooltip('排序与布局'), findsOneWidget);
+    expect(find.byTooltip('排序和布局'), findsOneWidget);
   });
 }
 

@@ -107,7 +107,7 @@ class _CollectViewMenu extends StatelessWidget {
           ),
       ],
       builder: (context, toggle) => IconButton(
-        tooltip: '排序与布局',
+        tooltip: '排序和布局',
         onPressed: toggle,
         icon: const Icon(Icons.tune_rounded),
       ),

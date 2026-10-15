@@ -110,7 +110,7 @@ class CloudBakeReportDialog extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          allGood ? '云端烘焙完成' : '云端烘焙结束',
+                          allGood ? '云端超分完成' : '云端超分结束',
                           style: textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w700,
                             color: colorScheme.onTertiaryContainer,
@@ -239,7 +239,7 @@ class _EpisodeRow extends StatelessWidget {
         ? [
             if (episode.uploadSec != null)
               '上传 ${_duration(episode.uploadSec!)}',
-            if (episode.bakeSec != null) '烘焙 ${_duration(episode.bakeSec!)}',
+            if (episode.bakeSec != null) '超分 ${_duration(episode.bakeSec!)}',
             if (episode.downloadSec != null)
               '下载 ${_duration(episode.downloadSec!)}',
             if (episode.outBytes != null) _size(episode.outBytes!),

@@ -230,7 +230,7 @@ class _BangumiSyncPageState extends State<BangumiSyncPage> {
                         const Divider(indent: 16, endIndent: 16),
                         SwitchListTile(
                           title: const Text('自动标记看过'),
-                          subtitle: const Text('看到 90% 时在 Bangumi 标记该集为看过'),
+                          subtitle: const Text('播放到 90% 时标记为看过'),
                           value: GStorage.getSetting(
                               SettingsKeys.bangumiAutoMarkWatched),
                           onChanged: _busy

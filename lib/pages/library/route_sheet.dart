@@ -75,7 +75,7 @@ class _RouteSheetState extends State<_RouteSheet> {
                 Text(_line('新加坡', stored?.byHost[r.server.toString()])),
                 if (stored != null)
                   Text(
-                    '测于 ${stored.at.toLocal().toString().substring(0, 16)}',
+                    '上次测速 ${stored.at.toLocal().toString().substring(0, 16)}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 const SizedBox(height: 12),
@@ -87,7 +87,7 @@ class _RouteSheetState extends State<_RouteSheet> {
                           final result = await c.recheckRoute();
                           if (result == null) {
                             GlassNotice.show(
-                              '测速失败，仍用原线路',
+                              '测速失败',
                               icon: Icons.wifi_off_rounded,
                             );
                           }

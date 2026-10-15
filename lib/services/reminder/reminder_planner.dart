@@ -50,8 +50,8 @@ List<PlannedReminder> planReminders({
         PlannedReminder(
           id: reminderId(show.bangumiId, number),
           bangumiId: show.bangumiId,
-          title: '《${show.name}》第 $number 话 已更新',
-          body: '点开去看',
+          title: '《${show.name}》第 $number 集已更新',
+          body: '点击观看',
           fireAtLocal: fireAt,
         ),
       );

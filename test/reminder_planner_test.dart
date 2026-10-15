@@ -30,8 +30,8 @@ void main() {
       DateTime(2026, 10, 9, 10),
       DateTime(2026, 10, 16, 10),
     ]);
-    expect(plan.first.title, '《葬送的芙莉莲》第 14 话 已更新');
-    expect(plan.first.body, '点开去看');
+    expect(plan.first.title, '《葬送的芙莉莲》第 14 集已更新');
+    expect(plan.first.body, '点击观看');
   });
 
   test('today\'s 10:00 already passed is dropped', () {
@@ -56,7 +56,7 @@ void main() {
       ],
       nowLocal: now,
     );
-    expect(plan.map((p) => p.title), ['《A》第 4 话 已更新']);
+    expect(plan.map((p) => p.title), ['《A》第 4 集已更新']);
   });
 
   test('soonest 60 across shows, sorted', () {

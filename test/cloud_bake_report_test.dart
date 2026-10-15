@@ -32,7 +32,7 @@ void main() {
       CloudEpisodeReport(
         job: job(3, 7325),
         outcome: CloudEpisodeOutcome.failed,
-        error: '云端烘焙未完成: 上传失败',
+        error: '云端超分未完成: 上传失败',
       ),
     ],
   );
@@ -49,15 +49,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('云端烘焙结束'), findsOneWidget);
+    expect(find.text('云端超分结束'), findsOneWidget);
     expect(find.text('47 分钟'), findsOneWidget);
     expect(find.text('\$0.85'), findsOneWidget);
     expect(find.text('Fate HF · 第 2 部'), findsOneWidget);
     expect(
-      find.textContaining('上传 3 分钟 · 烘焙 29 分钟 · 下载 2 分钟 · 2.97 GB'),
+      find.textContaining('上传 3 分钟 · 超分 29 分钟 · 下载 2 分钟 · 2.97 GB'),
       findsOneWidget,
     );
-    expect(find.text('云端烘焙未完成: 上传失败'), findsOneWidget);
+    expect(find.text('云端超分未完成: 上传失败'), findsOneWidget);
     expect(find.textContaining('hevc_nvenc'), findsOneWidget);
     expect(find.textContaining('本机需约 43 分钟'), findsOneWidget);
   });

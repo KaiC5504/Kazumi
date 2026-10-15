@@ -14,7 +14,7 @@ class ForkAboutSection extends StatelessWidget {
     padding: const EdgeInsets.only(top: 24),
     child: ContentSection.group(
       title: 'Kazumi Plus ${ApiEndpoints.version}',
-      description: '基于 Predidit/Kazumi · 与官方无关',
+      description: '基于 Predidit/Kazumi · 非官方',
       children: const [
         AboutLinkTile(
           icon: Icons.code_rounded,
@@ -23,7 +23,7 @@ class ForkAboutSection extends StatelessWidget {
         ),
         AboutLinkTile(
           icon: Icons.new_releases_outlined,
-          title: 'Kazumi Plus 下载与更新日志',
+          title: 'Kazumi Plus 下载和更新日志',
           url: '$forkRepoUrl/releases',
         ),
         AboutLinkTile(

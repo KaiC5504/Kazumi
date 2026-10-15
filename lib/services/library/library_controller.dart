@@ -678,7 +678,7 @@ class LibraryController implements OfflinePlaybackHooks {
       final ok =
           results.contains(ConnectivityResult.wifi) ||
           results.contains(ConnectivityResult.ethernet);
-      runInAction(() => notice.value = ok ? null : '当前不是 Wi-Fi，已暂停自动下载');
+      runInAction(() => notice.value = ok ? null : '非 Wi-Fi，已暂停自动下载');
       return ok;
     } catch (_) {
       return true;

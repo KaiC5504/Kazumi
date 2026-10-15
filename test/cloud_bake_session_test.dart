@@ -361,7 +361,7 @@ void main() {
       outBytes: 3,
     );
     await running;
-    expect(errors, ['云端烘焙失败: boom']);
+    expect(errors, ['云端超分失败: boom']);
     expect(failed, [1]);
     expect(cloudBaked..sort(), [1, 2]);
     expect(worker.commits.where((c) => c == id(1)), hasLength(2));
@@ -460,7 +460,7 @@ void main() {
     await runIt(s);
     expect(localBaked, isEmpty);
     expect(failed..sort(), [1, 2, 3, 4]);
-    expect(errors.first, '云端烘焙未完成: Runpod 余额不足');
+    expect(errors.first, '云端超分未完成: Runpod 余额不足');
     expect(api.deleted, isEmpty);
     expect(s.view.message, 'Runpod 余额不足');
   });
@@ -770,11 +770,11 @@ void main() {
       total: 4,
       startedAt: start,
       pricePerHour: 1.09,
-      message: '云端 GPU 启动超时，改用本机烘焙',
+      message: '云端 GPU 启动超时，改用本机超分',
     );
     expect(
       view.summary(start.add(const Duration(minutes: 40))),
-      '云端烘焙完成 · 4 集 · 40 分钟 · \$0.00 · 云端 GPU 启动超时，改用本机烘焙',
+      '云端超分完成 · 4 集 · 40 分钟 · \$0.00 · 云端 GPU 启动超时，改用本机超分',
     );
   });
 
@@ -814,7 +814,7 @@ void main() {
     );
     expect(
       view.summary(start.add(const Duration(minutes: 68))),
-      '云端烘焙完成 · 3 集 · 68 分钟 · \$1.09',
+      '云端超分完成 · 3 集 · 68 分钟 · \$1.09',
     );
   });
 }

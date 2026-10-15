@@ -15,7 +15,7 @@ class KeepAwake {
 
   static final instance = KeepAwake._();
 
-  static const _reason = 'Kazumi 正在烘焙或上传超分视频';
+  static const _reason = 'Kazumi 正在超分或上传';
   static const _powerRequestSystemRequired = 1;
   static const _powerRequestContextSimpleString = 0x1;
   static const _invalidHandle = -1;

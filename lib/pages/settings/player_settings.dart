@@ -427,7 +427,7 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                   setState(() {});
                 },
                 title: Text('自动跳过片头'),
-                description: Text('仅对电脑端识别出的片头生效，一起看时不自动跳过'),
+                description: Text('仅限电脑端分析过的剧集，一起看时不跳过'),
                 initialValue: autoSkipOpening,
               ),
               SettingsTile.switchTile(
@@ -439,7 +439,7 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                   setState(() {});
                 },
                 title: Text('自动跳过片尾'),
-                description: Text('跳过后接着播放片尾后的预告'),
+                description: Text('跳到片尾后的预告'),
                 initialValue: autoSkipEnding,
               ),
               SettingsTile.switchTile(
@@ -450,8 +450,8 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                       SettingsKeys.aniSkipLookup, aniSkipLookup);
                   setState(() {});
                 },
-                title: Text('AniSkip 补充'),
-                description: Text('电脑端识别不出时，查询 AniSkip 的社区数据'),
+                title: Text('AniSkip'),
+                description: Text('电脑端未识别时使用 AniSkip 数据'),
                 initialValue: aniSkipLookup,
               ),
             ],

@@ -60,13 +60,13 @@ void main() {
     await pump(tester, quote(available: false));
     expect(find.textContaining('自动排队等待'), findsOneWidget);
     expect(find.text('排队等待'), findsOneWidget);
-    expect(find.text('本机烘焙全部'), findsOneWidget);
+    expect(find.text('全部用本机'), findsOneWidget);
     expect(find.text('开始'), findsNothing);
   });
 
   testWidgets('in stock there is no local button', (tester) async {
     await pump(tester, quote());
-    expect(find.text('本机烘焙全部'), findsNothing);
+    expect(find.text('全部用本机'), findsNothing);
   });
 
   test('cloud status text per stage', () {
@@ -87,7 +87,7 @@ void main() {
     );
     expect(
       cloudStatusText(const CloudEpisodePhase(CloudEpisodeStage.baking, 0.5)),
-      '☁ 烘焙中 50%',
+      '☁ 超分中 50%',
     );
     expect(
       cloudStatusText(
@@ -109,7 +109,7 @@ void main() {
         total: 4,
         startedAt: DateTime.now(),
         pricePerHour: 1.09,
-        message: '云端 GPU 启动超时，改用本机烘焙',
+        message: '云端 GPU 启动超时，改用本机超分',
       ),
     );
     await tester.pumpWidget(
@@ -123,7 +123,7 @@ void main() {
       find.widgetWithText(TextButton, '停止'),
     );
     expect(stop.onPressed, isNotNull);
-    expect(find.text('云端 GPU 启动超时，改用本机烘焙'), findsOneWidget);
+    expect(find.text('云端 GPU 启动超时，改用本机超分'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -154,9 +154,9 @@ void main() {
     }
 
     await tap(find.widgetWithText(TextButton, '停止'));
-    expect(find.text('停止云端烘焙？'), findsOneWidget);
-    await tap(find.text('继续烘焙'));
-    expect(find.text('停止云端烘焙？'), findsNothing);
+    expect(find.text('停止云端超分？'), findsOneWidget);
+    await tap(find.text('继续超分'));
+    expect(find.text('停止云端超分？'), findsNothing);
     expect(stops, 0);
     await tap(find.widgetWithText(TextButton, '停止'));
     await tap(find.widgetWithText(FilledButton, '停止'));

@@ -52,9 +52,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _onRemotePick(LibraryEpisode episode) {
     if (!mounted) return;
-    final who = controller.room.value.selection?.by ?? '对方';
     KazumiDialog.showToast(
-      message: '$who 选了 ${episode.manifest.displayEpisodeName}，正在打开',
+      message: '正在打开 ${episode.manifest.displayEpisodeName}',
     );
     controller.openEpisode(context, episode, announce: false);
   }
@@ -80,7 +79,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final leave = await KazumiDialog.show<bool>(
       builder: (context) => AlertDialog(
         title: const Text('退出片库'),
-        content: const Text('重新加入需要邀请链接，已下载的剧集会保留。'),
+        content: const Text('已下载的剧集会保留，重新加入需要邀请链接'),
         actions: [
           TextButton(
             onPressed: () => KazumiDialog.dismiss(popWith: false),
@@ -123,7 +122,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 itemBuilder: (context) => [
                   PopupMenuItem(
                     value: 'rename',
-                    child: Text('修改名字（${controller.displayName}）'),
+                    child: Text('修改名字'),
                   ),
                   CheckedPopupMenuItem(
                     value: 'wifi',
@@ -517,7 +516,7 @@ class _RoomCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      others.isEmpty ? '等对方进来…' : '你们都在',
+                      others.isEmpty ? '等待对方加入…' : '人齐了',
                       style: text.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: colors.onPrimaryContainer,
@@ -528,7 +527,7 @@ class _RoomCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '点一集，双方同时播放',
+                '点一集一起播放',
                 style: text.bodyMedium?.copyWith(
                   color: colors.onPrimaryContainer.withValues(alpha: 0.8),
                 ),
@@ -557,7 +556,7 @@ class _RoomCard extends StatelessWidget {
   }
 
   String _statusOf(LibraryMember member) {
-    if (!member.watching) return '在大厅';
+    if (!member.watching) return '在线';
     final episode = controller.byId(member.episodeId);
     if (episode == null) return '正在看';
     return '正在看 ${episode.manifest.displayEpisodeName}';
@@ -877,7 +876,7 @@ class _EpisodeRow extends StatelessWidget {
       case DownloadStatus.paused:
         return (Icons.pause_circle_outline_rounded, '下载已暂停', null);
       case DownloadStatus.failed:
-        return (Icons.error_outline_rounded, '下载失败，将在线播放', null);
+        return (Icons.error_outline_rounded, '下载失败，改为在线播放', null);
       default:
         return (Icons.schedule_rounded, '排队下载', null);
     }
@@ -897,7 +896,7 @@ class _EmptyLibrary extends StatelessWidget {
           Icon(Icons.movie_filter_outlined, size: 56, color: colors.outline),
           const SizedBox(height: 12),
           Text(
-            '空空的',
+            '暂无剧集',
             textAlign: TextAlign.center,
             style: TextStyle(color: colors.onSurfaceVariant),
           ),

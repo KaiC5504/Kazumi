@@ -321,7 +321,7 @@ void main() {
       her.switchNetwork(NetKind.cellular);
       await clock.wait(5);
       expect(her.sync.reconnectAttempts, 0);
-      expect(simNotices, contains('已跟上 kai 的进度'));
+      expect(simNotices, contains('已同步 kai 的进度'));
     });
   });
 

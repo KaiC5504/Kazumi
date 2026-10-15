@@ -97,7 +97,7 @@ const _measured = <String, SourceQuality>{
     height: 1080,
     video: 3,
     audio: 2,
-    detail: '与 DM84 同源（推断）',
+    detail: '疑似与 DM84 同源',
   ),
   'lmm': SourceQuality(
     height: 1080,
@@ -163,8 +163,8 @@ const _measured = <String, SourceQuality>{
   'qkan9': SourceQuality.blocked('Cloudflare 拦截'),
   'mgnacg': SourceQuality.blocked('本地线路已下线，其余线路加载失败'),
   'dalvdm': SourceQuality.blocked('Cloudflare 拦截'),
-  'ee': SourceQuality.unknown('未能获取视频，未测'),
-  'ezdmw': SourceQuality.unknown('未能获取视频，未测'),
+  'ee': SourceQuality.unknown('无法获取视频'),
+  'ezdmw': SourceQuality.unknown('无法获取视频'),
 };
 
 SourceQuality? sourceQualityFor(String pluginName) =>

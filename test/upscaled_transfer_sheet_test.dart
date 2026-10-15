@@ -40,8 +40,8 @@ Future<List<int>> _pump(
     MaterialApp(
       home: Scaffold(
         body: UpscaledTransferSheet(
-          title: '从电脑拉取',
-          actionLabel: '开始拉取',
+          title: '从电脑传输',
+          actionLabel: '开始传输',
           items: items,
           run: (index, _) async => ran.add(index),
           doneMessage: (count) => '$count',
@@ -66,7 +66,7 @@ void main() {
     expect(find.text('冰菓'), findsOneWidget);
     expect(find.text('Fate'), findsOneWidget);
     expect(find.text('已选 0 集 · 0 B'), findsOneWidget);
-    expect(find.text('0/2 已选'), findsNWidgets(2));
+    expect(find.text('已选 0/2'), findsNWidgets(2));
   });
 
   testWidgets('show checkbox picks that show only, skipping up-to-date', (
@@ -79,10 +79,10 @@ void main() {
     );
     await tester.tap(fateCheckbox);
     await tester.pump();
-    expect(find.textContaining('2/2 已选'), findsOneWidget);
-    expect(find.text('0/2 已选'), findsOneWidget);
+    expect(find.textContaining('已选 2/2'), findsOneWidget);
+    expect(find.text('已选 0/2'), findsOneWidget);
 
-    await tester.tap(find.text('开始拉取'));
+    await tester.tap(find.text('开始传输'));
     await tester.pumpAndSettle();
     expect(ran, [1, 3]);
   });

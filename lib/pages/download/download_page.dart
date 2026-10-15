@@ -72,7 +72,7 @@ class _DownloadPageState extends State<DownloadPage> {
           if (!isDesktop())
             IconButton(
               icon: const Icon(Icons.wifi_rounded),
-              tooltip: '从电脑拉取超分剧集',
+              tooltip: '从电脑传输',
               onPressed: () => showLanPullFlow(context, upscaleController),
             ),
           if (upscaleController.canBake &&
@@ -158,12 +158,12 @@ class _DownloadPageState extends State<DownloadPage> {
         extraMenuItems: [
           if (upscaleController.canBake)
             KazumiMenuItem(
-              label: '全部烘焙超分',
+              label: '全部超分',
               onPressed: () => _bakeAll(record),
             ),
           if (showCloudUi(upscaleController.canBake))
             KazumiMenuItem(
-              label: '☁ 云端烘焙全部',
+              label: '☁ 全部云端超分',
               onPressed: () => showCloudBakeFlow(
                 context,
                 upscaleController,
@@ -247,12 +247,12 @@ class _DownloadPageState extends State<DownloadPage> {
         if (cloudPhase != null) return '$base · ${cloudStatusText(cloudPhase)}';
         switch (episode.upscaleStatus) {
           case UpscaleStatus.queued:
-            return '$base · 等待烘焙超分';
+            return '$base · 等待超分';
           case UpscaleStatus.baking:
             final percent = ((bakeProgress ?? 0) * 100).toStringAsFixed(0);
-            return '$base · 正在烘焙超分 $percent%';
+            return '$base · 超分中 $percent%';
           case UpscaleStatus.done:
-            return inLibrary ? '$base · 已烘焙超分 · 已在片库' : '$base · 已烘焙超分';
+            return inLibrary ? '$base · 已超分 · 已在片库' : '$base · 已超分';
           case UpscaleStatus.failed:
             return episode.errorMessage.isNotEmpty
                 ? episode.errorMessage
@@ -367,7 +367,7 @@ class _DownloadPageState extends State<DownloadPage> {
     if (!upscaleController.canBake || episode.preUpscaled) return const [];
     final cloudButton = _smallAction(
         Icons.cloud_upload_outlined,
-        '云端烘焙 (加入云端队列)',
+        '云端超分',
         () => showCloudEpisodeFlow(
             context, upscaleController, record, episode.episodeNumber),
         accent: true);
@@ -392,7 +392,7 @@ class _DownloadPageState extends State<DownloadPage> {
         return [
           _smallAction(
               Icons.stop_circle_outlined,
-              '取消烘焙',
+              '取消超分',
               () => upscaleController.cancelBake(
                   record.key, episode.episodeNumber)),
           if (episode.upscaleStatus == UpscaleStatus.queued &&
@@ -409,7 +409,7 @@ class _DownloadPageState extends State<DownloadPage> {
         ];
       default:
         return [
-          _smallAction(Icons.auto_awesome_outlined, '烘焙超分 (质量档)',
+          _smallAction(Icons.auto_awesome_outlined, '超分 (质量档)',
               () => _bakeEpisode(record, episode),
               accent: true),
           if (showCloudUi(upscaleController.canBake)) cloudButton,
@@ -421,7 +421,7 @@ class _DownloadPageState extends State<DownloadPage> {
       DownloadRecord record, DownloadEpisode episode) async {
     final error =
         await upscaleController.enqueueBake(record.key, episode.episodeNumber);
-    KazumiDialog.showToast(message: error ?? '已加入超分烘焙队列');
+    KazumiDialog.showToast(message: error ?? '已加入超分队列');
   }
 
   Future<void> _bakeAll(DownloadRecord record) async {
@@ -445,16 +445,16 @@ class _DownloadPageState extends State<DownloadPage> {
     }
     KazumiDialog.showToast(
         message: queued > 0
-            ? '已加入 $queued 集到超分烘焙队列'
-            : (lastError ?? '没有可烘焙的剧集'));
+            ? '已加入 $queued 集到超分队列'
+            : (lastError ?? '没有可超分的剧集'));
   }
 
   Future<void> _analyzeSkips(DownloadRecord record) async {
     if (upscaleController.analyzingSkips.contains(record.key)) {
-      KazumiDialog.showToast(message: '正在分析中');
+      KazumiDialog.showToast(message: '分析中');
       return;
     }
-    KazumiDialog.showToast(message: '开始分析片头片尾，每集约需几秒');
+    KazumiDialog.showToast(message: '正在分析片头片尾');
     final int? changed;
     try {
       changed = await upscaleController.analyzeSkips(record.key);
@@ -467,8 +467,8 @@ class _DownloadPageState extends State<DownloadPage> {
         message: changed == null
             ? 'ffmpeg 不支持 chromaprint，请使用 gyan.dev full 版本'
             : changed > 0
-                ? '已更新 $changed 集的片头片尾，已导出的剧集请在 iPad 上重新导入'
-                : '片头片尾没有变化');
+                ? '已更新 $changed 集片头片尾，iPad 需重新导入'
+                : '片头片尾无变化');
   }
 
   Widget _smallAction(IconData icon, String tooltip, VoidCallback onPressed,
@@ -561,8 +561,8 @@ class _DownloadPageState extends State<DownloadPage> {
         message: queued > 0
             ? '已加入 $queued 集到片库上传队列'
             : skipped > 0
-                ? '已烘焙的剧集都在片库里了'
-                : (lastError ?? '没有已烘焙的剧集，请先烘焙超分'));
+                ? '已超分的都在片库了'
+                : (lastError ?? '没有已超分的剧集'));
   }
 
   Future<void> _exportEpisode(

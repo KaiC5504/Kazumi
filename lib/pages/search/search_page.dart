@@ -306,7 +306,7 @@ class _SearchPageState extends State<SearchPage> {
               Text(
                   busy
                       ? '正在搜索…'
-                      : '${items.length} 部番剧${hidden > 0 ? ' · 隐藏 $hidden 部' : ''}',
+                      : '${items.length} 部番剧${hidden > 0 ? ' · 已隐藏 $hidden 部' : ''}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant)),
               if (!busy && hidden > 0 && items.isNotEmpty)

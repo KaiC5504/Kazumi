@@ -20,7 +20,7 @@ String cloudStatusText(CloudEpisodePhase phase) {
     CloudEpisodeStage.queued => phase.laptop ? '本机排队中' : '☁ 排队中',
     CloudEpisodeStage.uploading => '☁ 上传中 $percent',
     CloudEpisodeStage.waiting => '☁ 等待 GPU',
-    CloudEpisodeStage.baking => '☁ 烘焙中 $percent',
+    CloudEpisodeStage.baking => '☁ 超分中 $percent',
     CloudEpisodeStage.downloading => '☁ 下载中 $percent',
   };
 }
@@ -203,10 +203,10 @@ Future<CloudBakeChoice?> _askLocalFaster(CloudBakeQuote quote) {
   final cloud = quote.allCloud().estimate.finishSec;
   return KazumiDialog.show<CloudBakeChoice>(
     builder: (context) => AlertDialog(
-      title: const Text('本机烘焙更快'),
+      title: const Text('本机更快'),
       content: Text(
-        '本机约 ${_minutes(quote.estimate.localOnlySec)} 烘焙完，'
-        '云端约 ${_minutes(cloud)} (含启动 GPU)。',
+        '本机约 ${_minutes(quote.estimate.localOnlySec)}，'
+        '云端约 ${_minutes(cloud)}（含启动）',
       ),
       actions: [
         TextButton(
@@ -219,7 +219,7 @@ Future<CloudBakeChoice?> _askLocalFaster(CloudBakeQuote quote) {
         ),
         FilledButton(
           onPressed: () => KazumiDialog.dismiss(popWith: CloudBakeChoice.local),
-          child: const Text('本机烘焙'),
+          child: const Text('用本机'),
         ),
       ],
     ),
@@ -268,7 +268,7 @@ class CloudBakeConfirmSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 16),
-                Expanded(child: Text('云端烘焙', style: textTheme.titleLarge)),
+                Expanded(child: Text('云端超分', style: textTheme.titleLarge)),
               ],
             ),
             if (waiting) ...[
@@ -324,12 +324,12 @@ class CloudBakeConfirmSheet extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'L40S 悉尼 ${cloudMoney(price)}/小时 · 按秒计费，做完自动删除 GPU',
+              'L40S 悉尼 ${cloudMoney(price)}/小时 · 按秒计费，完成后自动释放 GPU',
               style: note,
             ),
-            Text('运行中可在每集旁点 ☁ 继续加入云端队列', style: note),
+            Text('运行中可点每集旁的 ☁ 加入队列', style: note),
             if (!quote.includeLocal)
-              Text('本机不参与烘焙 (全部烘焙时可在下载设置中开启)', style: note),
+              Text('本机不参与（可在下载设置开启）', style: note),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -345,7 +345,7 @@ class CloudBakeConfirmSheet extends StatelessWidget {
                     child: OutlinedButton(
                       onPressed: () =>
                           Navigator.of(context).pop(CloudBakeChoice.local),
-                      child: const Text('本机烘焙全部'),
+                      child: const Text('全部用本机'),
                     ),
                   ),
                 ],
@@ -466,9 +466,9 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
 
   Future<void> _stop() async {
     final confirmed = await _confirm(
-      '停止云端烘焙？',
-      '会立即删除云端 GPU。云端正在处理的剧集回到未烘焙，本机正在烘焙的那一集会继续。',
-      no: '继续烘焙',
+      '停止云端超分？',
+      '会立即释放 GPU，云端未完成的剧集需重新超分，本机继续。',
+      no: '继续超分',
       yes: '停止',
     );
     if (!confirmed) return;
@@ -508,7 +508,7 @@ class _CloudBakeBannerState extends State<CloudBakeBanner> {
     final title = switch (view.phase) {
       CloudBakePhase.waiting => '等待悉尼 GPU · 有空位自动启动',
       CloudBakePhase.starting => '正在启动 GPU',
-      CloudBakePhase.running => '云端烘焙中',
+      CloudBakePhase.running => '云端超分中',
       CloudBakePhase.finishing => '正在收尾',
       CloudBakePhase.done => '已完成',
       CloudBakePhase.stopped => '已停止',
@@ -626,14 +626,14 @@ Future<void> checkLeftoverCloudPods(UpscaleController controller) async {
         : '已运行 ${DateTime.now().difference(created).inMinutes} 分钟，';
     final delete = await _confirm(
       '发现仍在运行的云端 GPU',
-      '${pod.name} $age按 ${cloudMoney(pod.costPerHour)}/小时计费。是否删除？',
+      '${pod.name} $age按 ${cloudMoney(pod.costPerHour)}/小时计费。是否释放？',
       no: '保留',
       yes: '删除',
     );
     if (!delete) continue;
     try {
       await controller.deleteCloudPod(pod.id);
-      KazumiDialog.showToast(message: '已删除云端 GPU');
+      KazumiDialog.showToast(message: '已释放云端 GPU');
     } on RunpodException catch (e) {
       KazumiDialog.showToast(message: e.message);
     }

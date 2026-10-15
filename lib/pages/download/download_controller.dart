@@ -1059,7 +1059,7 @@ abstract class _DownloadController with Store {
       String pluginName, DownloadEpisode episode,
       {bool priority = false}) async {
     if (episode.networkM3u8Url.isEmpty) {
-      _failEpisode(recordKey, episode.episodeNumber, '缺少来源地址，请重新从电脑拉取');
+      _failEpisode(recordKey, episode.episodeNumber, '缺少来源地址，请重新从电脑传输');
       return;
     }
     episode.status = DownloadStatus.downloading;

@@ -18,7 +18,7 @@ Future<bool> ensureUpscaleExportDirectory() async {
     return true;
   }
   final selected = await FilePicker.platform.getDirectoryPath(
-    dialogTitle: '选择导出位置 (建议选 iCloud Drive 或 OneDrive 文件夹)',
+    dialogTitle: '选择导出位置',
   );
   if (selected == null || selected.isEmpty) return false;
   await GStorage.putSetting<String>(
@@ -88,15 +88,15 @@ Future<void> showLanPullFlow(
   if (connection == null || !context.mounted) return;
   final (client, manifests) = connection;
   if (manifests.isEmpty) {
-    KazumiDialog.showToast(message: '电脑上还没有烘焙好的超分剧集');
+    KazumiDialog.showToast(message: '电脑上没有超分剧集');
     return;
   }
 
   await showAdaptiveBottomSheet<void>(
     context: context,
     builder: (context) => UpscaledTransferSheet(
-      title: '从电脑拉取',
-      actionLabel: '开始拉取',
+      title: '从电脑传输',
+      actionLabel: '开始传输',
       items: [
         for (final m in manifests) UpscaledTransferItem.of(controller, m),
       ],
@@ -317,7 +317,7 @@ class _TransferSheetState extends State<UpscaledTransferSheet> {
       0,
       (sum, i) => sum + widget.items[i].transferBytes,
     );
-    var meta = '${picked.length}/${group.indices.length} 已选';
+    var meta = '已选 ${picked.length}/${group.indices.length}';
     if (picked.isNotEmpty) meta += ' · ${formatBytes(pickedBytes)}';
 
     return Card(
@@ -431,7 +431,7 @@ class _TransferSheetState extends State<UpscaledTransferSheet> {
     final error = _errors[i];
     String subtitle = '${formatBytes(m.sizeBytes)} · 超分版';
     if (item.replaces) subtitle += ' · 将替换已下载的版本';
-    if (item.skipTimesOnly) subtitle = '已导入 · 更新片头片尾';
+    if (item.skipTimesOnly) subtitle = '已导入 · 片头片尾有更新';
     if (item.upToDate) subtitle = '已导入 · 已是最新';
     if (error != null) subtitle = '失败: $error';
     return CheckboxListTile(
@@ -523,7 +523,7 @@ class _LanConnectDialogState extends State<_LanConnectDialog> {
     final address = _address.text.trim();
     final token = _token.text.trim();
     if (address.isEmpty || token.isEmpty) {
-      setState(() => _error = '请填写电脑地址和连接码');
+      setState(() => _error = '请填写电脑地址和配对码');
       return;
     }
     setState(() {
@@ -555,7 +555,7 @@ class _LanConnectDialogState extends State<_LanConnectDialog> {
         children: [
           const Text(
             '在电脑端 Kazumi 的「下载设置」中开启局域网共享，'
-            '然后填写那里显示的地址和连接码。',
+            '然后填写那里显示的地址和配对码。',
           ),
           const SizedBox(height: 16),
           TextField(
@@ -574,7 +574,7 @@ class _LanConnectDialogState extends State<_LanConnectDialog> {
             enabled: !_connecting,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: '连接码',
+              labelText: '配对码',
               border: const OutlineInputBorder(),
               errorText: _error,
               errorMaxLines: 3,

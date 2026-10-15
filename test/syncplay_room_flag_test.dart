@@ -82,7 +82,7 @@ void main() {
     simNotices.clear();
     await sync.createRoom('room', 'her', _noEpisodeChange);
     expect(sync.inRoom, isFalse);
-    expect(simNotices, contains('连不上同步服务器'));
+    expect(simNotices, contains('无法连接同步服务器'));
     await sync.dispose();
   });
 }

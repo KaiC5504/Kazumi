@@ -240,7 +240,7 @@ class TestflightUpdate {
     } catch (e) {
       KazumiLogger().w('Update: TestFlight web link failed', error: e);
     }
-    KazumiDialog.showToast(message: '打不开 TestFlight，请手动打开并更新 Kazumi');
+    KazumiDialog.showToast(message: '无法打开 TestFlight，请手动更新');
   }
 
   void dispose() {
@@ -283,7 +283,7 @@ class UpdateDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (required) const Text('这个版本需要更新后才能继续使用。'),
+              if (required) const Text('当前版本已停用，请更新'),
               if (required && release.notes.isNotEmpty)
                 const SizedBox(height: 8),
               if (release.notes.isNotEmpty) Text(release.notes),

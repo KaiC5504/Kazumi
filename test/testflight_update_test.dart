@@ -231,7 +231,7 @@ void main() {
         TestflightUpdate.testflightUri,
         TestflightUpdate.testflightWebUri,
       ]);
-      expect(find.text('打不开 TestFlight，请手动打开并更新 Kazumi'), findsOneWidget);
+      expect(find.text('无法打开 TestFlight，请手动更新'), findsOneWidget);
       u.dispose();
     });
 

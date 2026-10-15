@@ -118,7 +118,7 @@ class PublicUpdate {
     } catch (e) {
       KazumiLogger().w('Update: could not open the release page', error: e);
     }
-    KazumiDialog.showToast(message: '打不开浏览器，请访问 ${release.page}');
+    KazumiDialog.showToast(message: '无法打开浏览器，请访问 ${release.page}');
   }
 
   static Future<String> _fetchFromGitHub() => fetchUpdateText(

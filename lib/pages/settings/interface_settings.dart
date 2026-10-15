@@ -96,7 +96,7 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
                   onToggle: _toggleEpisodeReminders,
                   title: Text('新集提醒'),
                   description: Text(denied
-                      ? '未授权，去系统设置开启'
+                      ? '未开启通知权限'
                       : '在看的番剧更新后第二天 10:00 提醒'),
                   initialValue: episodeReminders && !denied,
                 ),

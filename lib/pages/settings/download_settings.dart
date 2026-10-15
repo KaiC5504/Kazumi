@@ -126,7 +126,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            hintText: r'例如 D:\Tools\ffmpeg\bin\ffmpeg.exe，留空则使用 PATH',
+            hintText: '留空使用系统 PATH',
             border: OutlineInputBorder(),
           ),
         ),
@@ -151,7 +151,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
 
   Future<void> _selectExportDirectory() async {
     final selected = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择导出位置 (建议选 iCloud Drive 或 OneDrive 文件夹)',
+      dialogTitle: '选择导出位置',
     );
     if (selected == null || selected.isEmpty) return;
     await GStorage.putSetting<String>(
@@ -275,7 +275,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
         TextStyle(color: Theme.of(context).textTheme.bodySmall?.color);
     return [
       SettingsSection(
-        title: Text('超分烘焙 (将质量档超分写入视频，供 iPad 等设备直接播放)'),
+        title: Text('超分（写入视频，iPad 直接播放）'),
         tiles: [
           SettingsTile(
             leading: Icons.movie_filter_rounded,
@@ -292,8 +292,8 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
             leading: Icons.high_quality_rounded,
             title: Text('输出分辨率'),
             description: Text(bakeHeight >= 2160
-                ? '2160p · 画质更细，每集约 1-2 GB'
-                : '1440p · 接近 iPad 屏幕分辨率，每集约 0.5-1 GB'),
+                ? '2160p · 每集约 1-2 GB'
+                : '1440p · 每集约 0.5-1 GB'),
             trailing: SegmentedButton<int>(
               segments: const [
                 ButtonSegment(value: 1440, label: Text('1440p')),
@@ -317,7 +317,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
                 Text(exportDirectory.isEmpty ? '未设置' : exportDirectory),
                 const SizedBox(height: 8),
                 Text(
-                  '选 iCloud Drive / OneDrive 同步文件夹，iPad 关机状态下也能从「文件」导入',
+                  '选同步文件夹（iCloud / OneDrive），电脑关机也能导入',
                   style: hintStyle,
                 ),
               ],
@@ -326,8 +326,8 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           ),
           SettingsTile.switchTile(
             leading: Icons.sync_rounded,
-            title: Text('烘焙后自动导出'),
-            description: Text('烘焙完成后自动复制到导出位置'),
+            title: Text('超分后自动导出'),
+            description: Text('复制到导出位置'),
             initialValue: autoExport,
             onToggle: (value) {
               setState(() => autoExport = value ?? !autoExport);
@@ -342,10 +342,10 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
         tiles: [
           SettingsTile(
             leading: Icons.wifi_tethering_rounded,
-            title: Text('共享已烘焙的剧集'),
+            title: Text('共享已超分剧集'),
             description: Observer(builder: (context) {
               if (!upscaleController.lanShareRunning.value) {
-                return Text('开启后，同一 Wi-Fi 下的 iPad 可在下载管理中点击 Wi-Fi 图标拉取');
+                return Text('同一 Wi-Fi 下的 iPad 可在下载管理中传输');
               }
               final address = lanAddresses.isEmpty
                   ? '无法获取本机 IP'
@@ -354,9 +354,9 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('电脑地址: $address'),
-                  Text('连接码: ${upscaleController.lanShareToken()}'),
+                  Text('配对码: ${upscaleController.lanShareToken()}'),
                   const SizedBox(height: 8),
-                  Text('首次开启时 Windows 会询问防火墙，请允许「专用网络」',
+                  Text('首次开启请在防火墙中允许「专用网络」',
                       style: hintStyle),
                 ],
               );
@@ -408,8 +408,8 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           ),
           SettingsTile.switchTile(
             leading: Icons.cloud_upload_rounded,
-            title: Text('烘焙后自动上传'),
-            description: Text('烘焙完成后自动上传到片库，断线会自动续传'),
+            title: Text('超分后自动上传'),
+            description: Text('断线自动续传'),
             initialValue: libraryAutoUpload,
             onToggle: (value) {
               setState(() => libraryAutoUpload = value ?? !libraryAutoUpload);
@@ -420,7 +420,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
         ],
       ),
       SettingsSection(
-        title: Text('云端烘焙 (Runpod)'),
+        title: Text('云端超分 (Runpod)'),
         tiles: [
           SettingsTile(
             leading: Icons.key_rounded,
@@ -437,8 +437,8 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           ),
           SettingsTile.switchTile(
             leading: Icons.computer_rounded,
-            title: Text('同时用本机烘焙'),
-            description: Text('云端从第一集往后烘焙，本机从最后一集往前，一起做完'),
+            title: Text('本机同时超分'),
+            description: Text('云端从头、本机从尾一起做'),
             initialValue: cloudIncludeLocal,
             onToggle: (value) {
               setState(() => cloudIncludeLocal = value ?? !cloudIncludeLocal);
@@ -449,7 +449,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           SettingsTile(
             leading: Icons.open_in_new_rounded,
             title: Text('打开 Runpod 控制台'),
-            description: Text('查看余额、充值，或确认 GPU 已删除'),
+            description: Text('查看余额或确认 GPU 已释放'),
             onPressed: (_) => launchUrl(
               Uri.parse('https://console.runpod.io/pods'),
               mode: LaunchMode.externalApplication,
@@ -571,7 +571,7 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
                 SettingsTile(
                   leading: Icons.alt_route_rounded,
                   title: Text('一起看线路'),
-                  description: Text('默认香港；可重新测速'),
+                  description: Text('默认香港'),
                   onPressed: (_) =>
                       showRouteSheet(context, inject<LibraryController>()),
                 ),

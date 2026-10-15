@@ -214,7 +214,7 @@ class LanShareClient {
         const Duration(seconds: 15),
       );
       if (response.statusCode == HttpStatus.unauthorized) {
-        throw const LanShareException('连接码错误');
+        throw const LanShareException('配对码错误');
       }
       if (response.statusCode != HttpStatus.ok) {
         throw LanShareException('电脑返回错误 ${response.statusCode}');

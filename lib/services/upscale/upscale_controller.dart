@@ -278,14 +278,14 @@ class UpscaleController {
 
   /// Returns an error message, or null once the episode is queued.
   Future<String?> enqueueBake(String recordKey, int episodeNumber) async {
-    if (!canBake) return '仅支持在电脑端烘焙';
+    if (!canBake) return '仅电脑端可超分';
     final episode = _repository.getRecord(recordKey)?.episodes[episodeNumber];
     if (episode == null || episode.status != DownloadStatus.completed) {
       return '请先完成下载';
     }
-    if (episode.preUpscaled) return '该集已是超分版本';
-    if (episode.upscaleStatus == UpscaleStatus.done) return '该集已烘焙超分';
-    if (cloudHolds(recordKey, episodeNumber)) return '该集正在云端烘焙';
+    if (episode.preUpscaled) return '这集已是超分版';
+    if (episode.upscaleStatus == UpscaleStatus.done) return '这集已超分';
+    if (cloudHolds(recordKey, episodeNumber)) return '这集正在云端超分';
     final (ffmpeg, error) = await _ensureFfmpeg();
     if (ffmpeg == null) return error ?? '未找到可用的 ffmpeg';
     if (_bakeQueue.contains((recordKey, episodeNumber)) ||
@@ -327,7 +327,7 @@ class UpscaleController {
   bool get cloudRunning => _cloud != null;
 
   Future<FfmpegInfo> _requireCloud() async {
-    if (!canBake) throw const CloudBakeException('仅支持在电脑端烘焙');
+    if (!canBake) throw const CloudBakeException('仅电脑端可超分');
     if (!hasRunpodKey) {
       throw const CloudBakeException('请先在下载设置中填写 Runpod API Key');
     }
@@ -362,7 +362,7 @@ class UpscaleController {
             .toList()
           ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
     if (episodes.isEmpty) {
-      throw CloudBakeException(episodeNumber == null ? '没有可烘焙的剧集' : '该集无法上云烘焙');
+      throw CloudBakeException(episodeNumber == null ? '没有可超分的剧集' : '这集无法云端超分');
     }
     final durations = await _durationsSec(ffmpeg, episodes);
     return [
@@ -488,7 +488,7 @@ class UpscaleController {
     );
     if (!identical(session, _cloud)) return null;
     final jobs = _notOnLaptop(probed);
-    if (jobs.isEmpty) throw const CloudBakeException('该集已在本机烘焙');
+    if (jobs.isEmpty) throw const CloudBakeException('这集已在本机超分');
     final added = session.add(jobs);
     if (!added) {
       throw const CloudBakeException('云端 GPU 正在收尾，请稍后再试');
@@ -527,7 +527,7 @@ class UpscaleController {
   }
 
   Future<void> startCloudBake(CloudBakeQuote quote) async {
-    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
+    if (_cloud != null) throw const CloudBakeException('云端超分进行中');
     final ffmpeg = _ffmpeg;
     if (ffmpeg == null) throw const CloudBakeException('未找到可用的 ffmpeg');
     const script = packedCloudWorker;
@@ -536,9 +536,9 @@ class UpscaleController {
         _shaderAssetService.shadersDirectory.path,
       ),
     ).readAsString();
-    if (_cloud != null) throw const CloudBakeException('已有云端烘焙在进行');
+    if (_cloud != null) throw const CloudBakeException('云端超分进行中');
     final jobs = _notOnLaptop(quote.jobs);
-    if (jobs.isEmpty) throw const CloudBakeException('该集已在本机烘焙');
+    if (jobs.isEmpty) throw const CloudBakeException('这集已在本机超分');
 
     final session = CloudBakeSession(
       api: _runpod(),
@@ -826,7 +826,7 @@ class UpscaleController {
     if (record == null ||
         episode == null ||
         episode.upscaleStatus != UpscaleStatus.done) {
-      return '该集尚未完成超分';
+      return '这集未超分';
     }
 
     final key = progressKey(recordKey, episodeNumber);
@@ -1062,7 +1062,7 @@ class UpscaleController {
     if (!canUploadToLibrary) return '请先在下载设置中填写片库服务器和上传密钥';
     final episode = _repository.getRecord(recordKey)?.episodes[episodeNumber];
     if (episode == null || episode.upscaleStatus != UpscaleStatus.done) {
-      return '该集尚未完成超分';
+      return '这集未超分';
     }
     final key = progressKey(recordKey, episodeNumber);
     if (uploadProgress.containsKey(key)) return null;

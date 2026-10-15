@@ -1054,7 +1054,7 @@ class _PlayerItemState extends State<PlayerItem>
 
   bool _speedLockedInRoom() {
     if (!playerController.syncplay.speedLocked) return false;
-    GlassNotice.show('一起看时不能调速', icon: Icons.speed_rounded);
+    GlassNotice.show('一起看时无法调速', icon: Icons.speed_rounded);
     return true;
   }
 

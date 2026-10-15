@@ -237,14 +237,14 @@ class CloudBakeSessionView {
   String summary(DateTime now) {
     final minutes = now.difference(startedAt).inMinutes;
     final cost = '\$${costAt(now).toStringAsFixed(2)}';
-    if (phase == CloudBakePhase.stopped) return '已停止云端烘焙 · 费用 $cost';
+    if (phase == CloudBakePhase.stopped) return '已停止云端超分 · 费用 $cost';
     final failedText = failed > 0 ? ' · $failed 集失败' : '';
     final done = cloudDone + localDone;
     if (done == 0 && podStartedAt == null && failed == 0) {
-      return '云端烘焙已结束，未启动 GPU${message == null ? '' : ' · $message'}';
+      return '云端超分已结束，未启动 GPU${message == null ? '' : ' · $message'}';
     }
     final note = message == null ? '' : ' · $message';
-    return '云端烘焙完成 · $done 集 · $minutes 分钟 · '
+    return '云端超分完成 · $done 集 · $minutes 分钟 · '
         '$cost$failedText$note';
   }
 }
@@ -707,7 +707,7 @@ class CloudBakeSession {
         LocalBakeOutcome.done => CloudEpisodeOutcome.local,
         LocalBakeOutcome.failed => CloudEpisodeOutcome.failed,
         LocalBakeOutcome.cancelled => CloudEpisodeOutcome.returned,
-      }, error: outcome == LocalBakeOutcome.failed ? '本机烘焙失败' : null);
+      }, error: outcome == LocalBakeOutcome.failed ? '本机超分失败' : null);
       _notify();
       _wake();
     }
@@ -722,7 +722,7 @@ class CloudBakeSession {
       _fallback.add(job);
     } else {
       _failed++;
-      await _failedJob(job, '云端烘焙未完成: $reason');
+      await _failedJob(job, '云端超分未完成: $reason');
     }
     _wake();
     _notify();
@@ -810,7 +810,7 @@ class CloudBakeSession {
       if (!_stopped) {
         _message = e is RunpodException || e is CloudBakeException
             ? '$e'
-            : '云端烘焙出错: $e';
+            : '云端超分出错: $e';
         KazumiLogger().w('CloudBakeSession: cloud lane ended', error: e);
       }
     } finally {
@@ -821,7 +821,7 @@ class CloudBakeSession {
         if (_stopped) {
           await _returnedJob(job);
         } else {
-          await _giveUp(job, _message ?? '云端烘焙中断');
+          await _giveUp(job, _message ?? '云端超分中断');
         }
       }
       if (!_stopped) _phase = CloudBakePhase.finishing;
@@ -977,7 +977,7 @@ class CloudBakeSession {
           if (episode.state == 'baking' && _stalled(job.id, episode.progress)) {
             KazumiLogger().w('CloudBakeSession: ${job.id} stalled on the pod');
             worker.drop(job.id).ignore();
-            await _dropFromPod(job, '云端烘焙卡住');
+            await _dropFromPod(job, '云端超分卡住');
             continue;
           }
           switch (episode.state) {
@@ -1003,7 +1003,7 @@ class CloudBakeSession {
                 _fallback.add(job);
               } else {
                 _failed++;
-                await _failedJob(job, '云端烘焙失败: ${episode.error}');
+                await _failedJob(job, '云端超分失败: ${episode.error}');
               }
               _wake();
           }
@@ -1112,7 +1112,7 @@ class CloudBakeSession {
         KazumiLogger().w('CloudBakeSession: deleting pod $id failed', error: e);
       }
       if (DateTime.now().isAfter(deadline)) {
-        _message = '无法确认云端 GPU 已删除，请到 Runpod 控制台检查';
+        _message = '无法确认 GPU 已释放，请到 Runpod 控制台检查';
         break;
       }
       await Future.delayed(pollInterval);

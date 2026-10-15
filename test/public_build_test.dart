@@ -148,7 +148,7 @@ void main() {
           find.text('Kazumi Plus ${ApiEndpoints.version}'),
           findsOneWidget,
         );
-        expect(find.textContaining('与官方无关'), findsOneWidget);
+        expect(find.textContaining('非官方'), findsOneWidget);
         expect(
           tester.getTopLeft(find.byType(ForkAboutSection)).dy,
           lessThan(tester.getTopLeft(find.text('项目')).dy),

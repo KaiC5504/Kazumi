@@ -214,7 +214,7 @@ abstract class _PlayerSyncPlayController with Store {
     KazumiLogger().i('SyncPlay: connecting to $syncPlayEndPoint');
     final parsed = parseSyncPlayEndPoint(syncPlayEndPoint);
     if (parsed == null) {
-      GlassNotice.show('同步服务器地址不对',
+      GlassNotice.show('同步服务器地址错误',
           icon: Icons.error_outline_rounded, bottom: true);
       KazumiLogger().e('SyncPlay: invalid server address $syncPlayEndPoint');
       if (!reconnecting) {
@@ -294,7 +294,7 @@ abstract class _PlayerSyncPlayController with Store {
             }
             if (message['username'] == '') {
               if (!quiet) {
-                GlassNotice.show('房间里只有你，等对方加入',
+                GlassNotice.show('等待对方加入',
                     icon: Icons.hourglass_empty_rounded);
               }
               setPlayingBangumi();
@@ -302,7 +302,7 @@ abstract class _PlayerSyncPlayController with Store {
               _pendingLeft.remove(named);
               _peerFiles.putIfAbsent(named, () => _leftFiles.remove(named));
               if (!quiet) {
-                GlassNotice.show('已跟上 $named 的进度', icon: Icons.sync_rounded);
+                GlassNotice.show('已同步 $named 的进度', icon: Icons.sync_rounded);
               }
               _announceWhenCaughtUp = true;
             }
@@ -388,7 +388,7 @@ abstract class _PlayerSyncPlayController with Store {
               if (_finishCurrentFirst(episode)) {
                 followEpisode = episode;
                 GlassNotice.show(
-                    '${setBy ?? '对方'} 已在第 $episode 话，本集播完后跟上',
+                    '${setBy ?? '对方'} 已在第 $episode 集，看完这集跟上',
                     icon: Icons.skip_next_rounded);
               } else {
                 GlassNotice.show('${setBy ?? '对方'} 切换到第 $episode 话',
@@ -555,7 +555,7 @@ abstract class _PlayerSyncPlayController with Store {
       }
       _joinFailed(rejoining: rejoining);
       GlassNotice.show(
-        '连不上同步服务器',
+        '无法连接同步服务器',
         icon: Icons.link_off_rounded,
         bottom: true,
         actionLabel: '重试',
@@ -814,7 +814,7 @@ abstract class _PlayerSyncPlayController with Store {
   }
 
   void _showWaiting() {
-    _showWaitNotice('${_peersBehind().join('、')} 还在上一话，等 TA 跟上',
+    _showWaitNotice('等 ${_peersBehind().join('、')} 看完上一集',
         onGiveUp: _stopWaiting, duration: const Duration(hours: 1));
   }
 
