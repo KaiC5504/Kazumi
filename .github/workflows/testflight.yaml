@@ -254,7 +254,7 @@ jobs:
           DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
         run: |
           flutter build ipa --release \
-            --build-name=3.3.0 \
+            --build-name=3.3.1 \
             --build-number="$BUILD_NUMBER" \
             --export-options-plist="$RUNNER_TEMP/export_options.plist" \
             --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID:-}" \
