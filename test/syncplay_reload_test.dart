@@ -161,7 +161,7 @@ void main() {
         what: 'her to queue episode 2',
       );
       expect(her.episodeChanges, isEmpty);
-      expect(simNotices.any((n) => n.contains('本集播完后跟上')), isTrue);
+      expect(simNotices.any((n) => n.contains('看完这集跟上')), isTrue);
       await clock.until(() => her.episode == 2, timeout: 120, what: 'her');
       expect(her.furthest[1], greaterThan(1430));
     });
