@@ -552,6 +552,9 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
       onUpdateDanmakuSpeed: playerController.updateDanmakuSpeed,
       onTimelineOffsetChanged:
           playerController.danmaku.clearAndInvalidateScheduledDanmakus,
+      sourceCounts: playerController.danmaku.sourceCounts.isEmpty
+          ? null
+          : playerController.danmaku.sourceCounts,
     );
   }
 

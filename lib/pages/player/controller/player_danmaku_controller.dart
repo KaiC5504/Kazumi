@@ -3,6 +3,7 @@
 import 'package:canvas_danmaku/canvas_danmaku.dart' as canvas;
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/pages/player/danmaku_source_kind.dart';
 import 'package:kazumi/request/apis/danmaku_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/player/danmaku_binding_store.dart';
@@ -103,6 +104,8 @@ abstract class _PlayerDanmakuController with Store {
 
   int bangumiID = 0;
   List<DanmakuEntry> lastEpisodeDanmakus = const [];
+  // Counted before duplicate merging, so they match what each source sent.
+  Map<DanmakuSourceKind, int> sourceCounts = const {};
   int _scheduledDanmakuGeneration = 0;
 
   int get scheduledDanmakuGeneration => _scheduledDanmakuGeneration;
@@ -209,6 +212,7 @@ abstract class _PlayerDanmakuController with Store {
   @action
   void beginDanmakuLoad() {
     danDanmakus.clear();
+    sourceCounts = const {};
     danmakuLoading = true;
   }
 
@@ -227,6 +231,7 @@ abstract class _PlayerDanmakuController with Store {
   void applyUnavailableDanmakuLoad(DanmakuLoadResult result) {
     bangumiID = result.bangumiID;
     danDanmakus.clear();
+    sourceCounts = const {};
     danmakuOn = false;
     danmakuLoading = false;
   }
@@ -235,6 +240,7 @@ abstract class _PlayerDanmakuController with Store {
   void finishDanmakuLoad({bool disableDanmaku = false}) {
     if (disableDanmaku) {
       danDanmakus.clear();
+      sourceCounts = const {};
       danmakuOn = false;
     }
     danmakuLoading = false;
@@ -354,6 +360,7 @@ abstract class _PlayerDanmakuController with Store {
     danmakuLoading = true;
     try {
       danDanmakus.clear();
+      sourceCounts = const {};
       var res = await DanmakuApi.getDanDanmakuByEpisodeID(episodeID);
       lastEpisodeDanmakus = res;
       addDanmakus(res);
@@ -367,6 +374,7 @@ abstract class _PlayerDanmakuController with Store {
   }
 
   void addDanmakus(List<DanmakuEntry> danmakus) {
+    sourceCounts = countDanmakuBySource(danmakus);
     final bool danmakuDeduplicationEnable =
         GStorage.getSetting(SettingsKeys.danmakuDeduplication);
 

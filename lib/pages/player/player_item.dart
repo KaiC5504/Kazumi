@@ -33,6 +33,7 @@ import 'package:kazumi/pages/history/history_controller.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/pages/player/controller/player_danmaku_controller.dart';
+import 'package:kazumi/pages/player/danmaku_source_kind.dart';
 import 'package:kazumi/pages/player/danmaku_source_sheet.dart';
 import 'package:kazumi/pages/player/player_item_surface.dart';
 import 'package:mobx/mobx.dart' as mobx;
@@ -112,6 +113,7 @@ class _PlayerItemState extends State<PlayerItem>
   late bool _danmakuBiliBiliSource;
   late bool _danmakuGamerSource;
   late bool _danmakuDanDanSource;
+  StreamSubscription<void>? _danmakuSourceSubscription;
   late double _danmakuDuration;
   late double _danmakuLineHeight;
   late int _danmakuFontWeight;
@@ -1146,20 +1148,12 @@ class _PlayerItemState extends State<PlayerItem>
     hideTimer = null;
   }
 
-  bool _isDanmakuSourceEnabled(DanmakuEntry danmaku) {
-    if (!_danmakuBiliBiliSource && danmaku.source.contains('BiliBili')) {
-      return false;
-    }
-    if (!_danmakuGamerSource && danmaku.source.contains('Gamer')) {
-      return false;
-    }
-    if (!_danmakuDanDanSource &&
-        !(danmaku.source.contains('BiliBili') ||
-            danmaku.source.contains('Gamer'))) {
-      return false;
-    }
-    return true;
-  }
+  bool _isDanmakuSourceEnabled(DanmakuEntry danmaku) =>
+      switch (DanmakuSourceKind.of(danmaku)) {
+        DanmakuSourceKind.bilibili => _danmakuBiliBiliSource,
+        DanmakuSourceKind.gamer => _danmakuGamerSource,
+        DanmakuSourceKind.dandan => _danmakuDanDanSource,
+      };
 
   DanmakuItemType _danmakuItemType(DanmakuEntry danmaku) {
     if (danmaku.type == 4) {
@@ -1452,6 +1446,22 @@ class _PlayerItemState extends State<PlayerItem>
     playerTimer = getPlayerTimer();
     windowManager.addListener(this);
     showVideoController();
+    _danmakuSourceSubscription = GStorage.watchSettings(
+            DanmakuSourceKind.values.map((kind) => kind.settingKey))
+        .listen((_) {
+      final before = {
+        DanmakuSourceKind.bilibili: _danmakuBiliBiliSource,
+        DanmakuSourceKind.gamer: _danmakuGamerSource,
+        DanmakuSourceKind.dandan: _danmakuDanDanSource,
+      };
+      final after = DanmakuSourceKind.enabledNow();
+      _danmakuBiliBiliSource = after[DanmakuSourceKind.bilibili]!;
+      _danmakuGamerSource = after[DanmakuSourceKind.gamer]!;
+      _danmakuDanDanSource = after[DanmakuSourceKind.dandan]!;
+      if (turnedOff(before, after)) {
+        playerController.danmaku.clearAndInvalidateScheduledDanmakus();
+      }
+    });
   }
 
   @override
@@ -1463,6 +1473,7 @@ class _PlayerItemState extends State<PlayerItem>
     windowManager.removeListener(this);
     playerController.seeking.invalidateInteractiveSeek();
     playerTimer?.cancel();
+    _danmakuSourceSubscription?.cancel();
     hideTimer?.cancel();
     mouseScrollerTimer?.cancel();
     _adjustmentHudHideTimer?.cancel();

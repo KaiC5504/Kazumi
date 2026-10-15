@@ -6,6 +6,7 @@ import 'package:kazumi/bean/dialog/material_bottom_sheet.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/connected_tabs.dart';
 import 'package:kazumi/bean/widget/content_section.dart';
+import 'package:kazumi/pages/player/danmaku_source_kind.dart';
 import 'package:kazumi/pages/settings/danmaku/danmaku_ch_convert_tile.dart';
 import 'package:kazumi/pages/settings/danmaku/danmaku_shield_settings_sheet.dart';
 import 'package:kazumi/pages/settings/danmaku/danmaku_time_offset_sheet.dart';
@@ -21,6 +22,7 @@ Future<void> showDanmakuSettingsSheet({
   required DanmakuController danmakuController,
   required VoidCallback onUpdateDanmakuSpeed,
   VoidCallback? onTimelineOffsetChanged,
+  Map<DanmakuSourceKind, int>? sourceCounts,
 }) async {
   final destination =
       await showAdaptiveBottomSheet<_DanmakuSettingsDestination>(
@@ -29,6 +31,7 @@ Future<void> showDanmakuSettingsSheet({
       return _DanmakuSettingsSheet(
         danmakuController: danmakuController,
         onUpdateDanmakuSpeed: onUpdateDanmakuSpeed,
+        sourceCounts: sourceCounts,
       );
     },
   );
@@ -48,10 +51,12 @@ Future<void> showDanmakuSettingsSheet({
 class _DanmakuSettingsSheet extends StatefulWidget {
   final DanmakuController danmakuController;
   final VoidCallback onUpdateDanmakuSpeed;
+  final Map<DanmakuSourceKind, int>? sourceCounts;
 
   const _DanmakuSettingsSheet({
     required this.danmakuController,
     required this.onUpdateDanmakuSpeed,
+    this.sourceCounts,
   });
 
   @override
@@ -164,6 +169,23 @@ class _DanmakuSettingsSheetState extends State<_DanmakuSettingsSheet> {
                       GStorage.putSetting<bool>(
                           SettingsKeys.danmakuBottom, show);
                     }),
+                  ]),
+                ),
+                const SizedBox(height: 24),
+                ContentSection(
+                  title: '弹幕来源',
+                  child: Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final kind in DanmakuSourceKind.values)
+                      _typeChip(
+                        widget.sourceCounts == null
+                            ? kind.label
+                            : '${kind.label} ${widget.sourceCounts![kind] ?? 0}',
+                        GStorage.getSetting<bool>(kind.settingKey),
+                        (show) {
+                          GStorage.putSetting<bool>(kind.settingKey, show);
+                          setState(() {});
+                        },
+                      ),
                   ]),
                 ),
               ],
