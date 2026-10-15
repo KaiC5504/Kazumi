@@ -9,9 +9,9 @@ void main() {
   });
 
   test('menu label shows the value only when set', () {
-    expect(audioDelayMenuLabel(0), '音频同步');
-    expect(audioDelayMenuLabel(-200), '音频同步（提前 200 毫秒）');
-    expect(audioDelayMenuLabel(30), '音频同步（延后 30 毫秒）');
+    expect(audioDelayMenuLabel(0), '音画同步');
+    expect(audioDelayMenuLabel(-200), '音画同步（提前 200 毫秒）');
+    expect(audioDelayMenuLabel(30), '音画同步（延后 30 毫秒）');
   });
 
   test('rounds to 10 ms and clamps to ±1 s', () {

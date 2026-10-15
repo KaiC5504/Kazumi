@@ -32,8 +32,8 @@ class _AudioDelaySheetState extends State<AudioDelaySheet> {
       mainAxisSize: MainAxisSize.min,
       children: [
         MaterialBottomSheetHeader(
-          title: '音频同步',
-          description: '声音比画面慢就提前，快就延后。投屏和外部播放器不受影响。',
+          title: '音画同步',
+          description: '声音慢了就提前，快了就延后，不影响投屏和外部播放器',
           onClose: () => Navigator.of(context).pop(),
         ),
         Flexible(

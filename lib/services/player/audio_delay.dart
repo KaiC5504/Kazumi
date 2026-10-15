@@ -20,7 +20,7 @@ String formatAudioDelay(int ms) =>
     ms == 0 ? '无偏移' : '声音${ms < 0 ? '提前' : '延后'} ${ms.abs()} 毫秒';
 
 String audioDelayMenuLabel(int ms) =>
-    ms == 0 ? '音频同步' : '音频同步（${ms < 0 ? '提前' : '延后'} ${ms.abs()} 毫秒）';
+    ms == 0 ? '音画同步' : '音画同步（${ms < 0 ? '提前' : '延后'} ${ms.abs()} 毫秒）';
 
 /// mpv's `audio-delay` is in seconds; negative plays audio earlier, which is
 /// what late Bluetooth audio needs.

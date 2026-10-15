@@ -879,7 +879,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                     label: DanmakuBindingStore.bindingFor(
                                 videoPageController.bangumiItem.id) !=
                             null
-                        ? '弹幕切换（已记住）'
+                        ? '弹幕切换（已绑定）'
                         : '弹幕切换',
                   ),
                   if (compact) _danmakuSettingsMenuItem,

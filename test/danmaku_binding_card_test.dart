@@ -16,7 +16,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('已记住：进击的巨人 最终季'), findsOneWidget);
+    expect(find.text('已绑定：进击的巨人 最终季'), findsOneWidget);
     await tester.tap(find.text('恢复自动匹配'));
     expect(resets, 1);
   });
