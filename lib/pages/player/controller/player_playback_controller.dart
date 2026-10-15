@@ -12,6 +12,7 @@ import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/proxy_utils.dart';
 import 'package:kazumi/services/network/system_proxy_service.dart';
+import 'package:kazumi/services/player/audio_delay.dart';
 import 'package:kazumi/services/player/playback_cache_policy.dart';
 import 'package:kazumi/services/player/player_error_mapper.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -349,6 +350,13 @@ abstract class _PlayerPlaybackController with Store {
           return await _discardIfNotCurrent(candidate);
         }
       }
+      final audioDelay = GStorage.getSetting(audioDelaySetting);
+      if (audioDelay != 0) {
+        await pp.setProperty('audio-delay', audioDelayMpvValue(audioDelay));
+        if (!isCurrentPlayer(player)) {
+          return await _discardIfNotCurrent(candidate);
+        }
+      }
 
       final bool proxyEnable = GStorage.getSetting(SettingsKeys.proxyEnable);
       if (proxyEnable) {
@@ -556,6 +564,15 @@ abstract class _PlayerPlaybackController with Store {
     } catch (e) {
       KazumiLogger().w('PlayerController: failed to set sync rate', error: e);
     }
+  }
+
+  Future<void> setAudioDelay(int ms) async {
+    final player = mediaPlayer;
+    if (player == null) return;
+    try {
+      await (player.platform as NativePlayer)
+          .setProperty('audio-delay', audioDelayMpvValue(ms));
+    } catch (_) {}
   }
 
   Future<void> setVolume(double value) async {

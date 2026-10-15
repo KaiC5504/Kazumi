@@ -14,10 +14,13 @@ import 'package:kazumi/bean/widget/side_panel_transition.dart';
 import 'package:kazumi/bean/widget/split_list_row.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
 import 'package:kazumi/modules/danmaku/danmaku_episode_response.dart';
+import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/modules/danmaku/danmaku_search_response.dart';
 import 'package:kazumi/pages/player/controller/player_danmaku_controller.dart';
+import 'package:kazumi/pages/player/danmaku_binding_card.dart';
 import 'package:kazumi/request/apis/danmaku_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/services/storage/storage.dart';
 
 const _episodeToolThreshold = 25;
@@ -30,12 +33,20 @@ Future<void> showDanmakuSourceSheet(
   required String initialKeyword,
   required PlayerDanmakuController danmakuController,
   required VoidCallback onBeforeApply,
+  DanmakuBinding? binding,
+  Future<bool> Function(DanmakuSearchAnime anime, DanmakuEpisode episode,
+          int episodeCount, List<DanmakuEntry> danmakus)?
+      onPicked,
+  VoidCallback? onResetBinding,
 }) async {
   Widget buildSheet(BuildContext _) => _DanmakuSourceSheet(
         bangumiId: bangumiId,
         initialKeyword: initialKeyword,
         danmakuController: danmakuController,
         onBeforeApply: onBeforeApply,
+        binding: binding,
+        onPicked: onPicked,
+        onResetBinding: onResetBinding,
       );
 
   if (MediaQuery.orientationOf(context) == Orientation.portrait) {
@@ -84,12 +95,19 @@ class _DanmakuSourceSheet extends StatefulWidget {
     required this.initialKeyword,
     required this.danmakuController,
     required this.onBeforeApply,
+    this.binding,
+    this.onPicked,
+    this.onResetBinding,
   });
 
   final int bangumiId;
   final String initialKeyword;
   final PlayerDanmakuController danmakuController;
   final VoidCallback onBeforeApply;
+  final DanmakuBinding? binding;
+  final Future<bool> Function(DanmakuSearchAnime anime, DanmakuEpisode episode,
+      int episodeCount, List<DanmakuEntry> danmakus)? onPicked;
+  final VoidCallback? onResetBinding;
 
   @override
   State<_DanmakuSourceSheet> createState() => _DanmakuSourceSheetState();
@@ -109,6 +127,7 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
   List<DanmakuSearchAnime> _animes = const [];
   List<DanmakuEpisode> _episodes = const [];
   String? _animeTitle;
+  DanmakuSearchAnime? _pickedAnime;
   int? _segmentStart;
   String? _error;
   bool _loading = false;
@@ -181,6 +200,7 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
       _loading = true;
       _error = null;
       _animeTitle = anime.animeTitle;
+      _pickedAnime = anime;
       _step = _SourceStep.episode;
       _episodes = const [];
       _episodeSearchController.clear();
@@ -208,21 +228,35 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
 
   Future<void> _selectEpisode(DanmakuEpisode episode) async {
     setState(() => _loading = true);
+    final bool hasDanmakus;
     try {
       widget.onBeforeApply();
-      final hasDanmakus = await widget.danmakuController
+      hasDanmakus = await widget.danmakuController
           .getDanDanmakuByEpisodeID(episode.episodeId);
-      if (!mounted) return;
-      widget.danmakuController.setDanmakuEnabled(hasDanmakus);
-      KazumiDialog.dismiss(context: context);
-      KazumiDialog.showToast(
-        message: hasDanmakus ? '已切换弹幕源' : '暂无弹幕',
-      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
       KazumiDialog.showToast(message: '弹幕源切换失败');
+      return;
     }
+    var remembered = false;
+    final anime = _pickedAnime;
+    if (hasDanmakus && anime != null && widget.onPicked != null) {
+      try {
+        remembered = await widget.onPicked!(anime, episode, _episodes.length,
+            widget.danmakuController.lastEpisodeDanmakus);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    widget.danmakuController.setDanmakuEnabled(hasDanmakus);
+    KazumiDialog.dismiss(context: context);
+    KazumiDialog.showToast(
+      message: !hasDanmakus
+          ? '暂无弹幕'
+          : remembered
+              ? '已切换，后续剧集沿用'
+              : '已切换弹幕源',
+    );
   }
 
   List<DanmakuEpisode> get _visibleEpisodes {
@@ -388,6 +422,17 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (widget.binding != null &&
+                    widget.onResetBinding != null) ...[
+                  DanmakuBindingCard(
+                    animeTitle: widget.binding!.animeTitle,
+                    onReset: () {
+                      KazumiDialog.dismiss(context: context);
+                      widget.onResetBinding!();
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (_error != null) ...[
                   Text(_error!, style: TextStyle(color: colors.error)),
                   const SizedBox(height: 12),

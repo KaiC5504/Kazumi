@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/glass_notice.dart';
 import 'package:kazumi/pages/player/controller/player_syncplay_controller.dart';
+import 'package:kazumi/services/player/episode_order_store.dart';
 import 'package:kazumi/services/player/playback_end_guard.dart';
 import 'package:kazumi/services/player/syncplay_watchdog.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -832,6 +833,12 @@ class SimViewer {
     sync.onPlayerTick();
     final p = position;
     if (!loading && p > (furthest[episode] ?? 0)) furthest[episode] = p;
+    final episodeEnd = EpisodeOrder.endOfEpisode(
+      position: episode,
+      length: 1 << 20,
+      direction: 1,
+      followEpisode: sync.followEpisode,
+    );
     final end = decideEndStep(
       guard: endGuard,
       completed: completed,
@@ -840,14 +847,18 @@ class SimViewer {
       duration: _duration(episodeLength),
       playing: playing,
       resumedNearEnd: false,
-      hasNextEpisode: true,
+      hasNextEpisode: episodeEnd.next != null,
       autoPlayNext: autoPlayNext,
-      roomWantsNext: sync.followEpisode == episode + 1,
+      roomWantsNext: episodeEnd.roomWantsNext,
     );
     switch (end.step) {
       case EndStep.advance:
       case EndStep.followRoom:
-        unawaited(changeEpisode(episode + 1));
+        unawaited(
+          changeEpisode(
+            end.step == EndStep.followRoom ? episode + 1 : episodeEnd.next!,
+          ),
+        );
         return;
       case EndStep.reload:
         reloads++;

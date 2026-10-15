@@ -88,6 +88,7 @@ DART_TESTS = [
     "test/player_room_speed_test.dart",
     "test/playback_end_guard_test.dart",
     "test/playback_end_wiring_test.dart",
+    "test/tier1_defaults_test.dart",
     "test/download_relocation_test.dart",
     "test/offline_launch_test.dart",
 ]

@@ -33,6 +33,7 @@ import 'package:kazumi/pages/history/history_controller.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/pages/player/controller/player_danmaku_controller.dart';
+import 'package:kazumi/pages/player/danmaku_source_kind.dart';
 import 'package:kazumi/pages/player/danmaku_source_sheet.dart';
 import 'package:kazumi/pages/player/player_item_surface.dart';
 import 'package:mobx/mobx.dart' as mobx;
@@ -40,6 +41,7 @@ import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:kazumi/services/player/anime_speed_store.dart';
 import 'package:kazumi/services/player/audio_controller.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/services/player/timed_shutdown_service.dart';
 import 'package:kazumi/utils/device.dart';
 import 'package:kazumi/services/platform/player_menu_service.dart';
@@ -111,6 +113,7 @@ class _PlayerItemState extends State<PlayerItem>
   late bool _danmakuBiliBiliSource;
   late bool _danmakuGamerSource;
   late bool _danmakuDanDanSource;
+  StreamSubscription<void>? _danmakuSourceSubscription;
   late double _danmakuDuration;
   late double _danmakuLineHeight;
   late int _danmakuFontWeight;
@@ -408,22 +411,18 @@ class _PlayerItemState extends State<PlayerItem>
     if (videoPageController.loading) return;
     final selection = videoPageController.selectedEpisode;
     final currentRoad = selection.road;
-    final episodes = videoPageController.roadList[currentRoad].data;
-    int targetEpisode;
+    final bool next;
     if (direction == 'next') {
-      targetEpisode = selection.episode + 1;
+      next = true;
     } else if (direction == 'prev') {
-      targetEpisode = selection.episode - 1;
+      next = false;
     } else {
       return;
     }
-
-    if (targetEpisode > episodes.length) {
-      KazumiDialog.showToast(message: '已经是最新一集');
-      return;
-    }
-    if (targetEpisode <= 0) {
-      KazumiDialog.showToast(message: '已经是第一集');
+    final targetEpisode = videoPageController.adjacentEpisode(selection,
+        next: next, inRoom: playerController.syncplay.inRoom);
+    if (targetEpisode == null) {
+      KazumiDialog.showToast(message: next ? '已经是最新一集' : '已经是第一集');
       return;
     }
 
@@ -657,8 +656,13 @@ class _PlayerItemState extends State<PlayerItem>
 
       if (playerController.playback.duration <= Duration.zero) return;
 
-      final canSkipToPrevious = currentEpisode > 1;
-      final canSkipToNext = currentEpisode < currentRoadData.data.length;
+      final inRoom = playerController.syncplay.inRoom;
+      final canSkipToPrevious = videoPageController
+              .adjacentEpisode(selection, next: false, inRoom: inRoom) !=
+          null;
+      final canSkipToNext = videoPageController
+              .adjacentEpisode(selection, next: true, inRoom: inRoom) !=
+          null;
       final bangumiTitle = videoPageController.bangumiItem.nameCn.isNotEmpty
           ? videoPageController.bangumiItem.nameCn
           : videoPageController.bangumiItem.name;
@@ -1144,20 +1148,12 @@ class _PlayerItemState extends State<PlayerItem>
     hideTimer = null;
   }
 
-  bool _isDanmakuSourceEnabled(DanmakuEntry danmaku) {
-    if (!_danmakuBiliBiliSource && danmaku.source.contains('BiliBili')) {
-      return false;
-    }
-    if (!_danmakuGamerSource && danmaku.source.contains('Gamer')) {
-      return false;
-    }
-    if (!_danmakuDanDanSource &&
-        !(danmaku.source.contains('BiliBili') ||
-            danmaku.source.contains('Gamer'))) {
-      return false;
-    }
-    return true;
-  }
+  bool _isDanmakuSourceEnabled(DanmakuEntry danmaku) =>
+      switch (DanmakuSourceKind.of(danmaku)) {
+        DanmakuSourceKind.bilibili => _danmakuBiliBiliSource,
+        DanmakuSourceKind.gamer => _danmakuGamerSource,
+        DanmakuSourceKind.dandan => _danmakuDanDanSource,
+      };
 
   DanmakuItemType _danmakuItemType(DanmakuEntry danmaku) {
     if (danmaku.type == 4) {
@@ -1247,8 +1243,9 @@ class _PlayerItemState extends State<PlayerItem>
         );
       }
       final playingSelection = videoPageController.playbackEpisode;
-      final playingRoadData =
-          videoPageController.roadList[playingSelection.road];
+      final episodeEnd = videoPageController.episodeEnd(playingSelection,
+          inRoom: playerController.syncplay.inRoom,
+          followEpisode: playerController.syncplay.followEpisode);
       if (playerController.playback.playerPlaying &&
           !videoPageController.loading) {
         // Unparsable titles are skipped: guessing by list index could mark
@@ -1272,11 +1269,9 @@ class _PlayerItemState extends State<PlayerItem>
         duration: playerController.playback.playerDuration,
         playing: playerController.playback.playerPlaying,
         resumedNearEnd: playerController.playback.resumedNearEnd,
-        hasNextEpisode:
-            playingSelection.episode < playingRoadData.data.length,
+        hasNextEpisode: episodeEnd.next != null,
         autoPlayNext: autoPlayNext,
-        roomWantsNext: playerController.syncplay.followEpisode ==
-            playingSelection.episode + 1,
+        roomWantsNext: episodeEnd.roomWantsNext,
       );
       switch (end.step) {
         case EndStep.nothing:
@@ -1285,8 +1280,11 @@ class _PlayerItemState extends State<PlayerItem>
           unawaited(playerController.playback.restartFromBeginning());
         case EndStep.advance:
         case EndStep.followRoom:
+          final target = end.step == EndStep.followRoom
+              ? playingSelection.episode + 1
+              : episodeEnd.next!;
           final nextSelection = VideoEpisodeSelection(
-            episode: playingSelection.episode + 1,
+            episode: target,
             road: playingSelection.road,
           );
           // Let the controller report resolution failures without retrying every tick.
@@ -1297,8 +1295,7 @@ class _PlayerItemState extends State<PlayerItem>
           try {
             playerTimer!.cancel();
           } catch (_) {}
-          widget.changeEpisode(playingSelection.episode + 1,
-              currentRoad: playingSelection.road);
+          widget.changeEpisode(target, currentRoad: playingSelection.road);
         case EndStep.reload:
           if (end.decision!.switchHost) videoPageController.rotateRemoteHost();
           GlassNotice.show('网络中断，正在重连…', icon: Icons.wifi_off_rounded);
@@ -1314,12 +1311,29 @@ class _PlayerItemState extends State<PlayerItem>
   }
 
   void showDanmakuSwitch() {
+    final bangumiId = videoPageController.bangumiItem.id;
+    final openedFor = videoPageController.playbackEpisode;
     unawaited(showDanmakuSourceSheet(
       context,
-      bangumiId: videoPageController.bangumiItem.id,
+      bangumiId: bangumiId,
       initialKeyword: videoPageController.title,
       danmakuController: playerController.danmaku,
       onBeforeApply: videoPageController.cancelAutomaticDanmakuLoad,
+      binding: DanmakuBindingStore.bindingFor(bangumiId),
+      onPicked: (anime, episode, episodeCount, danmakus) =>
+          videoPageController.rememberDanmakuPick(
+        openedFor: openedFor,
+        animeId: anime.animeId,
+        animeTitle: anime.animeTitle,
+        episodeId: episode.episodeId,
+        episodeCount: episodeCount,
+        danmakus: danmakus,
+      ),
+      onResetBinding: () async {
+        await DanmakuBindingStore.forget(bangumiId);
+        videoPageController.reloadAutomaticDanmaku();
+        KazumiDialog.showToast(message: '已恢复自动匹配');
+      },
     ));
   }
 
@@ -1435,6 +1449,22 @@ class _PlayerItemState extends State<PlayerItem>
     playerTimer = getPlayerTimer();
     windowManager.addListener(this);
     showVideoController();
+    _danmakuSourceSubscription = GStorage.watchSettings(
+            DanmakuSourceKind.values.map((kind) => kind.settingKey))
+        .listen((_) {
+      final before = {
+        DanmakuSourceKind.bilibili: _danmakuBiliBiliSource,
+        DanmakuSourceKind.gamer: _danmakuGamerSource,
+        DanmakuSourceKind.dandan: _danmakuDanDanSource,
+      };
+      final after = DanmakuSourceKind.enabledNow();
+      _danmakuBiliBiliSource = after[DanmakuSourceKind.bilibili]!;
+      _danmakuGamerSource = after[DanmakuSourceKind.gamer]!;
+      _danmakuDanDanSource = after[DanmakuSourceKind.dandan]!;
+      if (turnedOff(before, after)) {
+        playerController.danmaku.clearAndInvalidateScheduledDanmakus();
+      }
+    });
   }
 
   @override
@@ -1446,6 +1476,7 @@ class _PlayerItemState extends State<PlayerItem>
     windowManager.removeListener(this);
     playerController.seeking.invalidateInteractiveSeek();
     playerTimer?.cancel();
+    _danmakuSourceSubscription?.cancel();
     hideTimer?.cancel();
     mouseScrollerTimer?.cancel();
     _adjustmentHudHideTimer?.cancel();

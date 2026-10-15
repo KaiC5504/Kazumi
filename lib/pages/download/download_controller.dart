@@ -9,6 +9,7 @@ import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/services/download/background_download_service.dart';
 import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/download/download_relocation.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/utils/file_system.dart';
 import 'package:kazumi/services/upscale/upscaled_package.dart';
 import 'package:kazumi/utils/format.dart';
@@ -409,8 +410,7 @@ abstract class _DownloadController with Store {
 
   /// 从文件读取弹幕数据
   /// 支持新格式 (带 danDanBangumiID 的 wrapper) 和旧格式 (纯数组)
-  Future<({List<DanmakuEntry> danmakus, int danDanBangumiID})?>
-      _readDanmakuFromFile(String downloadDirectory) async {
+  Future<CachedDanmaku?> _readDanmakuFromFile(String downloadDirectory) async {
     if (downloadDirectory.isEmpty) return null;
     final file = File(_danmakuFilePath(downloadDirectory));
     if (!await file.exists()) return null;
@@ -421,14 +421,19 @@ abstract class _DownloadController with Store {
         // 旧格式：纯弹幕数组
         final danmakus =
             decoded.map((json) => DanmakuEntry.fromJson(json)).toList();
-        return (danmakus: danmakus, danDanBangumiID: 0);
+        return (danmakus: danmakus, danDanBangumiID: 0, danDanEpisodeID: 0);
       } else if (decoded is Map<String, dynamic>) {
         // 新格式：带 danDanBangumiID 的 wrapper
         final danDanBangumiID = decoded['danDanBangumiID'] as int? ?? 0;
+        final danDanEpisodeID = decoded['danDanEpisodeID'] as int? ?? 0;
         final List<dynamic> jsonList = decoded['danmakus'] as List? ?? [];
         final danmakus =
             jsonList.map((json) => DanmakuEntry.fromJson(json)).toList();
-        return (danmakus: danmakus, danDanBangumiID: danDanBangumiID);
+        return (
+          danmakus: danmakus,
+          danDanBangumiID: danDanBangumiID,
+          danDanEpisodeID: danDanEpisodeID,
+        );
       }
       return null;
     } catch (e) {
@@ -440,11 +445,13 @@ abstract class _DownloadController with Store {
 
   /// 写入弹幕数据到文件 (新格式，包含 danDanBangumiID)
   Future<void> _writeDanmakuToFile(String downloadDirectory,
-      List<DanmakuEntry> danmakus, int danDanBangumiID) async {
+      List<DanmakuEntry> danmakus, int danDanBangumiID,
+      {int danDanEpisodeID = 0}) async {
     if (downloadDirectory.isEmpty) return;
     final file = File(_danmakuFilePath(downloadDirectory));
     final wrapper = {
       'danDanBangumiID': danDanBangumiID,
+      if (danDanEpisodeID != 0) 'danDanEpisodeID': danDanEpisodeID,
       'danmakus': danmakus.map((d) => d.toJson()).toList(),
     };
     await file.writeAsString(jsonEncode(wrapper));
@@ -465,13 +472,22 @@ abstract class _DownloadController with Store {
     return null;
   }
 
+  Future<CachedDanmaku?> getCachedDanmakuFile(
+      int bangumiId, String pluginName, int episodeNumber) async {
+    final episode =
+        _repository.getEpisode(bangumiId, pluginName, episodeNumber);
+    if (episode == null) return null;
+    return _readDanmakuFromFile(episode.downloadDirectory);
+  }
+
   Future<void> updateCachedDanmakus(
     int bangumiId,
     String pluginName,
     int episodeNumber,
     List<DanmakuEntry> danmakus,
-    int danDanBangumiID,
-  ) async {
+    int danDanBangumiID, {
+    int danDanEpisodeID = 0,
+  }) async {
     final recordKey = '${pluginName}_$bangumiId';
     final record = _repository.getRecord(recordKey);
     if (record == null) return;
@@ -481,7 +497,8 @@ abstract class _DownloadController with Store {
     try {
       // 写入独立文件而非 Hive
       await _writeDanmakuToFile(
-          episode.downloadDirectory, danmakus, danDanBangumiID);
+          episode.downloadDirectory, danmakus, danDanBangumiID,
+          danDanEpisodeID: danDanEpisodeID);
       // 确保 Hive 中不存储弹幕大数据
       if (episode.danmakuData.isNotEmpty) {
         episode.danmakuData = '';
@@ -744,18 +761,36 @@ abstract class _DownloadController with Store {
         KazumiLogger().i(
             'DownloadController: fetching danmaku for episode $episodeNumber (async)');
 
-        // 获取 DanDan 番剧 ID
-        final danDanBangumiID =
-            await DanmakuApi.getDanDanBangumiIDByBgmBangumiID(bangumiId);
-        if (danDanBangumiID == 0) {
-          KazumiLogger().w(
-              'DownloadController: failed to get DanDan bangumiID for $bangumiId');
-          return;
-        }
+        final binding = DanmakuBindingStore.bindingFor(bangumiId);
+        final int danDanBangumiID;
+        final List<DanmakuEntry> danmakus;
+        var danDanEpisodeID = 0;
+        if (binding != null) {
+          final title = _repository
+                  .getRecord(recordKey)
+                  ?.episodes[episodeNumber]
+                  ?.episodeName ??
+              '';
+          final episodeId = binding
+              .episodeIdFor(danmakuBindingEpisode(title, episodeNumber));
+          if (episodeId == null) return;
+          danDanBangumiID = binding.animeId;
+          danDanEpisodeID = episodeId;
+          danmakus = await DanmakuApi.getDanDanmakuByEpisodeID(episodeId);
+        } else {
+          // 获取 DanDan 番剧 ID
+          danDanBangumiID =
+              await DanmakuApi.getDanDanBangumiIDByBgmBangumiID(bangumiId);
+          if (danDanBangumiID == 0) {
+            KazumiLogger().w(
+                'DownloadController: failed to get DanDan bangumiID for $bangumiId');
+            return;
+          }
 
-        // 获取弹幕列表
-        final danmakus =
-            await DanmakuApi.getDanDanmaku(danDanBangumiID, episodeNumber);
+          // 获取弹幕列表
+          danmakus =
+              await DanmakuApi.getDanDanmaku(danDanBangumiID, episodeNumber);
+        }
         if (danmakus.isEmpty) {
           KazumiLogger().i(
               'DownloadController: no danmaku found for episode $episodeNumber');
@@ -785,7 +820,8 @@ abstract class _DownloadController with Store {
         }
 
         // 写入独立文件
-        await _writeDanmakuToFile(downloadDirectory, danmakus, danDanBangumiID);
+        await _writeDanmakuToFile(downloadDirectory, danmakus, danDanBangumiID,
+            danDanEpisodeID: danDanEpisodeID);
 
         KazumiLogger().i(
             'DownloadController: cached ${danmakus.length} danmakus for episode $episodeNumber');

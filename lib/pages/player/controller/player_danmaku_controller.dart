@@ -3,8 +3,10 @@
 import 'package:canvas_danmaku/canvas_danmaku.dart' as canvas;
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/pages/player/danmaku_source_kind.dart';
 import 'package:kazumi/request/apis/danmaku_api.dart';
 import 'package:kazumi/services/logging/logger.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:mobx/mobx.dart';
 import 'package:kazumi/utils/danmaku.dart';
@@ -101,6 +103,9 @@ abstract class _PlayerDanmakuController with Store {
   bool danmakuLoading = false;
 
   int bangumiID = 0;
+  List<DanmakuEntry> lastEpisodeDanmakus = const [];
+  // Counted before duplicate merging, so they match what each source sent.
+  Map<DanmakuSourceKind, int> sourceCounts = const {};
   int _scheduledDanmakuGeneration = 0;
 
   int get scheduledDanmakuGeneration => _scheduledDanmakuGeneration;
@@ -139,9 +144,27 @@ abstract class _PlayerDanmakuController with Store {
   Future<DanmakuLoadResult> fetchDanmaku(
     int bangumiId,
     String pluginName,
-    int episode,
-  ) async {
+    int episode, {
+    int? bindingEpisode,
+    bool automaticOnly = false,
+  }) async {
+    if (!automaticOnly) {
+      final binding = DanmakuBindingStore.bindingFor(bangumiId);
+      if (binding != null) {
+        return await _fetchBoundDanmaku(
+            binding, bangumiId, pluginName, episode, bindingEpisode ?? episode);
+      }
+    }
     if (isLocalPlayback()) {
+      if (automaticOnly) {
+        final result =
+            await _fetchDanDanmakuByBgmBangumiID(bangumiId, episode);
+        if (result.hasDanmakus) {
+          _saveDanmakuToCache(downloadController, bangumiId, pluginName,
+              episode, result.danmakus, result.bangumiID);
+        }
+        return result;
+      }
       return await _fetchCachedDanmaku(
         bangumiId,
         pluginName,
@@ -154,9 +177,43 @@ abstract class _PlayerDanmakuController with Store {
     );
   }
 
+  Future<DanmakuLoadResult> _fetchBoundDanmaku(DanmakuBinding binding,
+      int bangumiId, String pluginName, int episode, int bindingEpisode) async {
+    final local = isLocalPlayback();
+    final result = await loadBoundDanmaku(
+      binding: binding,
+      episode: bindingEpisode,
+      local: local,
+      readCache: () => downloadController.getCachedDanmakuFile(
+          bangumiId, pluginName, episode),
+      fetch: DanmakuApi.getDanDanmakuByEpisodeID,
+      writeCache: (danmakus, episodeId) async => _saveDanmakuToCache(
+          downloadController,
+          bangumiId,
+          pluginName,
+          episode,
+          danmakus,
+          binding.animeId,
+          danDanEpisodeID: episodeId),
+    );
+    return result.failed
+        ? DanmakuLoadResult.failed(bangumiID: binding.animeId)
+        : DanmakuLoadResult.success(
+            danmakus: result.danmakus, bangumiID: binding.animeId);
+  }
+
+  void saveToCache(int bangumiId, String pluginName, int episode,
+          List<DanmakuEntry> danmakus, int danDanId,
+          {int danDanEpisodeID = 0}) =>
+      _saveDanmakuToCache(downloadController, bangumiId, pluginName, episode,
+          danmakus, danDanId,
+          danDanEpisodeID: danDanEpisodeID);
+
   @action
   void beginDanmakuLoad() {
     danDanmakus.clear();
+    lastEpisodeDanmakus = const [];
+    sourceCounts = const {};
     danmakuLoading = true;
   }
 
@@ -175,6 +232,7 @@ abstract class _PlayerDanmakuController with Store {
   void applyUnavailableDanmakuLoad(DanmakuLoadResult result) {
     bangumiID = result.bangumiID;
     danDanmakus.clear();
+    sourceCounts = const {};
     danmakuOn = false;
     danmakuLoading = false;
   }
@@ -183,6 +241,7 @@ abstract class _PlayerDanmakuController with Store {
   void finishDanmakuLoad({bool disableDanmaku = false}) {
     if (disableDanmaku) {
       danDanmakus.clear();
+      sourceCounts = const {};
       danmakuOn = false;
     }
     danmakuLoading = false;
@@ -250,7 +309,8 @@ abstract class _PlayerDanmakuController with Store {
       String pluginName,
       int episode,
       List<DanmakuEntry> danmakus,
-      int danDanID) {
+      int danDanID,
+      {int danDanEpisodeID = 0}) {
     try {
       downloadController.updateCachedDanmakus(
         bangumiId,
@@ -258,6 +318,7 @@ abstract class _PlayerDanmakuController with Store {
         episode,
         danmakus,
         danDanID,
+        danDanEpisodeID: danDanEpisodeID,
       );
       KazumiLogger()
           .i('PlayerController: saved ${danmakus.length} danmakus to cache');
@@ -300,7 +361,9 @@ abstract class _PlayerDanmakuController with Store {
     danmakuLoading = true;
     try {
       danDanmakus.clear();
+      sourceCounts = const {};
       var res = await DanmakuApi.getDanDanmakuByEpisodeID(episodeID);
+      lastEpisodeDanmakus = res;
       addDanmakus(res);
       return res.isNotEmpty;
     } catch (e) {
@@ -312,6 +375,8 @@ abstract class _PlayerDanmakuController with Store {
   }
 
   void addDanmakus(List<DanmakuEntry> danmakus) {
+    sourceCounts =
+        danmakus.isEmpty ? const {} : countDanmakuBySource(danmakus);
     final bool danmakuDeduplicationEnable =
         GStorage.getSetting(SettingsKeys.danmakuDeduplication);
 

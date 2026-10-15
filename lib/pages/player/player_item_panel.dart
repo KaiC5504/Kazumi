@@ -5,20 +5,25 @@ import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:kazumi/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/bean/widget/play_pause_icon.dart';
+import 'package:kazumi/pages/player/audio_delay_sheet.dart';
 import 'package:kazumi/pages/player/player_adjustment_hud.dart';
 import 'package:kazumi/pages/player/danmaku_destination_sheet.dart';
 import 'package:kazumi/pages/player/controller/player_aspect_ratio.dart';
 import 'package:kazumi/pages/player/controller/player_super_resolution.dart';
 import 'package:kazumi/bean/widget/embedded_native_control_area.dart';
 import 'package:kazumi/pages/player/player_panel_hold.dart';
+import 'package:kazumi/services/player/audio_delay.dart';
 import 'package:kazumi/services/player/pip_utils.dart';
+import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/pages/video/video_controller.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
 import 'package:flutter/services.dart';
 import 'package:kazumi/services/player/remote.dart';
+import 'package:kazumi/services/player/danmaku_binding_store.dart';
 import 'package:kazumi/bean/appbar/drag_to_move_bar.dart' as dtb;
 import 'package:kazumi/pages/settings/danmaku/danmaku_settings_sheet.dart';
 import 'package:kazumi/utils/constants.dart';
@@ -547,6 +552,9 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
       onUpdateDanmakuSpeed: playerController.updateDanmakuSpeed,
       onTimelineOffsetChanged:
           playerController.danmaku.clearAndInvalidateScheduledDanmakus,
+      sourceCounts: playerController.danmaku.sourceCounts.isEmpty
+          ? null
+          : playerController.danmaku.sourceCounts,
     );
   }
 
@@ -857,8 +865,22 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                     _syncPlayMenuItem,
                   ],
                   KazumiMenuItem(
+                    onPressed: () => showAdaptiveBottomSheet<void>(
+                      context: context,
+                      builder: (context) => AudioDelaySheet(
+                        onChanged: playerController.setAudioDelay,
+                      ),
+                    ),
+                    label: audioDelayMenuLabel(
+                        GStorage.getSetting(audioDelaySetting)),
+                  ),
+                  KazumiMenuItem(
                     onPressed: widget.showDanmakuSwitch,
-                    label: '弹幕切换',
+                    label: DanmakuBindingStore.bindingFor(
+                                videoPageController.bangumiItem.id) !=
+                            null
+                        ? '弹幕切换（已记住）'
+                        : '弹幕切换',
                   ),
                   if (compact) _danmakuSettingsMenuItem,
                   KazumiMenuItem(
