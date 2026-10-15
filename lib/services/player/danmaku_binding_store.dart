@@ -101,19 +101,26 @@ class DanmakuBindingStore {
       _write(_read()..remove('$bangumiId'));
 }
 
-typedef CachedDanmaku = ({List<DanmakuEntry> danmakus, int danDanBangumiID});
+/// `danDanEpisodeID` is 0 for caches without a stamp (automatic lookups, older
+/// bindings), which never match a bound episode.
+typedef CachedDanmaku = ({
+  List<DanmakuEntry> danmakus,
+  int danDanBangumiID,
+  int danDanEpisodeID,
+});
 
-/// Downloaded playback keeps working offline: a cache from the bound anime is
-/// used as is, anything else is replaced when the network allows and kept
-/// when it doesn't.
+/// Downloaded playback keeps working offline: a cache is trusted only when it
+/// is stamped with the bound episode's id, and is used as is then. Anything
+/// else is replaced when the network allows and kept when it doesn't.
 Future<({List<DanmakuEntry> danmakus, bool failed})> loadBoundDanmaku({
   required DanmakuBinding binding,
   required int episode,
   required bool local,
   required Future<CachedDanmaku?> Function() readCache,
   required Future<List<DanmakuEntry>> Function(int episodeId) fetch,
-  required Future<void> Function(List<DanmakuEntry>) writeCache,
+  required Future<void> Function(List<DanmakuEntry>, int episodeId) writeCache,
 }) async {
+  final id = binding.episodeIdFor(episode);
   CachedDanmaku? cached;
   if (local) {
     try {
@@ -121,11 +128,10 @@ Future<({List<DanmakuEntry> danmakus, bool failed})> loadBoundDanmaku({
     } catch (_) {}
   }
   final hasCache = cached != null && cached.danmakus.isNotEmpty;
-  if (hasCache && cached.danDanBangumiID == binding.animeId) {
+  if (hasCache && id != null && cached.danDanEpisodeID == id) {
     return (danmakus: cached.danmakus, failed: false);
   }
 
-  final id = binding.episodeIdFor(episode);
   var threw = false;
   if (id != null) {
     try {
@@ -133,7 +139,7 @@ Future<({List<DanmakuEntry> danmakus, bool failed})> loadBoundDanmaku({
       if (res.isNotEmpty || !local) {
         if (local) {
           try {
-            await writeCache(res);
+            await writeCache(res, id);
           } catch (_) {}
         }
         return (danmakus: res, failed: false);

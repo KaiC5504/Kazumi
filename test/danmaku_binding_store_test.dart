@@ -133,7 +133,7 @@ void main() {
       List<DanmakuEntry>? fetched,
       int episode = 3,
       List<int>? fetchedIds,
-      List<List<DanmakuEntry>>? written,
+      List<(List<DanmakuEntry>, int)>? written,
     }) => loadBoundDanmaku(
       binding: binding,
       episode: episode,
@@ -144,15 +144,19 @@ void main() {
         if (fetchError != null) throw fetchError;
         return fetched ?? online;
       },
-      writeCache: (d) async => written?.add(d),
+      writeCache: (d, id) async => written?.add((d, id)),
     );
 
     test(
-      'offline cache from the same DanDan anime is used without fetching',
+      'offline cache stamped with the bound episode is used without fetching',
       () async {
         final ids = <int>[];
         final r = await run(
-          cache: (danmakus: picked, danDanBangumiID: 17756),
+          cache: (
+            danmakus: picked,
+            danDanBangumiID: 17756,
+            danDanEpisodeID: 177560003,
+          ),
           fetchedIds: ids,
         );
         expect(r.danmakus, picked);
@@ -161,24 +165,66 @@ void main() {
     );
 
     test(
-      'a cache from another anime is replaced by the bound episode',
+      'same anime, different episode (offset changed) is refetched',
       () async {
         final ids = <int>[];
-        final written = <List<DanmakuEntry>>[];
+        final written = <(List<DanmakuEntry>, int)>[];
         final r = await run(
-          cache: (danmakus: auto, danDanBangumiID: 999),
+          cache: (
+            danmakus: auto,
+            danDanBangumiID: 17756,
+            danDanEpisodeID: 177560001,
+          ),
           fetchedIds: ids,
           written: written,
         );
         expect(ids, [177560003]);
         expect(r.danmakus, online);
-        expect(written, [online]);
+        expect(written, [(online, 177560003)]);
+      },
+    );
+
+    test('unstamped cache from the same anime is refetched', () async {
+      final ids = <int>[];
+      final r = await run(
+        cache: (danmakus: auto, danDanBangumiID: 17756, danDanEpisodeID: 0),
+        fetchedIds: ids,
+      );
+      expect(ids, [177560003]);
+      expect(r.danmakus, online);
+    });
+
+    test('unstamped cache is still the offline fallback', () async {
+      final r = await run(
+        cache: (danmakus: auto, danDanBangumiID: 17756, danDanEpisodeID: 0),
+        fetchError: Exception('offline'),
+      );
+      expect((r.danmakus, r.failed), (auto, false));
+    });
+
+    test(
+      'a cache from another anime is replaced by the bound episode',
+      () async {
+        final ids = <int>[];
+        final written = <(List<DanmakuEntry>, int)>[];
+        final r = await run(
+          cache: (
+            danmakus: auto,
+            danDanBangumiID: 999,
+            danDanEpisodeID: 9990003,
+          ),
+          fetchedIds: ids,
+          written: written,
+        );
+        expect(ids, [177560003]);
+        expect(r.danmakus, online);
+        expect(written, [(online, 177560003)]);
       },
     );
 
     test('no network falls back to whatever is cached', () async {
       final r = await run(
-        cache: (danmakus: auto, danDanBangumiID: 999),
+        cache: (danmakus: auto, danDanBangumiID: 999, danDanEpisodeID: 9990003),
         fetchError: Exception('offline'),
       );
       expect((r.danmakus, r.failed), (auto, false));
@@ -186,7 +232,7 @@ void main() {
 
     test('an empty fetch falls back to the cache', () async {
       final r = await run(
-        cache: (danmakus: auto, danDanBangumiID: 999),
+        cache: (danmakus: auto, danDanBangumiID: 999, danDanEpisodeID: 9990003),
         fetched: const [],
       );
       expect(r.danmakus, auto);
@@ -199,8 +245,16 @@ void main() {
     });
 
     test('online: fetch, never touch the cache', () async {
-      final written = <List<DanmakuEntry>>[];
-      final r = await run(local: false, written: written);
+      final written = <(List<DanmakuEntry>, int)>[];
+      final r = await run(
+        local: false,
+        written: written,
+        cache: (
+          danmakus: auto,
+          danDanBangumiID: 17756,
+          danDanEpisodeID: 177560003,
+        ),
+      );
       expect(r.danmakus, online);
       expect(written, isEmpty);
     });
@@ -214,7 +268,7 @@ void main() {
       final ids = <int>[];
       final r = await run(
         episode: -5,
-        cache: (danmakus: auto, danDanBangumiID: 999),
+        cache: (danmakus: auto, danDanBangumiID: 999, danDanEpisodeID: 9990003),
         fetchedIds: ids,
       );
       expect(ids, isEmpty);
