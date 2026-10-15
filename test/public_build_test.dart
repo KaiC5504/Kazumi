@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_modular/flutter_modular.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/dialog.dart';
@@ -18,6 +19,7 @@ import 'package:kazumi/pages/about/fork_about_section.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/download/public_gates.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/pages/settings/download_settings.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
 import 'package:kazumi/request/clients/bangumi_client.dart';
@@ -26,12 +28,15 @@ import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/network/bangumi_acceleration.dart';
+import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/auto_updater.dart';
 import 'package:kazumi/services/update/public_update.dart';
 import 'package:kazumi/services/update/testflight_update.dart';
 import 'package:kazumi/services/update/update_download_source.dart';
 import 'package:kazumi/services/update/update_downloader.dart';
+import 'package:kazumi/services/upscale/upscale_baker.dart';
+import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -168,6 +173,33 @@ void main() {
         expect(showCloudUi(true), kPublicBuild ? isFalse : isTrue);
       },
     );
+  });
+
+  group('download settings', () {
+    testWidgets('一起看片库 and 云端烘焙 only in the personal build', (
+      tester,
+    ) async {
+      await pumpDownloadSettings(tester);
+      expect(find.textContaining('超分烘焙'), findsOneWidget);
+      expect(find.text('局域网共享'), findsOneWidget);
+      for (final title in [
+        '一起看片库 (上传到服务器，异地一起看)',
+        '片库服务器',
+        '上传密钥',
+        '生成邀请码',
+        '烘焙后自动上传',
+        '云端烘焙 (Runpod)',
+        'Runpod API Key',
+      ]) {
+        expect(
+          find.text(title),
+          kPublicBuild ? findsNothing : findsOneWidget,
+          reason: title,
+        );
+      }
+      // The last section: the lazy list was built past the cloud one.
+      expect(find.text('关于并发设置'), findsOneWidget);
+    });
   });
 
   group('built-in values', () {
@@ -411,6 +443,37 @@ Future<void> pumpApp(WidgetTester tester) => tester.pumpWidget(
   ),
 );
 
+/// 下载设置 as the PC shows it: test hosts are desktops, so canBake is true.
+Future<void> pumpDownloadSettings(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(1200, 6000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final repository = _FakeRepository();
+  final downloads = DownloadController(
+    repository,
+    _FakeDownloadManager(),
+    PluginsController(),
+  );
+  bootstrapModule(
+    createModule(
+      register: (c) => c
+        ..addInstance<UpscaleController>(
+          _NoFfmpeg(
+            repository,
+            _FakeDownloadManager(),
+            downloads,
+            ShaderAssetService(),
+          ),
+        )
+        ..addInstance<LibraryController>(
+          LibraryController(repository, downloads, _FakeDownloadManager()),
+        ),
+    ),
+  );
+  await tester.pumpWidget(const MaterialApp(home: DownloadSettingsPage()));
+  await tester.pump();
+}
+
 /// Records the host of every request and lets it through unchanged.
 class _HostRecorder extends HttpOverrides {
   _HostRecorder(this.hosts);
@@ -458,6 +521,14 @@ class _FakeRepository implements IDownloadRepository {
 class _FakeDownloadManager implements IDownloadManager {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Answers the page's ffmpeg probe without starting a process.
+class _NoFfmpeg extends UpscaleController {
+  _NoFfmpeg(super.repository, super.manager, super.downloads, super.shaders);
+
+  @override
+  Future<(FfmpegInfo?, String?)> detectFfmpeg() async => (null, null);
 }
 
 class _TestPaths extends PathProviderPlatform {

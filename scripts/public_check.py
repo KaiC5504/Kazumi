@@ -82,6 +82,7 @@ PERSONAL_TESTS = {
     "lib/request/config/api_endpoints.dart": "test/public_build_test.dart",
     "lib/pages/download/download_page.dart": "test/public_build_test.dart",
     "lib/pages/download/public_gates.dart": "test/public_build_test.dart",
+    "lib/pages/settings/download_settings.dart": "test/public_build_test.dart",
     "lib/pages/about/about_page.dart": "test/public_build_test.dart",
     "lib/pages/about/fork_about_section.dart": "test/public_build_test.dart",
     "lib/request/clients/bangumi_client.dart": "test/public_build_test.dart",
