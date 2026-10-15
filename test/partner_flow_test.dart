@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_modular/flutter_modular.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/bean/dialog/dialog.dart';
@@ -27,6 +28,7 @@ import 'package:kazumi/pages/my/my_space_view.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/settings/interface_settings.dart';
+import 'package:kazumi/pages/settings/download_settings.dart';
 import 'package:kazumi/pages/settings/layout_settings.dart';
 import 'package:kazumi/modules/collect/collect_layout.dart';
 import 'package:kazumi/pages/video/episode_layout.dart';
@@ -53,6 +55,7 @@ import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/player/syncplay_endpoint.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
+import 'package:kazumi/services/upscale/upscale_baker.dart';
 import 'package:kazumi/services/upscale/upscale_controller.dart';
 import 'package:kazumi/services/update/testflight_update.dart';
 import 'package:logger/logger.dart';
@@ -1104,6 +1107,50 @@ void main() {
     });
   });
 
+  // Her phone can't bake, but the same build on the PC fills the library she
+  // watches from, so its upload and cloud bake settings must stay.
+  group('下载设置 on the PC', () {
+    testWidgets('still offers 一起看片库 and 云端烘焙', (tester) async {
+      tester.view.physicalSize = const Size(1200, 6000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final downloads = DownloadController(
+        _FakeRepository(),
+        _FakeDownloadManager(),
+        PluginsController(),
+      );
+      bootstrapModule(
+        createModule(
+          register: (c) => c
+            ..addInstance<UpscaleController>(
+              _NoFfmpeg(
+                _FakeRepository(),
+                _FakeDownloadManager(),
+                downloads,
+                ShaderAssetService(),
+              ),
+            )
+            ..addInstance<LibraryController>(library()),
+        ),
+      );
+      await tester.pumpWidget(const MaterialApp(home: DownloadSettingsPage()));
+      await tester.pump();
+      for (final title in [
+        '超分烘焙 (将质量档超分写入视频，供 iPad 等设备直接播放)',
+        '局域网共享',
+        '一起看片库 (上传到服务器，异地一起看)',
+        '片库服务器',
+        '上传密钥',
+        '生成邀请码',
+        '烘焙后自动上传',
+        '云端烘焙 (Runpod)',
+        'Runpod API Key',
+      ]) {
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
+    });
+  });
+
   // The PC now deletes an original download once its bake is done. Her phone
   // never bakes, so none of her downloads may be touched or lose the
   // shader-free playback they had.
@@ -1330,6 +1377,14 @@ class _RecordsRepository implements IDownloadRepository {
 class _FakeDownloadManager implements IDownloadManager {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Answers the settings page's ffmpeg probe without starting a process.
+class _NoFfmpeg extends UpscaleController {
+  _NoFfmpeg(super.repository, super.manager, super.downloads, super.shaders);
+
+  @override
+  Future<(FfmpegInfo?, String?)> detectFfmpeg() async => (null, null);
 }
 
 class _FakeHistoryRepository implements IHistoryRepository {

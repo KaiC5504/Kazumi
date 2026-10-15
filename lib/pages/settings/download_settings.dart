@@ -10,6 +10,7 @@ import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/loading_indicator.dart';
+import 'package:kazumi/pages/download/public_gates.dart';
 import 'package:kazumi/pages/library/route_sheet.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/download/download_directory_service.dart';
@@ -373,6 +374,12 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
           ),
         ],
       ),
+      if (showCloudUi(upscaleController.canBake)) ..._cloudSections(),
+    ];
+  }
+
+  List<SettingsSection> _cloudSections() {
+    return [
       SettingsSection(
         title: Text('一起看片库 (上传到服务器，异地一起看)'),
         tiles: [
