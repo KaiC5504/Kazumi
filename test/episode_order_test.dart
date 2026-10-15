@@ -29,6 +29,20 @@ void main() {
       expect(EpisodeOrder.titleOrder(['第1集']), TitleOrder.unknown);
       expect(EpisodeOrder.titleOrder(const []), TitleOrder.unknown);
     });
+    test('skips unnumbered ends', () {
+      expect(
+        EpisodeOrder.titleOrder(['第1集', '第2集', '第12集', '特别篇']),
+        TitleOrder.ascending,
+      );
+      expect(
+        EpisodeOrder.titleOrder(['PV', '第12集', '第11集', '第1集']),
+        TitleOrder.descending,
+      );
+    });
+    test('one parsable title or equal numbers are unknown', () {
+      expect(EpisodeOrder.titleOrder(['第3集', 'OVA']), TitleOrder.unknown);
+      expect(EpisodeOrder.titleOrder(['第5集', '第5集']), TitleOrder.unknown);
+    });
   });
 
   group('nextDirection', () {
@@ -130,6 +144,16 @@ void main() {
           expect(e.roomWantsNext, follow == p + 1);
         }
       }
+    });
+    test('room follow ignores a flipped direction', () {
+      final e = EpisodeOrder.endOfEpisode(
+        position: 5,
+        length: 12,
+        direction: -1,
+        followEpisode: 6,
+      );
+      expect(e.next, 4);
+      expect(e.roomWantsNext, isTrue);
     });
   });
 

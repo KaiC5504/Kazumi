@@ -9,10 +9,27 @@ enum TitleOrder { ascending, descending, unknown }
 /// how the list is shown and, outside 一起看 rooms, which way "next" goes.
 class EpisodeOrder {
   static TitleOrder titleOrder(List<String> titles) {
-    if (titles.length < 2) return TitleOrder.unknown;
-    final first = extractEpisodeNumber(titles.first);
-    final last = extractEpisodeNumber(titles.last);
-    if (first <= 0 || last <= 0 || first == last) return TitleOrder.unknown;
+    var firstIndex = -1;
+    var first = 0;
+    for (var i = 0; i < titles.length; i++) {
+      final n = extractEpisodeNumber(titles[i]);
+      if (n > 0) {
+        firstIndex = i;
+        first = n;
+        break;
+      }
+    }
+    if (firstIndex < 0) return TitleOrder.unknown;
+
+    var last = 0;
+    for (var i = titles.length - 1; i > firstIndex; i--) {
+      final n = extractEpisodeNumber(titles[i]);
+      if (n > 0) {
+        last = n;
+        break;
+      }
+    }
+    if (last == 0 || first == last) return TitleOrder.unknown;
     return first < last ? TitleOrder.ascending : TitleOrder.descending;
   }
 
