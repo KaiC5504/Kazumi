@@ -9,6 +9,7 @@ import 'package:kazumi/bean/widget/kazumi_menu.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/modules/roads/road_module.dart';
 import 'package:kazumi/pages/video/episode_layout.dart';
+import 'package:kazumi/services/player/episode_order_store.dart';
 
 class EpisodeSelectionPanel extends StatefulWidget {
   const EpisodeSelectionPanel({
@@ -23,6 +24,8 @@ class EpisodeSelectionPanel extends StatefulWidget {
     this.isOffline = false,
     this.isPlaying = false,
     this.disableAnimations = false,
+    this.reversed = false,
+    this.onToggleOrder,
   });
 
   final String title;
@@ -35,6 +38,8 @@ class EpisodeSelectionPanel extends StatefulWidget {
   final bool isOffline;
   final bool isPlaying;
   final bool disableAnimations;
+  final bool reversed;
+  final VoidCallback? onToggleOrder;
 
   @override
   EpisodeSelectionPanelState createState() => EpisodeSelectionPanelState();
@@ -121,6 +126,15 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
     EpisodeLayout.save(layout);
   }
 
+  @override
+  void didUpdateWidget(covariant EpisodeSelectionPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reversed != widget.reversed) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => revealCurrentEpisode());
+    }
+  }
+
   void _selectRoad(int road) {
     if (_visibleRoad == road) return;
     setState(() => _visibleRoad = road);
@@ -139,7 +153,9 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
       return;
     }
 
-    final index = widget.selectedEpisode - 1;
+    final index = EpisodeOrder.displayIndexOf(widget.selectedEpisode,
+        length: widget.roads[widget.selectedRoad].data.length,
+        reversed: widget.reversed);
     final toolbarHeight = _toolbarHeight;
     final item = _observerController.observeItem(index: index);
     if (item != null) {
@@ -237,12 +253,13 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                       children: [
                         Expanded(
                           child: Text(
-                            textScaler.scale(14) > 21 ||
-                                    constraints.maxWidth < 320
-                                ? '$count 集'
-                                : widget.isOffline
-                                    ? '已缓存 · $count 集'
-                                    : '全部剧集 · $count 集',
+                            (textScaler.scale(14) > 21 ||
+                                        constraints.maxWidth < 320
+                                    ? '$count 集'
+                                    : widget.isOffline
+                                        ? '已缓存 · $count 集'
+                                        : '全部剧集 · $count 集') +
+                                (widget.reversed ? ' · 倒序' : ''),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.labelLarge?.copyWith(
@@ -266,6 +283,15 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                             icon: Icon(_layout.icon, size: 20),
                           ),
                         ),
+                        if (widget.onToggleOrder != null)
+                          IconButton(
+                            tooltip: widget.reversed ? '切换为正序' : '切换为倒序',
+                            isSelected: widget.reversed,
+                            onPressed: count > 1 ? widget.onToggleOrder : null,
+                            icon: const Icon(Icons.swap_vert_rounded, size: 20),
+                            selectedIcon: Icon(Icons.swap_vert_rounded,
+                                size: 20, color: colors.primary),
+                          ),
                         IconButton(
                           tooltip: '定位当前集',
                           onPressed: _canLocate ? revealCurrentEpisode : null,
@@ -315,10 +341,11 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                     ),
                     itemCount: count,
                     itemBuilder: (context, index) {
-                      final episode = index + 1;
+                      final episode = EpisodeOrder.positionAt(index,
+                          length: count, reversed: widget.reversed);
                       return _EpisodeRow(
                         key: ValueKey('$_visibleRoad:$episode'),
-                        name: _episodeName(road!, index),
+                        name: _episodeName(road!, episode - 1),
                         nameLines: shape.lines,
                         fullRow: shape.columns == 1 && !dense,
                         dense: dense,
@@ -326,7 +353,7 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                             episode == widget.selectedEpisode,
                         isPlaying: widget.isPlaying,
                         isOffline: widget.isOffline,
-                        download: widget.downloads[road.data[index]],
+                        download: widget.downloads[road.data[episode - 1]],
                         disableAnimations: widget.disableAnimations,
                         onTap: () =>
                             widget.onEpisodeSelected(episode, _visibleRoad),

@@ -30,6 +30,7 @@ import 'package:kazumi/services/platform/display_mode_service.dart';
 import 'package:kazumi/pages/video/video_fullscreen_controller.dart';
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/services/player/danmaku_binding_store.dart';
+import 'package:kazumi/services/player/episode_order_store.dart';
 
 part 'video_controller.g.dart';
 
@@ -401,6 +402,60 @@ abstract class _VideoPageController with Store implements Disposable {
     return isOfflineMode
         ? _resolveOfflineEpisode(selection.episode, road: selection.road)
         : _resolveOnlineEpisode(selection.episode, road: selection.road);
+  }
+
+  String get _orderPlugin =>
+      isOfflineMode ? offlinePluginName : currentPlugin.name;
+
+  // Cached: the playback tick asks every second.
+  String? _reversedKey;
+  bool _reversed = false;
+
+  bool get episodesReversed {
+    final key = '${bangumiItem.id}|$_orderPlugin';
+    if (key != _reversedKey) {
+      _reversedKey = key;
+      _reversed = EpisodeOrderStore.isReversed(bangumiItem.id, _orderPlugin);
+    }
+    return _reversed;
+  }
+
+  Future<void> toggleEpisodeOrder() async {
+    final reversed = !episodesReversed;
+    _reversed = reversed;
+    await EpisodeOrderStore.setReversed(
+        bangumiItem.id, _orderPlugin, reversed);
+  }
+
+  int _nextDirection(int road, {required bool inRoom}) =>
+      EpisodeOrder.nextDirection(
+        flipped: episodesReversed,
+        inRoom: inRoom,
+        titles: () => EpisodeOrder.titleOrder(roadList[road].identifier),
+      );
+
+  int? adjacentEpisode(VideoEpisodeSelection selection,
+      {required bool next, required bool inRoom}) {
+    if (selection.road < 0 || selection.road >= roadList.length) return null;
+    return EpisodeOrder.step(selection.episode,
+        next: next,
+        length: roadList[selection.road].data.length,
+        direction: _nextDirection(selection.road, inRoom: inRoom));
+  }
+
+  ({int? next, bool roomWantsNext}) episodeEnd(
+      VideoEpisodeSelection selection,
+      {required bool inRoom,
+      required int? followEpisode}) {
+    if (selection.road < 0 || selection.road >= roadList.length) {
+      return (next: null, roomWantsNext: false);
+    }
+    return EpisodeOrder.endOfEpisode(
+      position: selection.episode,
+      length: roadList[selection.road].data.length,
+      direction: _nextDirection(selection.road, inRoom: inRoom),
+      followEpisode: followEpisode,
+    );
   }
 
   int commentEpisodeForSelection(VideoEpisodeSelection selection) {

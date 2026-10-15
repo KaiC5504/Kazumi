@@ -527,6 +527,11 @@ class _VideoPageState extends State<VideoPage>
               !playerController.playback.loading &&
               !videoPageController.loading,
           disableAnimations: disableAnimations,
+          reversed: videoPageController.episodesReversed,
+          onToggleOrder: () async {
+            await videoPageController.toggleEpisodeOrder();
+            if (mounted) setState(() {});
+          },
           onEpisodeSelected: (episode, road) {
             if (episode == videoPageController.selectedEpisode.episode &&
                 road == videoPageController.selectedEpisode.road) {

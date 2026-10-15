@@ -409,22 +409,18 @@ class _PlayerItemState extends State<PlayerItem>
     if (videoPageController.loading) return;
     final selection = videoPageController.selectedEpisode;
     final currentRoad = selection.road;
-    final episodes = videoPageController.roadList[currentRoad].data;
-    int targetEpisode;
+    final bool next;
     if (direction == 'next') {
-      targetEpisode = selection.episode + 1;
+      next = true;
     } else if (direction == 'prev') {
-      targetEpisode = selection.episode - 1;
+      next = false;
     } else {
       return;
     }
-
-    if (targetEpisode > episodes.length) {
-      KazumiDialog.showToast(message: '已经是最新一集');
-      return;
-    }
-    if (targetEpisode <= 0) {
-      KazumiDialog.showToast(message: '已经是第一集');
+    final targetEpisode = videoPageController.adjacentEpisode(selection,
+        next: next, inRoom: playerController.syncplay.inRoom);
+    if (targetEpisode == null) {
+      KazumiDialog.showToast(message: next ? '已经是最新一集' : '已经是第一集');
       return;
     }
 
@@ -658,8 +654,13 @@ class _PlayerItemState extends State<PlayerItem>
 
       if (playerController.playback.duration <= Duration.zero) return;
 
-      final canSkipToPrevious = currentEpisode > 1;
-      final canSkipToNext = currentEpisode < currentRoadData.data.length;
+      final inRoom = playerController.syncplay.inRoom;
+      final canSkipToPrevious = videoPageController
+              .adjacentEpisode(selection, next: false, inRoom: inRoom) !=
+          null;
+      final canSkipToNext = videoPageController
+              .adjacentEpisode(selection, next: true, inRoom: inRoom) !=
+          null;
       final bangumiTitle = videoPageController.bangumiItem.nameCn.isNotEmpty
           ? videoPageController.bangumiItem.nameCn
           : videoPageController.bangumiItem.name;
@@ -1248,8 +1249,9 @@ class _PlayerItemState extends State<PlayerItem>
         );
       }
       final playingSelection = videoPageController.playbackEpisode;
-      final playingRoadData =
-          videoPageController.roadList[playingSelection.road];
+      final episodeEnd = videoPageController.episodeEnd(playingSelection,
+          inRoom: playerController.syncplay.inRoom,
+          followEpisode: playerController.syncplay.followEpisode);
       if (playerController.playback.playerPlaying &&
           !videoPageController.loading) {
         // Unparsable titles are skipped: guessing by list index could mark
@@ -1273,11 +1275,9 @@ class _PlayerItemState extends State<PlayerItem>
         duration: playerController.playback.playerDuration,
         playing: playerController.playback.playerPlaying,
         resumedNearEnd: playerController.playback.resumedNearEnd,
-        hasNextEpisode:
-            playingSelection.episode < playingRoadData.data.length,
+        hasNextEpisode: episodeEnd.next != null,
         autoPlayNext: autoPlayNext,
-        roomWantsNext: playerController.syncplay.followEpisode ==
-            playingSelection.episode + 1,
+        roomWantsNext: episodeEnd.roomWantsNext,
       );
       switch (end.step) {
         case EndStep.nothing:
@@ -1287,7 +1287,7 @@ class _PlayerItemState extends State<PlayerItem>
         case EndStep.advance:
         case EndStep.followRoom:
           final nextSelection = VideoEpisodeSelection(
-            episode: playingSelection.episode + 1,
+            episode: episodeEnd.next!,
             road: playingSelection.road,
           );
           // Let the controller report resolution failures without retrying every tick.
@@ -1298,7 +1298,7 @@ class _PlayerItemState extends State<PlayerItem>
           try {
             playerTimer!.cancel();
           } catch (_) {}
-          widget.changeEpisode(playingSelection.episode + 1,
+          widget.changeEpisode(episodeEnd.next!,
               currentRoad: playingSelection.road);
         case EndStep.reload:
           if (end.decision!.switchHost) videoPageController.rotateRemoteHost();
