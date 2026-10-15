@@ -185,7 +185,7 @@ PUBLIC_MUST_FAIL = {
     "我的 page shows 一起看 and opens it (1200 px)",
     "我的 page with watch history still shows 一起看 and opens it (400 px)",
     "我的 page with watch history still shows 一起看 and opens it (1200 px)",
-    "下载设置 on the PC still offers 一起看片库 and 云端烘焙",
+    "下载设置 on the PC still offers 一起看片库 and 云端超分",
 }
 
 FLAG_RE = re.compile(r"fromEnvironment\(\s*['\"]([A-Za-z0-9_]+)['\"]")

@@ -581,6 +581,7 @@ void main() {
       await tester.runAsync(() => recorded(update.check));
       await tester.pumpAndSettle();
       expect(update.shownNeed, UpdateNeed.required);
+      expect(find.text('当前版本已停用，请更新'), findsOneWidget);
       expect(find.text('去更新'), findsOneWidget);
       expect(find.text('稍后'), findsNothing);
     });
@@ -1110,7 +1111,7 @@ void main() {
   // Her phone can't bake, but the same build on the PC fills the library she
   // watches from, so its upload and cloud bake settings must stay.
   group('下载设置 on the PC', () {
-    testWidgets('still offers 一起看片库 and 云端烘焙', (tester) async {
+    testWidgets('still offers 一起看片库 and 云端超分', (tester) async {
       tester.view.physicalSize = const Size(1200, 6000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -1136,14 +1137,14 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: DownloadSettingsPage()));
       await tester.pump();
       for (final title in [
-        '超分烘焙 (将质量档超分写入视频，供 iPad 等设备直接播放)',
+        '超分（写入视频，iPad 直接播放）',
         '局域网共享',
         '一起看片库 (上传到服务器，异地一起看)',
         '片库服务器',
         '上传密钥',
         '生成邀请码',
-        '烘焙后自动上传',
-        '云端烘焙 (Runpod)',
+        '超分后自动上传',
+        '云端超分 (Runpod)',
         'Runpod API Key',
       ]) {
         expect(find.text(title), findsOneWidget, reason: title);

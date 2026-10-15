@@ -176,19 +176,19 @@ void main() {
   });
 
   group('download settings', () {
-    testWidgets('一起看片库 and 云端烘焙 only in the personal build', (
+    testWidgets('一起看片库 and 云端超分 only in the personal build', (
       tester,
     ) async {
       await pumpDownloadSettings(tester);
-      expect(find.textContaining('超分烘焙'), findsOneWidget);
+      expect(find.text('超分（写入视频，iPad 直接播放）'), findsOneWidget);
       expect(find.text('局域网共享'), findsOneWidget);
       for (final title in [
         '一起看片库 (上传到服务器，异地一起看)',
         '片库服务器',
         '上传密钥',
         '生成邀请码',
-        '烘焙后自动上传',
-        '云端烘焙 (Runpod)',
+        '超分后自动上传',
+        '云端超分 (Runpod)',
         'Runpod API Key',
       ]) {
         expect(
