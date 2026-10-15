@@ -854,7 +854,11 @@ class SimViewer {
     switch (end.step) {
       case EndStep.advance:
       case EndStep.followRoom:
-        unawaited(changeEpisode(episodeEnd.next!));
+        unawaited(
+          changeEpisode(
+            end.step == EndStep.followRoom ? episode + 1 : episodeEnd.next!,
+          ),
+        );
         return;
       case EndStep.reload:
         reloads++;

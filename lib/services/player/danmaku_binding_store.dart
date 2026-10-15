@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:kazumi/modules/danmaku/danmaku_module.dart';
 import 'package:kazumi/services/storage/storage.dart';
@@ -26,10 +27,13 @@ class DanmakuBinding {
     required String animeTitle,
     required int episodeId,
     required int currentEpisode,
+    int episodeCount = 0,
   }) {
     if (episodeId ~/ 10000 != animeId) return null;
     final number = episodeId % 10000;
-    if (number < 1) return null;
+    // Specials may sit in the same id block with a large suffix (1001+); a
+    // binding built from one would shift every later episode off the list.
+    if (number < 1 || number > max(episodeCount, 999)) return null;
     return DanmakuBinding(
       animeId: animeId,
       animeTitle: animeTitle,

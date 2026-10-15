@@ -35,7 +35,7 @@ Future<void> showDanmakuSourceSheet(
   required VoidCallback onBeforeApply,
   DanmakuBinding? binding,
   Future<bool> Function(DanmakuSearchAnime anime, DanmakuEpisode episode,
-          List<DanmakuEntry> danmakus)?
+          int episodeCount, List<DanmakuEntry> danmakus)?
       onPicked,
   VoidCallback? onResetBinding,
 }) async {
@@ -106,7 +106,7 @@ class _DanmakuSourceSheet extends StatefulWidget {
   final VoidCallback onBeforeApply;
   final DanmakuBinding? binding;
   final Future<bool> Function(DanmakuSearchAnime anime, DanmakuEpisode episode,
-      List<DanmakuEntry> danmakus)? onPicked;
+      int episodeCount, List<DanmakuEntry> danmakus)? onPicked;
   final VoidCallback? onResetBinding;
 
   @override
@@ -243,8 +243,8 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
     final anime = _pickedAnime;
     if (hasDanmakus && anime != null && widget.onPicked != null) {
       try {
-        remembered = await widget.onPicked!(
-            anime, episode, widget.danmakuController.lastEpisodeDanmakus);
+        remembered = await widget.onPicked!(anime, episode, _episodes.length,
+            widget.danmakuController.lastEpisodeDanmakus);
       } catch (_) {}
     }
     if (!mounted) return;

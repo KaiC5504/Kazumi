@@ -739,6 +739,7 @@ abstract class _VideoPageController with Store implements Disposable {
     required int animeId,
     required String animeTitle,
     required int episodeId,
+    int episodeCount = 0,
     required List<DanmakuEntry> danmakus,
   }) async {
     final params = _danmakuParams;
@@ -754,6 +755,7 @@ abstract class _VideoPageController with Store implements Disposable {
       animeId: animeId,
       animeTitle: animeTitle,
       episodeId: episodeId,
+      episodeCount: episodeCount,
       currentEpisode: danmakuBindingEpisode(
           params.episodeTitle, params.danmakuEpisodeNumber),
     );

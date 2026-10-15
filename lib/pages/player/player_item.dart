@@ -1280,8 +1280,11 @@ class _PlayerItemState extends State<PlayerItem>
           unawaited(playerController.playback.restartFromBeginning());
         case EndStep.advance:
         case EndStep.followRoom:
+          final target = end.step == EndStep.followRoom
+              ? playingSelection.episode + 1
+              : episodeEnd.next!;
           final nextSelection = VideoEpisodeSelection(
-            episode: episodeEnd.next!,
+            episode: target,
             road: playingSelection.road,
           );
           // Let the controller report resolution failures without retrying every tick.
@@ -1292,8 +1295,7 @@ class _PlayerItemState extends State<PlayerItem>
           try {
             playerTimer!.cancel();
           } catch (_) {}
-          widget.changeEpisode(episodeEnd.next!,
-              currentRoad: playingSelection.road);
+          widget.changeEpisode(target, currentRoad: playingSelection.road);
         case EndStep.reload:
           if (end.decision!.switchHost) videoPageController.rotateRemoteHost();
           GlassNotice.show('网络中断，正在重连…', icon: Icons.wifi_off_rounded);
@@ -1318,12 +1320,13 @@ class _PlayerItemState extends State<PlayerItem>
       danmakuController: playerController.danmaku,
       onBeforeApply: videoPageController.cancelAutomaticDanmakuLoad,
       binding: DanmakuBindingStore.bindingFor(bangumiId),
-      onPicked: (anime, episode, danmakus) =>
+      onPicked: (anime, episode, episodeCount, danmakus) =>
           videoPageController.rememberDanmakuPick(
         openedFor: openedFor,
         animeId: anime.animeId,
         animeTitle: anime.animeTitle,
         episodeId: episode.episodeId,
+        episodeCount: episodeCount,
         danmakus: danmakus,
       ),
       onResetBinding: () async {

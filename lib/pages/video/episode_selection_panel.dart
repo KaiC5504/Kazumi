@@ -130,8 +130,9 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
   void didUpdateWidget(covariant EpisodeSelectionPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.reversed != widget.reversed) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => revealCurrentEpisode());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) revealCurrentEpisode();
+      });
     }
   }
 

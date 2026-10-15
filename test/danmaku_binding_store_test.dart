@@ -64,6 +64,46 @@ void main() {
         isNull,
       );
     });
+    test('a special numbered past the list is not remembered', () {
+      expect(
+        DanmakuBinding.fromPick(
+          animeId: 17756,
+          animeTitle: 'A',
+          episodeId: 177561001,
+          currentEpisode: 1,
+          episodeCount: 14,
+        ),
+        isNull,
+      );
+    });
+    test('a long runner past 999 is remembered', () {
+      final b = DanmakuBinding.fromPick(
+        animeId: 1,
+        animeTitle: 'A',
+        episodeId: 11050,
+        currentEpisode: 1050,
+        episodeCount: 1100,
+      )!;
+      expect(b.offset, 0);
+    });
+    test('without a list length, numbers up to 999 are allowed', () {
+      final b = DanmakuBinding.fromPick(
+        animeId: 17756,
+        animeTitle: 'A',
+        episodeId: 177560999,
+        currentEpisode: 1,
+      )!;
+      expect(b.offset, 998);
+      expect(
+        DanmakuBinding.fromPick(
+          animeId: 17756,
+          animeTitle: 'A',
+          episodeId: 177561000,
+          currentEpisode: 1,
+        ),
+        isNull,
+      );
+    });
   });
 
   group('episodeIdFor bounds', () {

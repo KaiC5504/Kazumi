@@ -212,6 +212,7 @@ abstract class _PlayerDanmakuController with Store {
   @action
   void beginDanmakuLoad() {
     danDanmakus.clear();
+    lastEpisodeDanmakus = const [];
     sourceCounts = const {};
     danmakuLoading = true;
   }
@@ -374,7 +375,8 @@ abstract class _PlayerDanmakuController with Store {
   }
 
   void addDanmakus(List<DanmakuEntry> danmakus) {
-    sourceCounts = countDanmakuBySource(danmakus);
+    sourceCounts =
+        danmakus.isEmpty ? const {} : countDanmakuBySource(danmakus);
     final bool danmakuDeduplicationEnable =
         GStorage.getSetting(SettingsKeys.danmakuDeduplication);
 
