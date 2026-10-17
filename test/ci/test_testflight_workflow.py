@@ -240,7 +240,11 @@ class WorkflowTest(unittest.TestCase):
         # An upload whose number went missing must fail, not poll the old floor build.
         self.assertIn('if [ "$UPLOAD" = true ]; then build="$BUILT"', wait["run"])
         self.assertIn("''|*[!0-9]*)", wait["run"])
-        self.assertIn("|| state=", wait["run"])
+        # A failed check is retried a few times, then fails the step with its error, never loops for the hour.
+        self.assertIn('state="no answer', wait["run"])
+        self.assertIn('if [ "$misses" -ge 8 ]', wait["run"])
+        # macOS runners have no GNU timeout: every check failed on it until 2026-10-18.
+        self.assertNotRegex(wait["run"], r"(^|[\s(])timeout ")
 
     def test_ipa_is_checked_before_it_is_uploaded(self):
         names = [s.get("name") for _, s in self.steps("build")]

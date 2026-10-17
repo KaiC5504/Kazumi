@@ -343,12 +343,22 @@ jobs:
             ''|*[!0-9]*) echo "no build number to wait for: '$build'"; exit 1 ;;
           esac
           deadline=$((SECONDS + 3600))
+          misses=0
           while [ "$SECONDS" -lt "$deadline" ]; do
-            # One failed call is a blip, not a verdict; Apple's answer decides.
-            state=$(timeout 120 app-store-connect builds list --app-id "$ASC_APP_ID" \
-                --build-version-number "$build" --json \
-              | python -c 'import json,sys; b=json.load(sys.stdin); print(b[0]["attributes"]["processingState"] if b else "NOT_FOUND")') \
-              || state="no answer, retrying"
+            # macOS has no GNU timeout: perl's alarm stops a hung call after 120 s.
+            if output=$(perl -e 'alarm shift; exec @ARGV' 120 app-store-connect builds list \
+                  --app-id "$ASC_APP_ID" --build-version-number "$build" --json 2> "$RUNNER_TEMP/asc.err") \
+                && state=$(printf '%s' "$output" | python -c 'import json,sys; b=json.load(sys.stdin); print(b[0]["attributes"]["processingState"] if b else "NOT_FOUND")'); then
+              misses=0
+            else
+              misses=$((misses + 1))
+              state="no answer ($misses)"
+              # One failed call is a blip, not a verdict; eight in a row is a broken check, so stop and show why.
+              if [ "$misses" -ge 8 ]; then
+                tail -n 20 "$RUNNER_TEMP/asc.err"
+                exit 1
+              fi
+            fi
             echo "$(date -u +%H:%M:%S) build $build: $state"
             case "$state" in
               VALID) exit 0 ;;
