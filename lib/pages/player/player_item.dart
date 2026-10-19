@@ -1222,10 +1222,7 @@ class _PlayerItemState extends State<PlayerItem>
               .applyExternalVolume(playerController.playback.playerVolume);
         }
       }
-      if (!Platform.isWindows &&
-          !Platform.isMacOS &&
-          !Platform.isLinux &&
-          !playerController.panel.brightnessSeeking) {
+      if (!isDesktop() && !playerController.panel.brightnessSeeking) {
         ScreenBrightnessPlatform.instance.application.then((value) {
           if (!mounted) return;
           playerController.panel.brightness = value;

@@ -1,4 +1,5 @@
 import 'package:kazumi/services/player/syncplay_endpoint.dart';
+import 'package:kazumi/utils/device.dart';
 
 enum SettingGroup {
   player,
@@ -116,6 +117,13 @@ class SettingsKeys {
     _SettingBoxKey.danmakuEnhance,
     true,
     group: SettingGroup.danmaku,
+  );
+  /// Off on desktop and on on mobile, like the B 站 client.
+  static final pauseOnDanmakuEdit = SettingKey<bool>(
+    'pauseOnDanmakuEdit',
+    true,
+    group: SettingGroup.danmaku,
+    defaultResolver: (_) => !isDesktop(),
   );
   static const danmakuBorder = SettingKey<bool>(
     _SettingBoxKey.danmakuBorder,
@@ -739,6 +747,7 @@ class SettingsKeys {
     buttonSkipTime,
     arrowKeySkipTime,
     danmakuEnhance,
+    pauseOnDanmakuEdit,
     danmakuBorder,
     danmakuBorderSize,
     danmakuOpacity,
