@@ -3,6 +3,7 @@ import UserNotifications
 import Flutter
 import AVKit
 import UniformTypeIdentifiers
+import app_links
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -12,6 +13,11 @@ import UniformTypeIdentifiers
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+        // Unclaimed URLs make Flutter replay launch callbacks to legacy plugins,
+        // registering flutter_foreground_task's background task twice.
+        AppLinks.shared.urlHandledCallBack = { url in
+            url.scheme?.lowercased() == "kazumi"
+        }
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 

@@ -3,12 +3,12 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links_linux
   desktop_webview_window
   dynamic_color
   file_selector_linux
   flutter_timezone
   flutter_volume_controller
-  gtk
   media_kit_video
   screen_retriever_linux
   tray_manager

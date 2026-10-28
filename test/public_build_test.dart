@@ -28,6 +28,7 @@ import 'package:kazumi/services/download/download_manager.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
 import 'package:kazumi/services/network/bangumi_acceleration.dart';
+import 'package:kazumi/services/network/rules_mirror.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/auto_updater.dart';
@@ -206,10 +207,9 @@ void main() {
     test('rules mirror', () {
       expect(
         ApiEndpoints.pluginShopMirror,
-        kPublicBuild
-            ? 'https://cdn.gh-proxy.org/https://raw.githubusercontent.com/Predidit/KazumiRules/main/'
-            : '$hkSite/rules/',
+        kPublicBuild ? '' : '$hkSite/rules/',
       );
+      expect(RulesMirror.choices.contains(RulesMirror.hk), !kPublicBuild);
     });
 
     test('update sources', () {

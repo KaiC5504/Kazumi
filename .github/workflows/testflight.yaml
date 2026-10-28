@@ -95,7 +95,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
-          flutter-version: 3.47.7
+          flutter-version: 3.47.8
           cache: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -254,7 +254,7 @@ jobs:
           DANDANAPI_KEY: ${{ secrets.TESTFLIGHT_DANDANAPI_KEY }}
         run: |
           flutter build ipa --release \
-            --build-name=3.3.1 \
+            --build-name=3.4.0 \
             --build-number="$BUILD_NUMBER" \
             --export-options-plist="$RUNNER_TEMP/export_options.plist" \
             --dart-define=DANDANAPI_APPID="${DANDANAPI_APPID:-}" \
