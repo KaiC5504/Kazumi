@@ -25,7 +25,10 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
 import 'package:kazumi/pages/my/my_controller.dart';
 import 'package:kazumi/pages/my/my_space_view.dart';
+import 'package:kazumi/bean/settings/network_mirror_settings.dart';
 import 'package:kazumi/bean/settings/settings_list.dart';
+import 'package:kazumi/pages/plugin_editor/plugin_catalog_view.dart';
+import 'package:kazumi/services/network/rules_mirror.dart';
 import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/settings/interface_settings.dart';
 import 'package:kazumi/pages/settings/download_settings.dart';
@@ -664,6 +667,92 @@ void main() {
       }
       expect(requested.single.toString(), '$hkSite/rules/AGE.json');
     });
+
+    test('her phone never picked a rules mirror, so it stays on HK', () async {
+      await Hive.box<dynamic>('setting').put('enableGitProxy', true);
+      expect(RulesMirror.current, RulesMirror.hk);
+      await PluginCatalogApi.getPluginList();
+      expect(requested.single.toString(), '$hkSite/rules/index.json');
+    });
+
+    // The pick is written to Hive on disk, which only completes in real time.
+    Future<void> pickRulesMirror(WidgetTester tester, String label) async {
+      await tester.tap(find.text('规则仓库加速').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('访问加速 shows 香港镜像, and picking it again after another '
+        'mirror goes back to HK', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          navigatorObservers: [KazumiDialog.observer],
+          home: const Scaffold(
+            body: SettingsList(sections: [NetworkMirrorSettings()]),
+          ),
+        ),
+      );
+      expect(find.text('香港镜像'), findsOneWidget);
+
+      await pickRulesMirror(tester, 'ghfast');
+      await tester.runAsync(PluginCatalogApi.getPluginList);
+      expect(
+        requested.last.toString(),
+        'https://ghfast.top/${ApiEndpoints.pluginShop}index.json',
+      );
+
+      await pickRulesMirror(tester, '香港镜像');
+      await tester.runAsync(PluginCatalogApi.getPluginList);
+      expect(requested.last.toString(), '$hkSite/rules/index.json');
+      // Hive.close in tearDownAll waits on writes started under fake time.
+      await tester.runAsync(() => Hive.box<dynamic>('setting').flush());
+    });
+
+    testWidgets('when the rule catalog fails, 切换加速 names HK and retries '
+        'through the mirror she picks', (tester) async {
+      DioFactory.rulesRepoDio.httpClientAdapter = _RecordingAdapter(
+        requested,
+        status: 503,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          navigatorObservers: [KazumiDialog.observer],
+          home: Scaffold(
+            body: PluginCatalogView(controller: PluginsController()),
+          ),
+        ),
+      );
+      // Loading the catalog and saving the pick both need real time.
+      Future<void> settle() async {
+        for (var i = 0; i < 3; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 50)),
+          );
+          await tester.pumpAndSettle();
+        }
+      }
+
+      await settle();
+      expect(requested.single.toString(), '$hkSite/rules/index.json');
+      expect(find.textContaining('规则仓库加速：香港镜像'), findsOneWidget);
+
+      await tester.tap(find.text('切换加速'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gh-proxy'));
+      await settle();
+      expect(
+        requested.last.toString(),
+        'https://gh-proxy.org/${ApiEndpoints.pluginShop}index.json',
+      );
+      await tester.runAsync(() => Hive.box<dynamic>('setting').flush());
+    });
   });
 
   group('我的 page', () {
@@ -785,14 +874,8 @@ void main() {
         tester,
         const SettingsList(sections: [LayoutSettingsSection()]),
       );
-      expect(
-        tester.getSemantics(style('新版')),
-        isSemantics(isSelected: true),
-      );
-      expect(
-        tester.getSemantics(style('经典')),
-        isSemantics(isSelected: false),
-      );
+      expect(tester.getSemantics(style('新版')), isSemantics(isSelected: true));
+      expect(tester.getSemantics(style('经典')), isSemantics(isSelected: false));
       expect(find.text(CollectLayout.list.label), findsOneWidget);
       expect(find.text(EpisodeLayout.auto.label), findsOneWidget);
       semantics.dispose();
@@ -805,10 +888,7 @@ void main() {
         const SettingsList(sections: [LayoutSettingsSection()]),
       );
       await pick(tester, '经典', true);
-      expect(
-        tester.getSemantics(style('经典')),
-        isSemantics(isSelected: true),
-      );
+      expect(tester.getSemantics(style('经典')), isSemantics(isSelected: true));
       expect(find.text(CollectLayout.cards.label), findsOneWidget);
       expect(find.text(EpisodeLayout.grid.label), findsOneWidget);
 
@@ -831,10 +911,7 @@ void main() {
       final semantics = tester.ensureSemantics();
       await pumpPhone(tester, const LayoutStyleStep());
       expect(find.text('选一个喜欢的布局'), findsOneWidget);
-      expect(
-        tester.getSemantics(style('新版')),
-        isSemantics(isSelected: true),
-      );
+      expect(tester.getSemantics(style('新版')), isSemantics(isSelected: true));
       await pick(tester, '经典', true);
       expect(EpisodeLayout.saved, EpisodeLayout.grid);
       semantics.dispose();
@@ -931,11 +1008,7 @@ void main() {
   });
 
   group('titled episodes on the video page', () {
-    const titles = [
-      'FX战士久留美是怎样炼成的',
-      '有杠杆的地方就有她的身影',
-      '久留美与不可思议的放学后',
-    ];
+    const titles = ['FX战士久留美是怎样炼成的', '有杠杆的地方就有她的身影', '久留美与不可思议的放学后'];
 
     Future<List<(int, int)>> pumpTitled(WidgetTester tester) async {
       tester.view.physicalSize = const Size(440, 956);
@@ -1047,11 +1120,7 @@ void main() {
         tester.getTopLeft(find.text(a)).dy ==
         tester.getTopLeft(find.text(b)).dy;
 
-    const titled = [
-      'FX战士久留美是怎样炼成的',
-      '有杠杆的地方就有她的身影',
-      '久留美与不可思议的放学后',
-    ];
+    const titled = ['FX战士久留美是怎样炼成的', '有杠杆的地方就有她的身影', '久留美与不可思议的放学后'];
 
     testWidgets('自动 keeps a grid when names fit a cell in two lines', (
       tester,
@@ -1061,7 +1130,9 @@ void main() {
       expect(sameRow(tester, names[1], names[2]), isTrue);
       for (final name in names) {
         expect(
-          tester.renderObject<RenderParagraph>(find.text(name)).didExceedMaxLines,
+          tester
+              .renderObject<RenderParagraph>(find.text(name))
+              .didExceedMaxLines,
           isFalse,
         );
       }
@@ -1329,9 +1400,10 @@ class _RoutingClient implements HttpClient {
 }
 
 class _RecordingAdapter implements HttpClientAdapter {
-  _RecordingAdapter(this.urls);
+  _RecordingAdapter(this.urls, {this.status = 200});
 
   final List<Uri> urls;
+  final int status;
 
   @override
   Future<ResponseBody> fetch(
@@ -1340,7 +1412,7 @@ class _RecordingAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     urls.add(options.uri);
-    return ResponseBody.fromString('[]', 200);
+    return ResponseBody.fromString('[]', status);
   }
 
   @override

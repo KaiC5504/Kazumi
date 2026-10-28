@@ -166,6 +166,9 @@ TESTED_EDITS = {
     "lib/pages/settings/theme_settings_page.dart",
     "lib/services/update/testflight_update.dart",
     "lib/request/config/api_endpoints.dart",
+    "lib/bean/settings/network_mirror_settings.dart",
+    "lib/pages/plugin_editor/plugin_catalog_view.dart",
+    "lib/services/network/rules_mirror.dart",
 }
 
 KNOWN_FLAGS = {
@@ -187,6 +190,7 @@ PUBLIC_MUST_FAIL = {
     "我的 page with watch history still shows 一起看 and opens it (400 px)",
     "我的 page with watch history still shows 一起看 and opens it (1200 px)",
     "下载设置 on the PC still offers 一起看片库 and 云端超分",
+    "rules in China her phone never picked a rules mirror, so it stays on HK",
 }
 
 FLAG_RE = re.compile(r"fromEnvironment\(\s*['\"]([A-Za-z0-9_]+)['\"]")
