@@ -169,6 +169,7 @@ TESTED_EDITS = {
     "lib/bean/settings/network_mirror_settings.dart",
     "lib/pages/plugin_editor/plugin_catalog_view.dart",
     "lib/services/network/rules_mirror.dart",
+    "lib/services/platform/tray_service.dart",
 }
 
 KNOWN_FLAGS = {

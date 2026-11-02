@@ -155,7 +155,9 @@ abstract class _DownloadController with Store {
     _repository.updateEpisode(recordKey, episodeNumber, episode);
 
     // 下载目录在实际开始下载时才创建，排队或暂停后恢复的剧集统一在完成时缓存弹幕
+    // Pre-upscaled episodes arrive with their own danmaku.json.
     if (episode.status == DownloadStatus.completed &&
+        !episode.preUpscaled &&
         GStorage.getSetting(SettingsKeys.downloadDanmaku)) {
       _fetchAndCacheDanmakuAsync(record.bangumiId, episodeNumber,
           episode.downloadDirectory, episode.episodeName);

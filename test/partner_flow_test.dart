@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
@@ -55,6 +56,7 @@ import 'package:kazumi/services/library/host_router.dart';
 import 'package:kazumi/services/library/library_api.dart';
 import 'package:kazumi/services/library/library_controller.dart';
 import 'package:kazumi/services/library/library_invite.dart';
+import 'package:kazumi/services/platform/tray_service.dart';
 import 'package:kazumi/services/player/syncplay_endpoint.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/shaders/shader_asset_service.dart';
@@ -1285,6 +1287,101 @@ void main() {
       expect(repository.puts, 0);
     });
   });
+
+  // Since the upstream merge after 2.4.2, every finished download fetches
+  // DanDanPlay danmaku into danmaku.json. A library episode arrives with the
+  // danmaku the PC shipped in that same file.
+  group('her library download finishing', () {
+    late Directory downloads;
+    late List<Uri> requested;
+    setUp(() async {
+      downloads = await Directory.systemTemp.createTemp(
+        'kazumi_partner_danmaku_',
+      );
+      requested = [];
+      DioFactory.apiDio.httpClientAdapter = _DanDanAdapter(requested);
+    });
+    tearDown(() async {
+      DioFactory.reset();
+      await downloads.delete(recursive: true);
+    });
+
+    test('keeps the library danmaku and asks DanDanPlay nothing', () async {
+      final (record, episode) = LibraryEpisode.fromJson(
+        _episodeJson(),
+      ).manifest.toDownloadEntities();
+      final dir = p.join(downloads.path, '${bangumiId}_aafun', '2');
+      final danmaku = File(p.join(dir, 'danmaku.json'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('from the library');
+      episode
+        ..status = DownloadStatus.downloading
+        ..downloadDirectory = dir;
+      record.episodes[episode.episodeNumber] = episode;
+      final manager = _ProgressManager();
+      await DownloadController(
+        _EpisodesRepository([record]),
+        manager,
+        PluginsController(),
+      ).init();
+
+      episode.status = DownloadStatus.completed;
+      manager.onProgress!(record.key, episode.episodeNumber, episode, 0);
+      // The danmaku fetch is fire and forget.
+      await Future.delayed(const Duration(milliseconds: 300));
+      expect(requested, isEmpty);
+      expect(danmaku.readAsStringSync(), 'from the library');
+    });
+  });
+
+  // Her phone never reaches the tray: it sits behind isDesktop() and Windows
+  // window events. The merge moved the PC's tray icon handling into
+  // TrayService, which her app now imports.
+  group('the PC tray', () {
+    const channel = MethodChannel('tray_manager');
+    final calls = <String>[];
+    setUp(() {
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call.method);
+            return null;
+          });
+    });
+    tearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    test(
+      'shows the icon only while the window is hidden, and quitting removes it',
+      () async {
+        await TrayService.initialize();
+        expect(calls, ['setToolTip', 'setContextMenu']);
+
+        calls.clear();
+        await TrayService.setWindowsIconVisible(true);
+        await TrayService.setWindowsIconVisible(true);
+        expect(calls, ['setIcon']);
+
+        calls.clear();
+        await TrayService.setWindowsIconVisible(false);
+        expect(calls, ['destroy']);
+
+        // The plugin's destroy assumes an icon, so quitting with the window
+        // showing leaves the tray alone.
+        calls.clear();
+        await TrayService.dispose();
+        expect(calls, isEmpty);
+
+        await TrayService.setWindowsIconVisible(true);
+        calls.clear();
+        await TrayService.dispose();
+        expect(calls, ['destroy']);
+      },
+      skip: !Platform.isWindows,
+    );
+  });
 }
 
 Map<String, dynamic> _episodeJson() => {
@@ -1445,6 +1542,59 @@ class _RecordsRepository implements IDownloadRepository {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _EpisodesRepository extends _RecordsRepository {
+  _EpisodesRepository(super.records);
+
+  @override
+  Future<void> updateEpisode(
+    String recordKey,
+    int episodeNumber,
+    DownloadEpisode episode,
+  ) async {}
+}
+
+class _ProgressManager implements IDownloadManager {
+  @override
+  void Function(String, int, DownloadEpisode, double)? onProgress;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Answers every DanDanPlay call as if it had danmaku for the episode.
+class _DanDanAdapter implements HttpClientAdapter {
+  _DanDanAdapter(this.urls);
+
+  final List<Uri> urls;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    urls.add(options.uri);
+    return ResponseBody.fromString(
+      jsonEncode({
+        'errorCode': 0,
+        'success': true,
+        'errorMessage': '',
+        'bangumi': {'animeId': 4242, 'episodes': []},
+        'comments': [
+          {'cid': 1, 'p': '1.00,1,16777215,0', 'm': 'DanDanPlay'},
+        ],
+      }),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _FakeDownloadManager implements IDownloadManager {
