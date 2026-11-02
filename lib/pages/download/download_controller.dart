@@ -157,8 +157,8 @@ abstract class _DownloadController with Store {
     // 下载目录在实际开始下载时才创建，排队或暂停后恢复的剧集统一在完成时缓存弹幕
     if (episode.status == DownloadStatus.completed &&
         GStorage.getSetting(SettingsKeys.downloadDanmaku)) {
-      _fetchAndCacheDanmakuAsync(
-          record.bangumiId, episodeNumber, episode.downloadDirectory);
+      _fetchAndCacheDanmakuAsync(record.bangumiId, episodeNumber,
+          episode.downloadDirectory, episode.episodeName);
     }
 
     final key = '${recordKey}_$episodeNumber';
@@ -751,8 +751,8 @@ abstract class _DownloadController with Store {
     _resolverPool.cancelAll();
   }
 
-  void _fetchAndCacheDanmakuAsync(
-      int bangumiId, int episodeNumber, String downloadDirectory) {
+  void _fetchAndCacheDanmakuAsync(int bangumiId, int episodeNumber,
+      String downloadDirectory, String episodeName) {
     Future(() async {
       try {
         KazumiLogger().i(
@@ -763,13 +763,8 @@ abstract class _DownloadController with Store {
         final List<DanmakuEntry> danmakus;
         var danDanEpisodeID = 0;
         if (binding != null) {
-          final title = _repository
-                  .getRecord(recordKey)
-                  ?.episodes[episodeNumber]
-                  ?.episodeName ??
-              '';
           final episodeId = binding
-              .episodeIdFor(danmakuBindingEpisode(title, episodeNumber));
+              .episodeIdFor(danmakuBindingEpisode(episodeName, episodeNumber));
           if (episodeId == null) return;
           danDanBangumiID = binding.animeId;
           danDanEpisodeID = episodeId;
