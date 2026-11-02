@@ -19,6 +19,7 @@ import 'package:kazumi/services/plugin/official_rules_sync.dart';
 import 'package:kazumi/services/download/background_download_service.dart';
 import 'package:kazumi/services/platform/windows_shortcut.dart';
 import 'package:kazumi/services/platform/platform_environment_service.dart';
+import 'package:kazumi/services/platform/app_exit.dart';
 import 'package:kazumi/services/update/startup_update_check.dart';
 import 'package:kazumi/navigation.dart';
 import 'package:kazumi/services/library/library_controller.dart';
@@ -264,9 +265,7 @@ class _InitPageState extends State<InitPage> {
                   '检测到您当前运行在X11环境下，Kazumi在X11环境下可能出现性能问题或界面异常，建议切换到Wayland以获得更好的体验。您是否希望在X11下继续使用Kazumi？'),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    exit(0);
-                  },
+                  onPressed: AppExit.quit,
                   child: Text(
                     '退出',
                     style:

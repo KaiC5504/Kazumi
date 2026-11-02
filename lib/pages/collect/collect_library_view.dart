@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -74,7 +75,6 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   // so the header also follows its first layout.
   final _scrollMetrics = ValueNotifier(0);
   PageStorageBucket _resultsStorage = PageStorageBucket();
-  CollectType? _selectedType = CollectType.watching;
   CollectSort _sort = CollectSort.recentlyChanged;
   String _query = '';
   bool _searchExpanded = false;
@@ -84,6 +84,16 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   static const _titleBarHeight = 72.0;
   // Lines the pinned tabs up with the side rail's search button.
   static const _pinnedTabsMargin = 10.0;
+
+  // The tapped tab while a tap animates, otherwise the dominant page so swipes
+  // update mid-gesture. Tab switches rebuild nothing but its listeners.
+  final _selectedType = ValueNotifier<CollectType?>(CollectType.watching);
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedType.addListener(_libraryFocus.requestFocus);
+  }
 
   @override
   void didChangeDependencies() {
@@ -96,10 +106,21 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     _disableAnimations = disableAnimations;
     _tabController = TabController(
       length: _collectCategories.length,
-      initialIndex: _collectCategories.indexOf(_selectedType),
+      initialIndex: _collectCategories.indexOf(_selectedType.value),
       animationDuration: disableAnimations ? Duration.zero : null,
       vsync: this,
-    )..addListener(_onCategoryChanged);
+    )
+      ..addListener(_syncSelectedType)
+      ..animation!.addListener(_syncSelectedType);
+  }
+
+  void _syncSelectedType() {
+    final index = _tabController.indexIsChanging
+        ? _tabController.index
+        : _tabController.animation!.value
+            .round()
+            .clamp(0, _collectCategories.length - 1);
+    _selectedType.value = _collectCategories[index];
   }
 
   @override
@@ -114,6 +135,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   @override
   void dispose() {
     _tabController.dispose();
+    _selectedType.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
     _libraryFocus.dispose();
@@ -133,7 +155,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   }
 
   void _focusSearch() {
-    final controller = _scrollControllers[_selectedType]!;
+    final controller = _scrollControllers[_selectedType.value]!;
     if (controller.hasClients) controller.jumpTo(0);
     setState(() => _searchExpanded = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -156,13 +178,6 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       _query = value;
       _resetResults();
     });
-  }
-
-  void _onCategoryChanged() {
-    final type = _collectCategories[_tabController.index];
-    if (type == _selectedType) return;
-    _libraryFocus.requestFocus();
-    setState(() => _selectedType = type);
   }
 
   @override
@@ -203,6 +218,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   Widget _categories(CollectLibraryQuery query) => _CollectCategories(
         key: _categoriesKey,
         controller: _tabController,
+        selected: _selectedType,
         count: query.count,
       );
 
@@ -232,12 +248,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
         children: [
           title,
           const SizedBox(width: 8),
-          Text(
-            '${query.count(_selectedType)} 部',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+          _countLabel(query),
         ],
       ),
       actions: [
@@ -303,13 +314,21 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
                   controller: _tabController,
                   children: [
                     for (final type in _collectCategories)
-                      HeroMode(
-                        enabled: type == _selectedType,
+                      ValueListenableBuilder(
+                        valueListenable: _selectedType,
+                        builder: (context, selected, child) => HeroMode(
+                          enabled: type == selected,
+                          child: child!,
+                        ),
                         child: _results(query, type, inset: inset, top: top),
                       ),
                   ],
                 )
-              : _results(query, _selectedType, inset: inset, top: top),
+              : ValueListenableBuilder(
+                  valueListenable: _selectedType,
+                  builder: (context, selected, _) =>
+                      _results(query, selected, inset: inset, top: top),
+                ),
         ),
         Positioned(
           top: statusBar,
@@ -317,8 +336,11 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
           right: 0,
           child: ClipRect(
             child: ListenableBuilder(
-              listenable: Listenable.merge(
-                  [_scrollControllers[_selectedType]!, _scrollMetrics]),
+              listenable: Listenable.merge([
+                _selectedType,
+                ..._scrollControllers.values,
+                _scrollMetrics,
+              ]),
               builder: (context, child) => Transform.translate(
                 offset: Offset(0, -_titleBarCollapse()),
                 child: child,
@@ -346,7 +368,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   }
 
   double _titleBarCollapse() {
-    final positions = _scrollControllers[_selectedType]!.positions;
+    final positions = _scrollControllers[_selectedType.value]!.positions;
     if (positions.isEmpty || !positions.first.hasPixels) return 0;
     // Without a status bar above them the pinned tabs would touch the window
     // edge; keep the empty bottom strip of the title bar as a margin.
@@ -354,6 +376,18 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
         MediaQuery.paddingOf(context).top > 0 ? 0.0 : _pinnedTabsMargin;
     return positions.first.pixels.clamp(0.0, _titleBarHeight - margin);
   }
+
+  Widget _countLabel(CollectLibraryQuery query) => ValueListenableBuilder(
+        valueListenable: _selectedType,
+        builder: (context, selected, _) => Text(
+          '${query.count(selected)} 部',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      );
 
   Widget _searchBar() => Semantics(
         label: '搜索收藏',
@@ -390,7 +424,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       final contentWidth = constraints.maxWidth - inset * 2;
       return NotificationListener<ScrollMetricsNotification>(
         onNotification: (notification) {
-          if (notification.depth == 0 && type == _selectedType) {
+          if (notification.depth == 0 && type == _selectedType.value) {
             _scrollMetrics.value++;
           }
           return false;

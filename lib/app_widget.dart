@@ -13,6 +13,8 @@ import 'package:kazumi/pages/collect/collect_controller.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/metered_network_service.dart';
+import 'package:kazumi/services/platform/app_exit.dart';
+import 'package:kazumi/services/platform/tray_service.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/bean/dialog/exit_confirmation_dialog.dart';
@@ -48,7 +50,7 @@ class _AppWidgetState extends State<AppWidget>
   Future<void> _initializePlatformIntegrations() async {
     if (isDesktop()) {
       await windowManager.setPreventClose(true);
-      await _handleTray();
+      await TrayService.initialize();
     }
     await _configurePreferredDisplayMode();
   }
@@ -188,7 +190,7 @@ class _AppWidgetState extends State<AppWidget>
       case 'show_window':
         windowManager.show();
       case 'exit':
-        inject<LibraryController>().sayGoodbye().whenComplete(() => exit(0));
+        inject<LibraryController>().sayGoodbye().whenComplete(AppExit.quit);
     }
   }
 
@@ -225,7 +227,7 @@ class _AppWidgetState extends State<AppWidget>
       switch (action) {
         case ExitDialogAction.exit:
           await inject<LibraryController>().sayGoodbye();
-          exit(0);
+          await AppExit.quit();
         case ExitDialogAction.minimizeToTray:
           await windowManager.hide();
       }
@@ -267,55 +269,14 @@ class _AppWidgetState extends State<AppWidget>
     _syncWindowsTitleBarBrightness(themeProvider);
   }
 
-  // On Windows the tray icon only exists while the window is hidden, so the app
-  // sits in either the taskbar or the tray, never both.
   @override
   void onWindowEvent(String eventName) {
     if (!Platform.isWindows) return;
     if (eventName == 'hide') {
-      _setTrayIconVisible(true);
+      TrayService.setWindowsIconVisible(true);
     } else if (eventName == 'show') {
-      _setTrayIconVisible(false);
+      TrayService.setWindowsIconVisible(false);
     }
-  }
-
-  bool _trayIconVisible = false;
-  Future<void> _trayIconUpdate = Future.value();
-
-  void _setTrayIconVisible(bool visible) {
-    _trayIconUpdate = _trayIconUpdate.then((_) async {
-      if (_trayIconVisible == visible) return;
-      _trayIconVisible = visible;
-      if (visible) {
-        await trayManager.setIcon('assets/images/logo/logo_lanczos.ico');
-      } else {
-        await trayManager.destroy();
-      }
-    }).catchError((e) {
-      KazumiLogger().w('Tray: toggle icon failed', error: e);
-    });
-  }
-
-  Future<void> _handleTray() async {
-    if (Platform.isWindows) {
-      // The icon is added on hide; tooltip and menu are kept for when it is.
-    } else if (Platform.environment.containsKey('FLATPAK_ID') ||
-        Platform.environment.containsKey('SNAP')) {
-      await trayManager.setIcon('io.github.Predidit.Kazumi');
-    } else {
-      await trayManager.setIcon('assets/images/logo/logo_rounded.png');
-    }
-
-    if (!Platform.isLinux) {
-      await trayManager.setToolTip('Kazumi');
-    }
-
-    Menu trayMenu = Menu(items: [
-      MenuItem(key: 'show_window', label: '显示窗口'),
-      MenuItem.separator(),
-      MenuItem(key: 'exit', label: '退出 Kazumi')
-    ]);
-    await trayManager.setContextMenu(trayMenu);
   }
 
   @override

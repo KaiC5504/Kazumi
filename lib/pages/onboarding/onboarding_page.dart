@@ -11,6 +11,7 @@ import 'package:kazumi/pages/onboarding/steps/layout_style_step.dart';
 import 'package:kazumi/pages/onboarding/steps/mirror_settings_step.dart';
 import 'package:kazumi/pages/onboarding/steps/update_source_step.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
+import 'package:kazumi/services/platform/app_exit.dart';
 import 'package:kazumi/services/plugin/official_rules_sync.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/update/startup_update_check.dart';
@@ -144,9 +145,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
           minimumSize: const Size(88, 56),
           foregroundColor: theme.colorScheme.onSurfaceVariant,
         ),
-        onPressed: _currentIndex == 0
-            ? () => exit(0)
-            : () => _navigate(forward: false),
+        onPressed:
+            _currentIndex == 0 ? AppExit.quit : () => _navigate(forward: false),
         child: Text(_currentIndex == 0 ? '退出' : '上一步'),
       );
       final primary = FilledButton.icon(
