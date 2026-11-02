@@ -84,13 +84,18 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('看到 第3集'), findsOneWidget);
 
-        await tester.tap(
-          find
-              .byWidgetPredicate(
-                (w) => w is Tooltip && (w.message?.contains('《条目 1》') ?? false),
-              )
-              .first,
-        );
+        if (classic) {
+          await tester.longPress(find.text('条目 1'));
+        } else {
+          await tester.tap(
+            find
+                .byWidgetPredicate(
+                  (w) =>
+                      w is Tooltip && (w.message?.contains('《条目 1》') ?? false),
+                )
+                .first,
+          );
+        }
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(MenuItemButton, '看过'));
         await tester.pumpAndSettle();
