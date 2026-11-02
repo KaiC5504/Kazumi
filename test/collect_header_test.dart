@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -198,14 +199,30 @@ void main() {
       });
     }
 
-    testWidgets('each poster keeps its status menu', (tester) async {
+    testWidgets(
+      'a long press opens the status menu, nothing covers the poster',
+      (tester) async {
+        await pumpLibrary(
+          tester,
+          size: const Size(390, 844),
+          layout: CollectLayout.cards,
+          classic: true,
+        );
+        expect(find.byTooltip('管理《条目 1》 · 在看'), findsNothing);
+        await tester.longPress(find.text('条目 1'));
+        await tester.pumpAndSettle();
+        expect(find.text('取消收藏'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a right click opens the status menu too', (tester) async {
       await pumpLibrary(
         tester,
-        size: const Size(390, 844),
+        size: const Size(1280, 800),
         layout: CollectLayout.cards,
         classic: true,
       );
-      await tester.tap(find.byTooltip('管理《条目 1》 · 在看'));
+      await tester.tap(find.text('条目 1'), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
       expect(find.text('取消收藏'), findsOneWidget);
     });

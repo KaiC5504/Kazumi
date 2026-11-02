@@ -19,7 +19,8 @@ class _CollectPosterCard extends StatelessWidget {
   final VoidCallback onOpen;
   final ValueChanged<CollectType>? onChangeType;
 
-  /// 经典布局: cover and title only, the status menu on the cover.
+  /// 经典布局: cover and title only; long press or right click for the status
+  /// menu, so nothing covers the poster.
   final bool classic;
 
   static double classicExtent(double width, TextScaler scaler) =>
@@ -97,70 +98,65 @@ class _CollectPosterCard extends StatelessWidget {
     ].join('，');
 
     if (classic) {
-      return Material(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: Semantics(
-          button: true,
-          label: semanticsLabel,
-          child: InkWell(
-            onTap: onOpen,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AspectRatio(
-                  aspectRatio: _coverRatio,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ExcludeSemantics(child: _CollectCover(item: item)),
-                      if (watchProgress != null)
-                        PositionedDirectional(
-                          start: 6,
-                          end: 6,
-                          bottom: 6,
-                          child: ExcludeSemantics(
-                            child: Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: _CollectProgressBadge(
-                                label: watchProgress!,
-                                compact: true,
+      return _CollectEntryMenu(
+        entry: entry,
+        onChanged: onChangeType,
+        card: Material(
+          color: colors.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: Semantics(
+            button: true,
+            label: semanticsLabel,
+            child: InkWell(
+              onTap: onOpen,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AspectRatio(
+                    aspectRatio: _coverRatio,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ExcludeSemantics(child: _CollectCover(item: item)),
+                        if (watchProgress != null)
+                          PositionedDirectional(
+                            start: 6,
+                            end: 6,
+                            bottom: 6,
+                            child: ExcludeSemantics(
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: _CollectProgressBadge(
+                                  label: watchProgress!,
+                                  compact: true,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      PositionedDirectional(
-                        top: 4,
-                        end: 4,
-                        child: _CollectEntryMenu(
-                          entry: entry,
-                          onChanged: onChangeType,
-                          overlay: true,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                  child: ExcludeSemantics(
-                    child: SizedBox(
-                      height: _titleHeight(scaler, compact: true),
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontSize: 13,
-                          height: 1.35,
-                          fontWeight: FontWeight.w600,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    child: ExcludeSemantics(
+                      child: SizedBox(
+                        height: _titleHeight(scaler, compact: true),
+                        child: Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: 13,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -525,14 +521,15 @@ class _CollectEntryMenu extends StatelessWidget {
     required this.entry,
     required this.onChanged,
     this.showStatusLabel = false,
-    this.overlay = false,
+    this.card,
   });
   final CollectedBangumi entry;
   final ValueChanged<CollectType>? onChanged;
   final bool showStatusLabel;
 
-  /// A small button that sits on a cover.
-  final bool overlay;
+  /// Opens the menu where [card] is long pressed or right clicked, in place
+  /// of a button.
+  final Widget? card;
 
   @override
   Widget build(BuildContext context) {
@@ -565,6 +562,23 @@ class _CollectEntryMenu extends StatelessWidget {
         ),
       ],
       builder: (context, toggle) {
+        final card = this.card;
+        if (card != null) {
+          // The anchor's own context sits above its MenuController.
+          return Builder(builder: (context) {
+            void openAt(Offset position) =>
+                MenuController.maybeOf(context)?.open(position: position);
+            return GestureDetector(
+              onLongPressStart: toggle == null
+                  ? null
+                  : (details) => openAt(details.localPosition),
+              onSecondaryTapUp: toggle == null
+                  ? null
+                  : (details) => openAt(details.localPosition),
+              child: card,
+            );
+          });
+        }
         return showStatusLabel
             ? Tooltip(
                 message: '调整《$title》的观看状态',
@@ -580,22 +594,6 @@ class _CollectEntryMenu extends StatelessWidget {
                   icon: const Icon(Icons.expand_more_rounded, size: 18),
                   label: Text(type.label),
                 ),
-              )
-            : overlay
-            ? IconButton.filledTonal(
-                tooltip: '管理《$title》 · ${type.label}',
-                onPressed: toggle,
-                style: IconButton.styleFrom(
-                  backgroundColor:
-                      colors.surfaceContainerHigh.withValues(alpha: 0.85),
-                  foregroundColor: colors.onSurface,
-                  minimumSize: const Size(32, 32),
-                  fixedSize: const Size(32, 32),
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.padded,
-                ),
-                icon: const Icon(Icons.more_horiz_rounded, size: 18),
               )
             : IconButton(
                 tooltip: '管理《$title》 · ${type.label}',
