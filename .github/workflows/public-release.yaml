@@ -295,11 +295,13 @@ jobs:
 
           app=lib/app_widget.dart
           sed -i "s/title: \"Kazumi\",/title: \"$APP_NAME\",/" "$app"
-          sed -i "s/setToolTip('Kazumi')/setToolTip('$APP_NAME')/" "$app"
-          sed -i "s/'退出 Kazumi'/'退出 $APP_NAME'/" "$app"
           expect "$app" "title: \"$APP_NAME\","
-          expect "$app" "setToolTip('$APP_NAME')"
-          expect "$app" "'退出 $APP_NAME'"
+
+          tray=lib/services/platform/tray_service.dart
+          sed -i "s/setToolTip('Kazumi')/setToolTip('$APP_NAME')/" "$tray"
+          sed -i "s/'退出 Kazumi'/'退出 $APP_NAME'/" "$tray"
+          expect "$tray" "setToolTip('$APP_NAME')"
+          expect "$tray" "'退出 $APP_NAME'"
 
       - run: git config --system core.longpaths true
 
