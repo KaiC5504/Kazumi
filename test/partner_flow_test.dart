@@ -657,23 +657,38 @@ void main() {
     tearDown(DioFactory.reset);
 
     test('the rule catalog is fetched from the HK mirror', () async {
-      await PluginCatalogApi.getPluginList();
+      await PluginCatalogApi.getPluginList('');
       expect(requested.single.toString(), '$hkSite/rules/index.json');
     });
 
     test('each rule file is fetched from the HK mirror too', () async {
       try {
-        await PluginCatalogApi.getPlugin('AGE');
+        await PluginCatalogApi.getPlugin('', 'AGE');
       } catch (_) {
         // The fake answers with an empty list, not a rule; only the URL matters.
       }
       expect(requested.single.toString(), '$hkSite/rules/AGE.json');
     });
 
+    test('her phone never set a rule repository, so the catalog and every '
+        'rule still come from the official one through HK', () async {
+      final controller = PluginsController(
+        pluginJsonWriter: (_) async {},
+        errorReporter: (_, __, ___) {},
+      );
+      expect(controller.ruleRepository, '');
+      await controller.refreshPluginCatalog();
+      await controller.tryUpdatePluginByName('AGE');
+      expect(requested.map((uri) => uri.toString()), [
+        '$hkSite/rules/index.json',
+        '$hkSite/rules/AGE.json',
+      ]);
+    });
+
     test('her phone never picked a rules mirror, so it stays on HK', () async {
       await Hive.box<dynamic>('setting').put('enableGitProxy', true);
       expect(RulesMirror.current, RulesMirror.hk);
-      await PluginCatalogApi.getPluginList();
+      await PluginCatalogApi.getPluginList('');
       expect(requested.single.toString(), '$hkSite/rules/index.json');
     });
 
@@ -703,14 +718,14 @@ void main() {
       expect(find.text('香港镜像'), findsOneWidget);
 
       await pickRulesMirror(tester, 'ghfast');
-      await tester.runAsync(PluginCatalogApi.getPluginList);
+      await tester.runAsync(() => PluginCatalogApi.getPluginList(''));
       expect(
         requested.last.toString(),
         'https://ghfast.top/${ApiEndpoints.pluginShop}index.json',
       );
 
       await pickRulesMirror(tester, '香港镜像');
-      await tester.runAsync(PluginCatalogApi.getPluginList);
+      await tester.runAsync(() => PluginCatalogApi.getPluginList(''));
       expect(requested.last.toString(), '$hkSite/rules/index.json');
       // Hive.close in tearDownAll waits on writes started under fake time.
       await tester.runAsync(() => Hive.box<dynamic>('setting').flush());

@@ -29,10 +29,10 @@ void main() {
     ..version = version;
 
   PluginsController controller() => PluginsController(
-    catalogLoader: () async => [
+    catalogLoader: (_) async => [
       for (final entry in catalog.entries) item(entry.key, entry.value),
     ],
-    pluginLoader: (name) async {
+    pluginLoader: (_, name) async {
       if (failing.contains(name)) throw const SocketException('offline');
       return plugin(name, catalog[name]!);
     },
