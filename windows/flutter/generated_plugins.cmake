@@ -10,10 +10,10 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   flutter_timezone
   flutter_volume_controller
-  media_kit_video
   screen_retriever_windows
   tray_manager
   url_launcher_windows
+  media_kit_video
   webview_windows
   window_manager
 )

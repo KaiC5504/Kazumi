@@ -9,10 +9,10 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_linux
   flutter_timezone
   flutter_volume_controller
-  media_kit_video
   screen_retriever_linux
   tray_manager
   url_launcher_linux
+  media_kit_video
   window_manager
 )
 
