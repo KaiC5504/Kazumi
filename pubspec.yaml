@@ -1,11 +1,11 @@
 name: kazumi
 description: "A new Flutter project."
 publish_to: "none"
-version: 2.4.3+20403
+version: 2.4.7+20407
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
-  flutter: 3.50.0
+  flutter: ">=3.50.1"
 
 dependencies:
   flutter:
@@ -27,7 +27,7 @@ dependencies:
   hive_ce_flutter: ^2.3.3
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
-  ech_http: ^0.2.3
+  ech_http: ^0.2.4
   http: ^1.6.0
   image: ^4.8.0
   file_picker: ^10.3.7
@@ -37,7 +37,7 @@ dependencies:
   audio_service_mpris:
     git:
       url: https://github.com/Predidit/audio-service-mpris.git
-      ref: d30b53fb7dbdd8f10ceda7447fe0a0218711a220
+      ref: 5c8de436994fab2ab4326bc2bbefca7c660b95aa
   audio_service_win:
     git:
       url: https://github.com/Predidit/audio_service_win.git
@@ -91,16 +91,16 @@ dependencies:
   desktop_webview_window:
     git:
       url: https://github.com/Predidit/linux_webview_window.git
-      ref: b429f8ba6b8a99cd0f7eb5fe8d1621f325635c3d
+      ref: 8b0d1a625795f2ec679f844349e11f77249f41b0
   media_kit:
     git:
       url: https://github.com/Predidit/media-kit.git
-      ref: 83b7ca63772856e1ea0158916177e136f7b7b0be
+      ref: 484639aca5ffc754a65876c22f01dbb070225732
       path: ./media_kit
   media_kit_video:
     git:
       url: https://github.com/Predidit/media-kit.git
-      ref: 83b7ca63772856e1ea0158916177e136f7b7b0be
+      ref: 484639aca5ffc754a65876c22f01dbb070225732
       path: ./media_kit_video
   macos_secure_bookmarks: ^0.2.1
   flutter_local_notifications: ^22.3.1

@@ -101,11 +101,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: d30b53fb7dbdd8f10ceda7447fe0a0218711a220
-      resolved-ref: d30b53fb7dbdd8f10ceda7447fe0a0218711a220
+      ref: "5c8de436994fab2ab4326bc2bbefca7c660b95aa"
+      resolved-ref: "5c8de436994fab2ab4326bc2bbefca7c660b95aa"
       url: "https://github.com/Predidit/audio-service-mpris.git"
     source: git
-    version: "1.0.0-beta.1"
+    version: "1.0.0-beta.3"
   audio_service_platform_interface:
     dependency: transitive
     description:
@@ -367,16 +367,16 @@ packages:
     dependency: transitive
     description:
       name: dbus
-      sha256: d0c98dcd4f5169878b6cf8f6e0a52403a9dff371a3e2f019697accbf6f44a270
+      sha256: a48d5da28e89bd02196e80d81ed8d7954923d00a0f4a68cc20b575038f023383
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.12"
+    version: "0.7.15"
   desktop_webview_window:
     dependency: "direct main"
     description:
       path: "."
-      ref: b429f8ba6b8a99cd0f7eb5fe8d1621f325635c3d
-      resolved-ref: b429f8ba6b8a99cd0f7eb5fe8d1621f325635c3d
+      ref: "8b0d1a625795f2ec679f844349e11f77249f41b0"
+      resolved-ref: "8b0d1a625795f2ec679f844349e11f77249f41b0"
       url: "https://github.com/Predidit/linux_webview_window.git"
     source: git
     version: "0.2.4"
@@ -416,10 +416,10 @@ packages:
     dependency: "direct main"
     description:
       name: ech_http
-      sha256: "7b179bbb0cba2f517d5f8fc526e6bb98d96530e6d7a75f7057fce74652967643"
+      sha256: "5f6cb0e9bbad24ed2b2a62ac5db40307b1f603464d6ee35d0a4a59a5f6494d63"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.3"
+    version: "0.2.4"
   equatable:
     dependency: transitive
     description:
@@ -1060,8 +1060,8 @@ packages:
     dependency: "direct main"
     description:
       path: media_kit
-      ref: "83b7ca63772856e1ea0158916177e136f7b7b0be"
-      resolved-ref: "83b7ca63772856e1ea0158916177e136f7b7b0be"
+      ref: "484639aca5ffc754a65876c22f01dbb070225732"
+      resolved-ref: "484639aca5ffc754a65876c22f01dbb070225732"
       url: "https://github.com/Predidit/media-kit.git"
     source: git
     version: "1.1.11"
@@ -1069,8 +1069,8 @@ packages:
     dependency: "direct main"
     description:
       path: media_kit_video
-      ref: "83b7ca63772856e1ea0158916177e136f7b7b0be"
-      resolved-ref: "83b7ca63772856e1ea0158916177e136f7b7b0be"
+      ref: "484639aca5ffc754a65876c22f01dbb070225732"
+      resolved-ref: "484639aca5ffc754a65876c22f01dbb070225732"
       url: "https://github.com/Predidit/media-kit.git"
     source: git
     version: "1.2.5"
@@ -2002,4 +2002,4 @@ packages:
     version: "2.1.0"
 sdks:
   dart: ">=3.13.0-0 <4.0.0"
-  flutter: "3.50.0"
+  flutter: ">=3.50.1"

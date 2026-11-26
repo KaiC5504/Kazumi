@@ -54,6 +54,7 @@ Widget _host({double textScale = 1, String episode = '第1话', String? title}) 
             onDelete: () async {},
             collectType: CollectType.none,
             onChangeCollect: null,
+            borderRadius: const BorderRadius.all(Radius.circular(24)),
           ),
         ),
       ),

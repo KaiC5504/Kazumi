@@ -29,11 +29,11 @@ class _CollectCategories extends StatelessWidget {
       indicatorSize: TabBarIndicatorSize.tab,
       indicatorPadding: const EdgeInsets.symmetric(horizontal: 2),
       indicator: BoxDecoration(
-        color: colors.primaryContainer,
+        color: colors.primary,
         borderRadius: BorderRadius.circular(24),
       ),
       indicatorAnimation: TabIndicatorAnimation.elastic,
-      labelColor: colors.onPrimaryContainer,
+      labelColor: colors.onPrimary,
       unselectedLabelColor: colors.onSurfaceVariant,
       labelStyle: labelStyle,
       unselectedLabelStyle: labelStyle,

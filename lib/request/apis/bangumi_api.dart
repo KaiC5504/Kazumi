@@ -527,8 +527,7 @@ class BangumiApi {
     try {
       final jsonData = await _client.get(
         ApiEndpoints.formatUrl(
-            ApiEndpoints.bangumiAuthAPIMirrorDomain +
-                ApiEndpoints.bangumiUsernameByToken,
+            ApiEndpoints.bangumiAPIDomain + ApiEndpoints.bangumiUsernameByToken,
             []),
         requiresAuth: true,
         accessToken: accessToken,
@@ -567,7 +566,7 @@ class BangumiApi {
       Future<Map> fetchPageData(int offset, int pageLimit) async {
         await rateLimiter.acquire();
         final url = ApiEndpoints.formatUrl(
-            ApiEndpoints.bangumiAuthAPIMirrorDomain +
+            ApiEndpoints.bangumiAPIDomain +
                 ApiEndpoints.bangumiGetAllCollections,
             [username, pageLimit, offset]);
         final jsonData = await _client.get(
@@ -710,7 +709,7 @@ class BangumiApi {
     try {
       await _client.put(
         ApiEndpoints.formatUrl(
-            ApiEndpoints.bangumiAuthAPIMirrorDomain +
+            ApiEndpoints.bangumiAPIDomain +
                 ApiEndpoints.bangumiEpisodeCollection,
             [episodeId]),
         data: {'type': 2},
@@ -730,8 +729,7 @@ class BangumiApi {
     try {
       await _client.post(
         ApiEndpoints.formatUrl(
-            ApiEndpoints.bangumiAuthAPIMirrorDomain +
-                ApiEndpoints.bangumiSetCollection,
+            ApiEndpoints.bangumiAPIDomain + ApiEndpoints.bangumiSetCollection,
             [id]),
         data: data,
         requiresAuth: true,
